@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Add questions · Quizzy{% endblock %}
+{% block content %}
+  <section class="mb-8">
+    <p class="eyebrow">Quiz setup</p>
+    <h1 class="font-serif text-5xl leading-tight">{{ quiz.title }}</h1>
+    <p class="mt-3 max-w-2xl text-stone-600">{{ quiz.description }}</p>
+  </section>
+  {% include "quizzes/_question_workspace.html" %}
+{% endblock %}
+

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ quiz.title }} · Quizzy{% endblock %}
+{% block content %}
+  <section class="mb-8 grid gap-6 lg:grid-cols-[1fr_0.7fr] lg:items-start">
+    <div>
+      <p class="eyebrow">{{ quiz.topic or "general" }}</p>
+      <h1 class="font-serif text-5xl leading-tight sm:text-6xl">{{ quiz.title }}</h1>
+      <p class="mt-4 max-w-3xl text-lg leading-8 text-stone-600">{{ quiz.description }}</p>
+      <div class="mt-5 flex flex-wrap gap-2">
+        {% set badge_id = "status-badge" %}
+        {% include "quizzes/_status_badge.html" %}
+        <span class="meta-chip">{{ quiz.difficulty.value }}</span>
+        <span class="meta-chip">{{ quiz.questions|length }} questions</span>
+      </div>
+    </div>
+    <div class="panel">
+      <p class="eyebrow">Actions</p>
+      <div class="mt-4 grid gap-3">
+        <a class="btn-primary text-center" href="/quizzes/{{ quiz.id }}/take">Start quiz</a>
+        <a class="btn-secondary text-center" href="/quizzes/{{ quiz.id }}/questions/new">Add questions</a>
+        {% if quiz.status.value == "draft" %}
+          <button
+            class="btn-secondary"
+            hx-post="/quizzes/{{ quiz.id }}/publish"
+            hx-target="#status-badge"
+            hx-swap="outerHTML"
+          >Publish</button>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="mb-5">
+      <p class="eyebrow">Read-only preview</p>
+      <h2 class="section-title">Questions</h2>
+    </div>
+    {% if quiz.questions %}
+      <ol class="space-y-5">
+        {% for question in quiz.questions %}
+          <li class="question-preview">
+            <p class="text-sm font-bold text-stone-500">Question {{ loop.index }}</p>
+            <p class="mt-1 text-lg font-semibold">{{ question.stem }}</p>
+            <div class="mt-4 grid gap-2 sm:grid-cols-2">
+              {% for choice in question.choices %}
+                <span class="choice-chip {% if choice.is_correct %}choice-chip-correct{% endif %}">{{ choice.text }}</span>
+              {% endfor %}
+            </div>
+            {% if question.explanation %}
+              <p class="mt-4 border-l-4 border-lime-500 pl-3 text-sm text-stone-600">{{ question.explanation }}</p>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <div class="empty-state">This quiz has no questions yet.</div>
+    {% endif %}
+  </section>
+{% endblock %}

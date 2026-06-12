@@ -1,0 +1,34 @@
+<div id="question-workspace" class="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
+  <section class="panel">
+    <div class="mb-5 flex items-center justify-between gap-4">
+      <div>
+        <p class="eyebrow">Question bank</p>
+        <h2 class="section-title">{{ quiz.questions|length }} questions</h2>
+      </div>
+      <a class="btn-secondary" href="/quizzes/{{ quiz.id }}">Preview</a>
+    </div>
+    {% if quiz.questions %}
+      <ol class="space-y-4">
+        {% for question in quiz.questions %}
+          <li class="question-preview">
+            <p class="text-sm font-bold text-stone-500">Question {{ loop.index }}</p>
+            <p class="mt-1 font-semibold">{{ question.stem }}</p>
+            <div class="mt-3 grid gap-2 sm:grid-cols-2">
+              {% for choice in question.choices %}
+                <span class="choice-chip {% if choice.is_correct %}choice-chip-correct{% endif %}">
+                  {{ choice.text }}
+                </span>
+              {% endfor %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <div class="empty-state">No questions yet. Add the first one to make this quiz usable.</div>
+    {% endif %}
+  </section>
+  <section class="panel">
+    {% include "quizzes/_question_form_inner.html" %}
+  </section>
+</div>
+

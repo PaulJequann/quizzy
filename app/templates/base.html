@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Quizzy{% endblock %}</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  </head>
+  <body class="{% block body_class %}min-h-screen bg-[#f7f4ec] text-stone-950{% endblock %}">
+    <div class="shell-grain"></div>
+    {% block site_header %}
+    <header class="border-b border-stone-300/80 bg-[#fffdf7]/85 backdrop-blur">
+      <nav class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+        <a href="/quizzes" class="flex items-center gap-3">
+          <span class="grid size-10 place-items-center rounded-md bg-stone-950 text-lg font-black text-lime-300">Q</span>
+          <span>
+            <span class="block font-serif text-2xl leading-none tracking-normal">Quizzy</span>
+            <span class="block text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">study drills</span>
+          </span>
+        </a>
+        <div class="flex items-center gap-2">
+          <a class="btn-secondary" href="/quizzes">Quizzes</a>
+          <a class="btn-primary" href="/quizzes/new">New quiz</a>
+        </div>
+      </nav>
+    </header>
+    {% endblock %}
+    <main class="{% block main_class %}mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-10{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

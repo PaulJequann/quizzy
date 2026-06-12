@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Quizzes · Quizzy{% endblock %}
+{% block content %}
+  <section class="mb-8 grid gap-6 lg:grid-cols-[1fr_0.65fr] lg:items-end">
+    <div>
+      <p class="eyebrow">Quiz library</p>
+      <h1 class="font-serif text-5xl leading-tight sm:text-6xl">Choose the next drill.</h1>
+      <p class="mt-4 max-w-2xl text-lg text-stone-600">Seeded study sets and manually authored quizzes live here with question counts, topic tags, and publication status.</p>
+    </div>
+    {% set totals = namespace(questions=0) %}
+    {% for quiz in quizzes %}
+      {% set totals.questions = totals.questions + quiz.questions|length %}
+    {% endfor %}
+    <div class="stats-strip">
+      <div><strong>{{ quizzes|length }}</strong><span>quizzes</span></div>
+      <div><strong>{{ totals.questions }}</strong><span>questions</span></div>
+    </div>
+  </section>
+  {% if quizzes %}
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {% for quiz in quizzes %}
+        <article class="quiz-card">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="eyebrow">{{ quiz.topic or "general" }}</p>
+              <h2 class="mt-2 text-2xl font-bold leading-tight">{{ quiz.title }}</h2>
+            </div>
+            {% include "quizzes/_status_badge.html" %}
+          </div>
+          <p class="mt-4 min-h-16 text-sm leading-6 text-stone-600">{{ quiz.description }}</p>
+          <div class="mt-6 flex flex-wrap gap-2">
+            <span class="meta-chip">{{ quiz.questions|length }} questions</span>
+            <span class="meta-chip">{{ quiz.difficulty.value }}</span>
+          </div>
+          <div class="mt-6 flex gap-3">
+            <a class="btn-primary flex-1 text-center" href="/quizzes/{{ quiz.id }}/take">Take</a>
+            <a class="btn-secondary flex-1 text-center" href="/quizzes/{{ quiz.id }}">Preview</a>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      No quizzes yet. Create one manually or run the seed script to load AWS, Linux, and Python drills.
+    </div>
+  {% endif %}
+{% endblock %}

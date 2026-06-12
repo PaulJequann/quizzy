@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}New quiz · Quizzy{% endblock %}
+{% block content %}
+  <div class="max-w-3xl">
+    <p class="eyebrow">Create quiz</p>
+    <h1 class="font-serif text-5xl leading-tight">Start with the shell, fill in the questions next.</h1>
+  </div>
+  <section class="panel mt-8 max-w-3xl">
+    <form class="space-y-5" method="post" action="/quizzes">
+      <label class="field-label">
+        Title
+        <input class="field" name="title" required placeholder="AWS fundamentals checkpoint">
+      </label>
+      <label class="field-label">
+        Description
+        <textarea class="field min-h-28" name="description" placeholder="What this quiz is meant to reinforce"></textarea>
+      </label>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="field-label">
+          Topic / tags
+          <input class="field" name="topic" placeholder="aws, cloud">
+        </label>
+        <label class="field-label">
+          Difficulty
+          <select class="field" name="difficulty">
+            {% for difficulty in difficulties %}
+              <option value="{{ difficulty.value }}">{{ difficulty.value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <button class="btn-primary" type="submit">Create and add questions</button>
+    </form>
+  </section>
+{% endblock %}
+

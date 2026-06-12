@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Results · Quizzy{% endblock %}
+{% block content %}
+  <section class="mb-8 grid gap-6 lg:grid-cols-[0.7fr_1fr] lg:items-end">
+    <div class="score-card">
+      <p class="eyebrow">Result</p>
+      <div class="mt-3 flex items-end gap-3">
+        <span class="font-serif text-7xl leading-none">{{ "%.0f"|format(attempt.score) }}%</span>
+        <span class="mb-2 rounded-md bg-stone-950 px-3 py-1 text-xl font-black text-lime-300">{{ letter_grade }}</span>
+      </div>
+      <p class="mt-4 font-semibold">
+        {{ attempt.correct_count }} / {{ attempt.total_questions }} correct ·
+        {% if passed %}Pass{% else %}Needs review{% endif %}
+      </p>
+    </div>
+    <div>
+      <p class="eyebrow">Review</p>
+      <h1 class="font-serif text-5xl leading-tight">{{ attempt.quiz.title }}</h1>
+      <p class="mt-3 text-stone-600">Compare your selected answers with the correct choices and explanations.</p>
+    </div>
+  </section>
+  <ol class="space-y-5">
+    {% for question in attempt.quiz.questions %}
+      {% set answer = answer_by_question.get(question.id) %}
+      {% set correct_choice = correct_by_question.get(question.id) %}
+      <li class="panel {% if answer and answer.is_correct %}result-correct{% else %}result-incorrect{% endif %}">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p class="text-sm font-bold text-stone-500">Question {{ loop.index }}</p>
+            <h2 class="mt-1 text-xl font-bold">{{ question.stem }}</h2>
+          </div>
+          <span class="{% if answer and answer.is_correct %}badge-correct{% else %}badge-incorrect{% endif %}">
+            {% if answer and answer.is_correct %}Correct{% else %}Incorrect{% endif %}
+          </span>
+        </div>
+        <div class="mt-5 grid gap-3 md:grid-cols-2">
+          <div class="answer-review">
+            <p class="eyebrow">Selected</p>
+            <p>{{ answer.selected_choice.text if answer and answer.selected_choice else "No answer" }}</p>
+          </div>
+          <div class="answer-review">
+            <p class="eyebrow">Correct</p>
+            <p>{{ correct_choice.text if correct_choice else "Missing correct answer" }}</p>
+          </div>
+        </div>
+        {% if question.explanation %}
+          <p class="mt-4 rounded-md bg-stone-100 px-4 py-3 text-sm leading-6 text-stone-700">{{ question.explanation }}</p>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+{% endblock %}
+
