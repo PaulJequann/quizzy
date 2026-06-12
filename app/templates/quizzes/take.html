@@ -1,20 +1,31 @@
 {% extends "base.html" %}
 {% block title %}Take {{ quiz.title }} · Quizzy{% endblock %}
-{% block body_class %}min-h-screen bg-[#080d13] text-stone-950{% endblock %}
+{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]{% endblock %}
 {% block site_header %}{% endblock %}
-{% block main_class %}min-h-screen p-0{% endblock %}
+{% block main_class %}mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 lg:py-12{% endblock %}
 {% block content %}
-  <section class="quiz-runner" data-quiz-flow>
+  <section data-quiz-flow>
     <div class="runner-topbar">
       <div>
         <p class="runner-kicker">{{ quiz.topic or "quiz" }}</p>
         <h1>{{ quiz.title }}</h1>
       </div>
-      <a class="runner-quit" href="/quizzes/{{ quiz.id }}">x Quit</a>
+      <a class="runner-quit" href="/quizzes/{{ quiz.id }}">Quit</a>
     </div>
 
-    <div class="runner-progress" aria-hidden="true">
-      <span data-progress-bar style="width: {{ 100 / quiz.questions|length }}%"></span>
+    <div class="runner-progress">
+      <span class="runner-count"><span data-current-number>1</span> of {{ quiz.questions|length }}</span>
+      {% if quiz.questions|length <= 20 %}
+        <div class="ledger" data-ledger aria-hidden="true">
+          {% for question in quiz.questions %}
+            <span class="ledger-mark"></span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-2)]" aria-hidden="true">
+          <span class="block h-full rounded-full bg-[var(--color-accent)] transition-all duration-150" data-progress-bar style="width: {{ 100 / quiz.questions|length }}%"></span>
+        </div>
+      {% endif %}
     </div>
 
     <form class="runner-form" method="post" action="/quizzes/{{ quiz.id }}/submit">
@@ -26,7 +37,6 @@
           {% if not loop.first %}hidden{% endif %}
         >
           <legend class="sr-only">Question {{ loop.index }} of {{ quiz.questions|length }}</legend>
-          <div class="runner-count">Question <span data-current-number>{{ loop.index }}</span> of {{ quiz.questions|length }}</div>
           <div class="runner-question">
             <p>{{ question.stem }}</p>
           </div>
@@ -34,8 +44,8 @@
             {% for choice in question.choices %}
               <label class="runner-option">
                 <input type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" required>
+                <span class="runner-key" aria-hidden="true">{{ loop.index }}</span>
                 <span class="runner-option-text">{{ choice.text }}</span>
-                <span class="runner-option-mark" aria-hidden="true"></span>
               </label>
             {% endfor %}
           </div>
@@ -58,7 +68,9 @@
       if (!flow) return;
 
       const steps = Array.from(flow.querySelectorAll("[data-question-step]"));
+      const ledgerMarks = Array.from(flow.querySelectorAll("[data-ledger] .ledger-mark"));
       const progressBar = flow.querySelector("[data-progress-bar]");
+      const currentNumber = flow.querySelector("[data-current-number]");
       const backButton = flow.querySelector("[data-back-button]");
       const nextButton = flow.querySelector("[data-next-button]");
       const submitButton = flow.querySelector("[data-submit-button]");
@@ -74,15 +86,43 @@
         const isLast = activeIndex === steps.length - 1;
         const currentStep = steps[activeIndex];
         const hasAnswer = answered(currentStep);
-        progressBar.style.width = `${((activeIndex + 1) / steps.length) * 100}%`;
+        currentNumber.textContent = activeIndex + 1;
+        ledgerMarks.forEach((mark, index) => {
+          mark.classList.toggle("is-answered", answered(steps[index]));
+          mark.classList.toggle("is-current", index === activeIndex);
+        });
+        if (progressBar) {
+          progressBar.style.width = `${((activeIndex + 1) / steps.length) * 100}%`;
+        }
         backButton.disabled = activeIndex === 0;
         nextButton.hidden = isLast;
         submitButton.hidden = !isLast;
         nextButton.disabled = !hasAnswer;
         submitButton.disabled = !hasAnswer;
+        hint.classList.remove("is-flash");
         hint.textContent = hasAnswer
           ? isLast ? "Ready to grade this attempt." : "Answer saved for this question."
           : "Choose an answer to continue.";
+      };
+
+      const advance = () => {
+        if (!answered(steps[activeIndex])) {
+          hint.classList.add("is-flash");
+          steps[activeIndex].querySelector("input[type='radio']").reportValidity();
+          return;
+        }
+        if (activeIndex === steps.length - 1) {
+          submitButton.click();
+          return;
+        }
+        activeIndex += 1;
+        render();
+      };
+
+      const goBack = () => {
+        if (activeIndex === 0) return;
+        activeIndex -= 1;
+        render();
       };
 
       nextButton.addEventListener("click", () => {
@@ -94,13 +134,43 @@
         render();
       });
 
-      backButton.addEventListener("click", () => {
-        activeIndex = Math.max(activeIndex - 1, 0);
-        render();
-      });
+      backButton.addEventListener("click", goBack);
 
       steps.forEach((step) => {
         step.addEventListener("change", render);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.target.matches("input:not([type='radio']), textarea, select, [contenteditable]")) return;
+
+        const key = event.key.toLowerCase();
+        const aliases = { a: 1, b: 2, c: 3, d: 4 };
+        let choiceNumber = null;
+        if (/^[1-9]$/.test(key)) choiceNumber = Number(key);
+        else if (aliases[key]) choiceNumber = aliases[key];
+
+        if (choiceNumber !== null) {
+          const radios = steps[activeIndex].querySelectorAll("input[type='radio']");
+          const radio = radios[choiceNumber - 1];
+          if (radio) {
+            radio.checked = true;
+            render();
+          }
+          event.preventDefault();
+          return;
+        }
+
+        if (event.key === "Enter") {
+          event.preventDefault();
+          advance();
+          return;
+        }
+
+        if (event.key === "Backspace" || event.key === "ArrowLeft") {
+          event.preventDefault();
+          goBack();
+        }
       });
 
       render();

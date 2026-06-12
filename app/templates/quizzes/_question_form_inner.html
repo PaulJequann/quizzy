@@ -1,10 +1,10 @@
 <div class="mb-5">
   <p class="eyebrow">Manual authoring</p>
   <h1 class="section-title">Add a multiple-choice question</h1>
-  <p class="mt-2 text-sm text-stone-600">Four choices, one correct answer, optional explanation and source reference.</p>
+  <p class="mt-2 text-sm text-[var(--color-text-2)]">Four choices, one correct answer, optional explanation and source reference.</p>
 </div>
 {% if error %}
-  <div class="mb-4 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">{{ error }}</div>
+  <div class="mb-4 rounded-lg border border-[var(--color-error)] bg-[var(--color-error-subtle)] px-4 py-3 text-sm font-medium text-[var(--color-error-text)]">{{ error }}</div>
 {% endif %}
 <form
   class="space-y-5"

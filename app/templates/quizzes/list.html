@@ -4,8 +4,8 @@
   <section class="mb-8 grid gap-6 lg:grid-cols-[1fr_0.65fr] lg:items-end">
     <div>
       <p class="eyebrow">Quiz library</p>
-      <h1 class="font-serif text-5xl leading-tight sm:text-6xl">Choose the next drill.</h1>
-      <p class="mt-4 max-w-2xl text-lg text-stone-600">Seeded study sets and manually authored quizzes live here with question counts, topic tags, and publication status.</p>
+      <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">Choose the next drill.</h1>
+      <p class="mt-3 max-w-2xl text-[var(--color-text-2)]">Seeded study sets and manually authored quizzes live here with question counts, topic tags, and publication status.</p>
     </div>
     {% set totals = namespace(questions=0) %}
     {% for quiz in quizzes %}
@@ -23,11 +23,11 @@
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="eyebrow">{{ quiz.topic or "general" }}</p>
-              <h2 class="mt-2 text-2xl font-bold leading-tight">{{ quiz.title }}</h2>
+              <h2 class="font-display mt-2 text-xl leading-tight">{{ quiz.title }}</h2>
             </div>
             {% include "quizzes/_status_badge.html" %}
           </div>
-          <p class="mt-4 min-h-16 text-sm leading-6 text-stone-600">{{ quiz.description }}</p>
+          <p class="mt-4 min-h-16 text-sm leading-6 text-[var(--color-text-2)]">{{ quiz.description }}</p>
           <div class="mt-6 flex flex-wrap gap-2">
             <span class="meta-chip">{{ quiz.questions|length }} questions</span>
             <span class="meta-chip">{{ quiz.difficulty.value }}</span>
