@@ -20,9 +20,7 @@ from app.services.grading_service import (
 )
 from app.services.quiz_service import (
     create_question,
-    create_quiz,
     form_question_create,
-    form_quiz_create,
     get_quiz,
     list_quizzes,
     update_quiz_status,
@@ -58,6 +56,39 @@ def shuffled_quiz_steps(quiz: Quiz) -> list[dict]:
     ]
 
 
+def practice_builder_context(db: Session, *, error: str | None = None) -> dict:
+    subjects = get_subjects(db)
+    return {
+        "subjects": subjects,
+        "difficulties": list(Difficulty),
+        "count_options": [5, 10, 20],
+        "error": error,
+    }
+
+
+def practice_builder_input(form) -> practice_service.PracticeAssemblyInput:
+    subject_id = form_int(form, "subject_id")
+    if subject_id <= 0:
+        raise ValueError("Choose a subject to practice.")
+    concept_ids = form_int_list(form, "concept_ids")
+    difficulty = form_difficulty(form_text(form, "difficulty"))
+    return practice_service.PracticeAssemblyInput(
+        subject_id=subject_id,
+        count=form_count(form_int(form, "count", practice_service.DEFAULT_PRACTICE_COUNT)),
+        strategy="concept_drill" if concept_ids else "random_subject",
+        concept_ids=concept_ids or None,
+        difficulty=difficulty,
+    )
+
+
+def form_difficulty(value: str) -> Difficulty | None:
+    return Difficulty(value) if value else None
+
+
+def form_count(value: int) -> int:
+    return value if value in {5, 10, 20} else practice_service.DEFAULT_PRACTICE_COUNT
+
+
 def form_text(form, key: str, default: str = "") -> str:
     value = form.get(key, default)
     return value if isinstance(value, str) else default
@@ -66,6 +97,10 @@ def form_text(form, key: str, default: str = "") -> str:
 def form_int(form, key: str, default: int = 0) -> int:
     value = form.get(key, str(default))
     return int(value) if isinstance(value, str) else default
+
+
+def form_int_list(form, key: str) -> list[int]:
+    return [int(value) for value in form.getlist(key) if isinstance(value, str)]
 
 
 @router.get("/", include_in_schema=False)
@@ -185,11 +220,11 @@ def create_concept_practice(
 
 
 @router.get("/quizzes/new", response_class=HTMLResponse)
-def new_quiz(request: Request):
+def new_quiz(request: Request, db: Annotated[Session, Depends(get_db)]):
     return templates.TemplateResponse(
         request,
         "quizzes/new.html",
-        {"difficulties": list(Difficulty), "error": None},
+        practice_builder_context(db),
     )
 
 
@@ -199,16 +234,17 @@ async def post_quiz(
     db: Annotated[Session, Depends(get_db)],
 ):
     form = await request.form()
-    quiz = create_quiz(
-        db,
-        form_quiz_create(
-            form_text(form, "title"),
-            form_text(form, "description"),
-            form_text(form, "topic"),
-            form_text(form, "difficulty", Difficulty.BEGINNER.value),
-        ),
-    )
-    return redirect(f"/quizzes/{quiz.id}/questions/new")
+    try:
+        practice_input = practice_builder_input(form)
+        quiz = practice_service.assemble_practice_session(db, practice_input)
+    except ValueError as error:
+        return templates.TemplateResponse(
+            request,
+            "quizzes/new.html",
+            practice_builder_context(db, error=str(error)),
+            status_code=422,
+        )
+    return redirect(f"/quizzes/{quiz.id}/take")
 
 
 @router.get("/quizzes/{quiz_id}", response_class=HTMLResponse)

@@ -11,7 +11,14 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_engine
 from app.mcp.server import build_server
-from app.models import Difficulty, Question, QuestionHealthState, Quiz, QuizType, SourceDocument
+from app.models import (
+    Difficulty,
+    Question,
+    QuestionHealthState,
+    Quiz,
+    QuizType,
+    SourceDocument,
+)
 from app.services import (
     generation_service,
     question_health_service,
@@ -25,6 +32,10 @@ from app.services.generation_service import (
 )
 from app.services.grading_service import submit_attempt
 from tests.db_utils import clear_database_caches, reset_database
+from tests.legacy_quiz_fixtures import (
+    seed_legacy_route53_concepts,
+    seed_legacy_route53_duplicate_links,
+)
 
 pytestmark = pytest.mark.mcp
 
@@ -315,6 +326,7 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     assert "common misconceptions" in guidance["guidance"]
     assert "create_generated_questions" in guidance["guidance"]
     assert "Concept granularity rules" in guidance["guidance"]
+    assert "canonical concept plan" in guidance["guidance"]
 
     note_path = write_note(tmp_path / "aws-s3.md")
     ingest = asyncio.run(
@@ -404,6 +416,7 @@ def test_mcp_prepare_generation_context_returns_existing_concepts_and_policy(
     assert context["subject"]["name"] == "AWS"
     assert context["source_document"]["id"] == document_id
     assert context["concept_policy"]["concepts_per_question"]["maximum"] == 2
+    assert context["concept_policy"]["concept_planning_required"] is True
     assert context["concept_policy"]["reuse_first"] is True
     assert [concept["name"] for concept in context["existing_concepts"]] == ["S3 storage classes"]
 
@@ -478,17 +491,7 @@ def test_mcp_generated_quiz_reuses_concepts_within_one_batch(mcp_database):
 def test_mcp_can_suggest_and_merge_granular_concepts(mcp_database):
     server = build_server()
 
-    created = asyncio.run(
-        _invoke(
-            server,
-            "create_generated_quiz_with_questions",
-            {
-                "title": "Route 53 cleanup",
-                "subject_name": "AWS",
-                "questions": route53_cleanup_questions(),
-            },
-        )
-    )
+    created = seed_legacy_route53_concepts(route53_cleanup_questions())
 
     suggestions = asyncio.run(_invoke(server, "suggest_concept_merges", {"subject_name": "AWS"}))
     assert suggestions["one_off_concept_count"] == 3
@@ -521,20 +524,7 @@ def test_mcp_can_suggest_and_merge_granular_concepts(mcp_database):
 
 def test_mcp_merge_dedupes_multiple_source_links_on_same_question(mcp_database):
     server = build_server()
-    created = asyncio.run(
-        _invoke(
-            server,
-            "create_generated_quiz_with_questions",
-            {
-                "title": "Route 53 duplicate links",
-                "subject_name": "AWS",
-                "questions": [
-                    route53_cleanup_questions()[1]
-                    | {"concept_names": ["HTTP health checks", "TCP health checks"]}
-                ],
-            },
-        )
-    )
+    created = seed_legacy_route53_duplicate_links(route53_cleanup_questions()[1])
 
     executed = asyncio.run(
         _invoke(

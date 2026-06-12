@@ -43,49 +43,63 @@ Required question-writing contract:
 Concept granularity rules:
 - Concepts are durable learning objectives, not one-off facts, edge cases, protocols, timings,
   or question titles.
-- Reuse an existing concept whenever the question is testing the same skill in narrower wording.
-- A single source note should usually produce 3-6 concepts total, even when it yields more
-  questions. A question should normally tag 1 primary concept and never more than 2 concepts.
+- Before writing questions, create a small canonical concept plan for the source. Reuse those
+  planned names verbatim across the whole batch.
+- Reuse an existing concept whenever the question is testing the same learning objective in
+  narrower wording. Prefer broad, durable names over labels copied from individual question stems.
+- A focused source note should usually produce 1-3 concepts total. Use 4-6 only when the source
+  clearly covers separate reusable learning objectives. More than six concepts from one note is a
+  taxonomy smell.
+- A question should normally tag exactly 1 primary concept and never more than 2 concepts.
 - Create a new concept only when it is likely to support at least 3 future questions or reviews.
-- Prefer "Route 53 health checks" over narrower labels like "HTTP health checks",
-  "endpoint health check timing", or "HTTPS certificate gotcha" unless the narrower concept is
-  independently reusable across notes.
+- Do not create separate concepts for protocol variants, threshold values, timing details,
+  comparison phrasings, implementation patterns, or gotchas when they are examples of the same
+  source-level learning objective.
+- If unsure whether two proposed labels are separate concepts, choose the broader label and reuse
+  it. The user can split concepts later during review; merging noisy concepts is more expensive.
 
 Recommended workflow:
 1. Ingest Obsidian notes with ingest_obsidian_note or ingest_obsidian_directory.
 2. Use prepare_generation_context to inspect app state, existing concepts, and concept policy.
 3. Read relevant notes with get_source_document.
-4. Decide subject, concepts, difficulty, source_reference, stems, correct answers, and distractors.
-5. Write durable bank questions with create_generated_questions.
-6. Optionally assemble a disposable practice session from the bank.
-7. Resolve app-created question review items when maintaining the bank.
+4. Draft a canonical concept plan: choose existing concepts first, then at most a few new durable
+   source-level concepts.
+5. Write stems, correct answers, distractors, explanations, difficulty, and source references using
+   only the planned concept names.
+6. Review the full batch for concept drift before calling create_generated_questions.
+7. Write durable bank questions with create_generated_questions.
+8. Optionally assemble a disposable practice session from the bank.
+9. Resolve app-created question review items when maintaining the bank.
 """.strip()
 
 CONCEPT_POLICY = {
     "concept_definition": "A durable learning objective reused across questions and notes.",
     "reuse_first": True,
-    "concepts_per_source_note": {"usual_min": 3, "usual_max": 6},
+    "concept_planning_required": True,
+    "concepts_per_source_note": {"focused_note_usual_min": 1, "focused_note_usual_max": 3},
+    "concepts_per_source_note_hard_warning": 6,
     "concepts_per_question": {"usual": 1, "maximum": 2},
     "new_concept_threshold": (
         "Create only when it is likely to support at least 3 future questions."
     ),
+    "batch_review": [
+        "Choose the canonical concept set before writing questions.",
+        "Reuse planned concept names verbatim across the batch.",
+        "Review all concept_names before persistence and collapse near-duplicates manually.",
+    ],
     "avoid": [
         "one-off facts",
         "question titles",
         "exam gotchas",
         "individual protocol variants",
         "timing or threshold details unless independently reusable",
+        "comparison phrasing unless the comparison is itself the durable objective",
+        "implementation details that are examples of a broader source-level concept",
     ],
-    "prefer_examples": [
-        {
-            "prefer": "Route 53 health checks",
-            "instead_of": [
-                "HTTP health checks",
-                "endpoint health check timing",
-                "HTTPS certificate gotcha",
-            ],
-        }
-    ],
+    "tie_breaker": (
+        "When unsure whether labels are separate concepts, use the broader reusable label. "
+        "The user can split concepts later during review."
+    ),
 }
 
 

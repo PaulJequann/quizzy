@@ -13,7 +13,6 @@ from app.models import (
     Quiz,
     QuizQuestion,
     QuizType,
-    Subject,
 )
 from app.routes import web as web_routes
 
@@ -249,23 +248,38 @@ def test_review_weak_concepts_reuses_existing_questions(
     assert review_quiz.assembly_strategy == "mastery_review"
 
 
-def test_subjects_namespace_concepts(client: TestClient, db_session: Session) -> None:
+def test_practice_builder_starts_concept_mix(client: TestClient, db_session: Session) -> None:
+    builder_response = client.get("/quizzes/new")
+
+    assert builder_response.status_code == 200
+    assert "Practice builder" in builder_response.text
+    assert 'name="subject_id"' in builder_response.text
+    assert 'name="concept_ids"' in builder_response.text
+    assert "Pytest Basics" in builder_response.text
+
     response = client.post(
         "/quizzes",
         data={
-            "title": "Another subject",
-            "description": "",
-            "topic": "AWS",
+            "subject_id": "1",
+            "concept_ids": ["1"],
+            "count": "5",
             "difficulty": "beginner",
         },
         follow_redirects=False,
     )
+
+    practice = db_session.scalar(
+        select(Quiz)
+        .where(Quiz.quiz_type == QuizType.PRACTICE, Quiz.assembly_strategy == "concept_drill")
+        .options(selectinload(Quiz.questions), selectinload(Quiz.question_links))
+    )
+    assert practice is not None
     assert response.status_code == 303
-    aws_subject = db_session.scalar(select(Subject).where(Subject.slug == "aws"))
-    testing_subject = db_session.scalar(select(Subject).where(Subject.slug == "testing"))
-    assert aws_subject is not None
-    assert testing_subject is not None
-    assert aws_subject.id != testing_subject.id
+    assert response.headers["location"] == f"/quizzes/{practice.id}/take"
+    assert practice.is_disposable is True
+    assert practice.difficulty.value == "beginner"
+    assert [question.stem for question in practice.questions] == ["What does pytest run?"]
+    assert practice.question_links[0].selection_reason.startswith("concept_drill:")
 
 
 def test_subject_pages_show_namespace_workspace(client: TestClient) -> None:
