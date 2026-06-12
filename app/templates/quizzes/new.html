@@ -1,35 +1,171 @@
 {% extends "base.html" %}
-{% block title %}New quiz · Quizzy{% endblock %}
+{% block title %}Build practice · Quizzy{% endblock %}
 {% block content %}
-  <div class="max-w-3xl">
-    <p class="eyebrow">Create quiz</p>
-    <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">Start with the shell, fill in the questions next.</h1>
+  <div class="practice-builder-heading">
+    <p class="eyebrow">Practice builder</p>
+    <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">Build a focused practice run.</h1>
   </div>
-  <section class="panel mt-8 max-w-3xl">
-    <form class="space-y-5" method="post" action="/quizzes">
-      <label class="field-label">
-        Title
-        <input class="field" name="title" required placeholder="AWS fundamentals checkpoint">
-      </label>
-      <label class="field-label">
-        Description
-        <textarea class="field min-h-28" name="description" placeholder="What this quiz is meant to reinforce"></textarea>
-      </label>
-      <div class="grid gap-4 sm:grid-cols-2">
-        <label class="field-label">
-          Subject
-          <input class="field" name="topic" placeholder="AWS">
-        </label>
-        <label class="field-label">
-          Difficulty
-          <select class="field" name="difficulty">
-            {% for difficulty in difficulties %}
-              <option value="{{ difficulty.value }}">{{ difficulty|display_label }}</option>
+
+  {% if error %}
+    <div class="mt-6 rounded-md border border-[var(--color-error)] bg-[var(--color-error-subtle)] px-4 py-3 text-sm font-semibold text-[var(--color-error-text)]">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  {% if subjects %}
+    <form class="practice-builder" method="post" action="/quizzes" data-practice-builder>
+      {% set initial_subject_id = subjects[0].id %}
+      <section class="panel practice-builder-main">
+        <div class="builder-row">
+          <label class="field-label">
+            Subject
+            <select class="field" name="subject_id" data-subject-select required>
+              {% for subject in subjects %}
+                <option value="{{ subject.id }}">{{ subject.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+
+        <fieldset class="builder-fieldset">
+          <legend>Concepts</legend>
+          <div class="concept-pick-grid" data-concept-list>
+            {% for subject in subjects %}
+              {% for concept in subject.concepts %}
+                <label class="concept-pick" data-subject-id="{{ subject.id }}" {% if subject.id != initial_subject_id %}hidden{% endif %}>
+                  <input type="checkbox" name="concept_ids" value="{{ concept.id }}" data-concept-input data-concept-name="{{ concept.name|display_label }}" {% if subject.id != initial_subject_id %}disabled{% endif %}>
+                  <span>{{ concept.name|display_label }}</span>
+                </label>
+              {% endfor %}
             {% endfor %}
-          </select>
-        </label>
-      </div>
-      <button class="btn-primary" type="submit">Create and add questions</button>
+          </div>
+          <p class="builder-empty" data-empty-concepts hidden>No concepts available for this subject.</p>
+        </fieldset>
+
+        <div class="builder-options-grid">
+          <fieldset class="builder-fieldset">
+            <legend>Questions</legend>
+            <div class="segmented-control segmented-control-three">
+              {% for count in count_options %}
+                <label>
+                  <input type="radio" name="count" value="{{ count }}" {% if count == 10 %}checked{% endif %} data-count-input>
+                  <span>{{ count }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </fieldset>
+
+          <fieldset class="builder-fieldset">
+            <legend>Difficulty</legend>
+            <div class="segmented-control">
+              <label>
+                <input type="radio" name="difficulty" value="" checked data-difficulty-input>
+                <span>Any</span>
+              </label>
+              {% for difficulty in difficulties %}
+                <label>
+                  <input type="radio" name="difficulty" value="{{ difficulty.value }}" data-difficulty-input>
+                  <span>{{ difficulty|display_label }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </fieldset>
+        </div>
+
+        <button class="btn-primary builder-submit" type="submit">Start practice</button>
+      </section>
+
+      <aside class="panel practice-builder-summary" aria-live="polite">
+        <p class="eyebrow">Selection</p>
+        <h2 class="font-display" data-summary-title>{{ subjects[0].name }} Quick Practice</h2>
+        <dl>
+          <div>
+            <dt>Subject</dt>
+            <dd data-summary-subject>{{ subjects[0].name }}</dd>
+          </div>
+          <div>
+            <dt>Concepts</dt>
+            <dd data-summary-concepts>All available concepts</dd>
+          </div>
+          <div>
+            <dt>Questions</dt>
+            <dd><span data-summary-count>10</span></dd>
+          </div>
+          <div>
+            <dt>Difficulty</dt>
+            <dd data-summary-difficulty>Any</dd>
+          </div>
+        </dl>
+      </aside>
     </form>
-  </section>
+  {% else %}
+    <section class="empty-state mt-8">
+      <h2 class="section-title">No subjects yet</h2>
+      <p>Ingest a source document or add questions before building practice.</p>
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      const builder = document.querySelector("[data-practice-builder]");
+      if (!builder) return;
+
+      const subjectSelect = builder.querySelector("[data-subject-select]");
+      const conceptPicks = Array.from(builder.querySelectorAll("[data-subject-id]"));
+      const conceptInputs = Array.from(builder.querySelectorAll("[data-concept-input]"));
+      const countInputs = Array.from(builder.querySelectorAll("[data-count-input]"));
+      const difficultyInputs = Array.from(builder.querySelectorAll("[data-difficulty-input]"));
+      const emptyConcepts = builder.querySelector("[data-empty-concepts]");
+      const summaryTitle = builder.querySelector("[data-summary-title]");
+      const summarySubject = builder.querySelector("[data-summary-subject]");
+      const summaryConcepts = builder.querySelector("[data-summary-concepts]");
+      const summaryCount = builder.querySelector("[data-summary-count]");
+      const summaryDifficulty = builder.querySelector("[data-summary-difficulty]");
+
+      const selectedSubjectName = () =>
+        subjectSelect.options[subjectSelect.selectedIndex]?.textContent.trim() || "Practice";
+
+      const selectedConceptNames = () =>
+        conceptInputs
+          .filter((input) => !input.disabled && input.checked)
+          .map((input) => input.dataset.conceptName);
+
+      const checkedValue = (inputs, fallback) =>
+        inputs.find((input) => input.checked)?.nextElementSibling.textContent.trim() || fallback;
+
+      const render = () => {
+        const subjectId = subjectSelect.value;
+        let visibleConcepts = 0;
+        conceptPicks.forEach((pick) => {
+          const isVisible = pick.dataset.subjectId === subjectId;
+          const input = pick.querySelector("input");
+          pick.hidden = !isVisible;
+          input.disabled = !isVisible;
+          if (!isVisible) input.checked = false;
+          if (isVisible) visibleConcepts += 1;
+        });
+        emptyConcepts.hidden = visibleConcepts > 0;
+
+        const concepts = selectedConceptNames();
+        const subjectName = selectedSubjectName();
+        const count = checkedValue(countInputs, "10");
+        const difficulty = checkedValue(difficultyInputs, "Any");
+        summarySubject.textContent = subjectName;
+        summaryConcepts.textContent = concepts.length ? concepts.join(" + ") : "All available concepts";
+        summaryCount.textContent = count;
+        summaryDifficulty.textContent = difficulty;
+        summaryTitle.textContent = concepts.length
+          ? `${subjectName}: ${concepts.join(" + ")}`
+          : `${subjectName} Quick Practice`;
+      };
+
+      subjectSelect.addEventListener("change", render);
+      conceptInputs.forEach((input) => input.addEventListener("change", render));
+      countInputs.forEach((input) => input.addEventListener("change", render));
+      difficultyInputs.forEach((input) => input.addEventListener("change", render));
+      render();
+    })();
+  </script>
 {% endblock %}

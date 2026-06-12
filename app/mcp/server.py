@@ -12,8 +12,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_session_factory
+from app.mcp import question_first_tools
 from app.models import Difficulty, Question, Quiz, QuizStatus, SourceDocument, Subject
-from app.services import concept_service, generation_service, settings_service, source_service
+from app.services import (
+    concept_service,
+    generation_service,
+    settings_service,
+    source_service,
+)
 from app.services.concept_service import MergeConceptsInput
 from app.services.generation_service import GeneratedQuestionInput, GeneratedQuizCreateInput
 from app.services.quiz_service import slugify
@@ -37,48 +43,63 @@ Required question-writing contract:
 Concept granularity rules:
 - Concepts are durable learning objectives, not one-off facts, edge cases, protocols, timings,
   or question titles.
-- Reuse an existing concept whenever the question is testing the same skill in narrower wording.
-- A single source note should usually produce 3-6 concepts total, even when it yields more
-  questions. A question should normally tag 1 primary concept and never more than 2 concepts.
+- Before writing questions, create a small canonical concept plan for the source. Reuse those
+  planned names verbatim across the whole batch.
+- Reuse an existing concept whenever the question is testing the same learning objective in
+  narrower wording. Prefer broad, durable names over labels copied from individual question stems.
+- A focused source note should usually produce 1-3 concepts total. Use 4-6 only when the source
+  clearly covers separate reusable learning objectives. More than six concepts from one note is a
+  taxonomy smell.
+- A question should normally tag exactly 1 primary concept and never more than 2 concepts.
 - Create a new concept only when it is likely to support at least 3 future questions or reviews.
-- Prefer "Route 53 health checks" over narrower labels like "HTTP health checks",
-  "endpoint health check timing", or "HTTPS certificate gotcha" unless the narrower concept is
-  independently reusable across notes.
+- Do not create separate concepts for protocol variants, threshold values, timing details,
+  comparison phrasings, implementation patterns, or gotchas when they are examples of the same
+  source-level learning objective.
+- If unsure whether two proposed labels are separate concepts, choose the broader label and reuse
+  it. The user can split concepts later during review; merging noisy concepts is more expensive.
 
 Recommended workflow:
 1. Ingest Obsidian notes with ingest_obsidian_note or ingest_obsidian_directory.
 2. Use prepare_generation_context to inspect app state, existing concepts, and concept policy.
 3. Read relevant notes with get_source_document.
-4. Decide subject, concepts, difficulty, source_reference, stems, correct answers, and distractors.
-5. Write a draft generated quiz with create_generated_quiz_with_questions.
-6. Return the quiz id and a concise summary of the sources and concepts covered.
+4. Draft a canonical concept plan: choose existing concepts first, then at most a few new durable
+   source-level concepts.
+5. Write stems, correct answers, distractors, explanations, difficulty, and source references using
+   only the planned concept names.
+6. Review the full batch for concept drift before calling create_generated_questions.
+7. Write durable bank questions with create_generated_questions.
+8. Optionally assemble a disposable practice session from the bank.
+9. Resolve app-created question review items when maintaining the bank.
 """.strip()
 
 CONCEPT_POLICY = {
     "concept_definition": "A durable learning objective reused across questions and notes.",
     "reuse_first": True,
-    "concepts_per_source_note": {"usual_min": 3, "usual_max": 6},
+    "concept_planning_required": True,
+    "concepts_per_source_note": {"focused_note_usual_min": 1, "focused_note_usual_max": 3},
+    "concepts_per_source_note_hard_warning": 6,
     "concepts_per_question": {"usual": 1, "maximum": 2},
     "new_concept_threshold": (
         "Create only when it is likely to support at least 3 future questions."
     ),
+    "batch_review": [
+        "Choose the canonical concept set before writing questions.",
+        "Reuse planned concept names verbatim across the batch.",
+        "Review all concept_names before persistence and collapse near-duplicates manually.",
+    ],
     "avoid": [
         "one-off facts",
         "question titles",
         "exam gotchas",
         "individual protocol variants",
         "timing or threshold details unless independently reusable",
+        "comparison phrasing unless the comparison is itself the durable objective",
+        "implementation details that are examples of a broader source-level concept",
     ],
-    "prefer_examples": [
-        {
-            "prefer": "Route 53 health checks",
-            "instead_of": [
-                "HTTP health checks",
-                "endpoint health check timing",
-                "HTTPS certificate gotcha",
-            ],
-        }
-    ],
+    "tie_breaker": (
+        "When unsure whether labels are separate concepts, use the broader reusable label. "
+        "The user can split concepts later during review."
+    ),
 }
 
 
@@ -271,6 +292,12 @@ def _register_read_tools(server: FastMCP) -> None:
     register_tool(server, "list_subjects", list_subjects, annotations=ro)
     register_tool(server, "list_concepts", list_concepts, annotations=ro)
     register_tool(server, "prepare_generation_context", prepare_generation_context, annotations=ro)
+    register_tool(
+        server,
+        "prepare_question_generation_context",
+        prepare_generation_context,
+        annotations=ro,
+    )
     register_tool(server, "list_quizzes", list_quizzes, annotations=ro)
     register_tool(server, "get_quiz", get_quiz, annotations=ro)
 
@@ -386,6 +413,7 @@ def _register_write_tools(server: FastMCP) -> None:
     _register_concept_maintenance_tools(server)
     _register_generated_quiz_tools(server)
     _register_generated_question_tools(server)
+    question_first_tools.register_question_first_tools(server, register_tool, _session_scope)
 
 
 def _register_settings_tools(server: FastMCP) -> None:
@@ -499,6 +527,70 @@ def _register_generated_quiz_tools(server: FastMCP) -> None:
 
 
 def _register_generated_question_tools(server: FastMCP) -> None:
+    _register_question_bank_tools(server)
+    _register_add_questions_tool(server)
+    _register_generated_quiz_with_questions_tool(server)
+
+
+def _register_question_bank_tools(server: FastMCP) -> None:
+    def create_generated_questions(
+        subject_name: Annotated[str, Field(description="Subject namespace chosen by the agent.")],
+        questions: Annotated[
+            list[GeneratedQuestionInput],
+            Field(
+                description=(
+                    "Durable question-bank questions. The agent must provide exactly four "
+                    "choices, one correct answer, concepts, difficulty when needed, and source "
+                    "grounding."
+                )
+            ),
+        ],
+        source_document_id: Annotated[
+            int | None,
+            Field(description="Optional source document shared by every question in the batch."),
+        ] = None,
+        notes: Annotated[str, Field(description="Optional batch notes.")] = "",
+    ) -> dict[str, Any]:
+        """Create durable generated questions without creating a quiz."""
+        with _session_scope() as db:
+            return generation_service.create_generated_questions(
+                db,
+                generation_service.QuestionBankCreateInput(
+                    subject_name=subject_name,
+                    questions=questions,
+                    source_document_id=source_document_id,
+                    batch_metadata=generation_service.BatchMetadata(notes=notes),
+                ),
+            )
+
+    def list_question_bank(
+        subject_name: Annotated[
+            str | None,
+            Field(description="Optional subject name used to filter the bank."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """List durable questions independent of quiz containers."""
+        with _session_scope() as db:
+            subject = _subject_for_context(db, subject_name)
+            return {
+                "questions": generation_service.list_question_bank(
+                    db,
+                    subject_id=subject.id if subject else None,
+                )
+            }
+
+    write = {"destructiveHint": False, "idempotentHint": False}
+    read = {"readOnlyHint": True, "idempotentHint": True}
+    register_tool(
+        server,
+        "create_generated_questions",
+        create_generated_questions,
+        annotations=write,
+    )
+    register_tool(server, "list_question_bank", list_question_bank, annotations=read)
+
+
+def _register_add_questions_tool(server: FastMCP) -> None:
     def add_questions_to_quiz(
         quiz_id: Annotated[int, Field(description="Quiz id to append questions to.")],
         questions: Annotated[
@@ -517,6 +609,11 @@ def _register_generated_question_tools(server: FastMCP) -> None:
                 db, quiz_id=quiz_id, questions=questions
             )
 
+    write = {"destructiveHint": False, "idempotentHint": False}
+    register_tool(server, "add_questions_to_quiz", add_questions_to_quiz, annotations=write)
+
+
+def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
     def create_generated_quiz_with_questions(
         title: Annotated[str, Field(description="Quiz title.")],
         subject_name: Annotated[str, Field(description="Subject namespace chosen by the agent.")],
@@ -554,7 +651,6 @@ def _register_generated_question_tools(server: FastMCP) -> None:
             )
 
     write = {"destructiveHint": False, "idempotentHint": False}
-    register_tool(server, "add_questions_to_quiz", add_questions_to_quiz, annotations=write)
     register_tool(
         server,
         "create_generated_quiz_with_questions",

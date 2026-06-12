@@ -14,34 +14,35 @@
     </div>
 
     <div class="runner-progress">
-      <span class="runner-count"><span data-current-number>1</span> of {{ quiz.questions|length }}</span>
-      {% if quiz.questions|length <= 20 %}
+      <span class="runner-count"><span data-current-number>1</span> of {{ question_steps|length }}</span>
+      {% if question_steps|length <= 20 %}
         <div class="ledger" data-ledger aria-hidden="true">
-          {% for question in quiz.questions %}
+          {% for step in question_steps %}
             <span class="ledger-mark"></span>
           {% endfor %}
         </div>
       {% else %}
         <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-2)]" aria-hidden="true">
-          <span class="block h-full rounded-full bg-[var(--color-accent)] transition-all duration-150" data-progress-bar style="width: {{ 100 / quiz.questions|length }}%"></span>
+          <span class="block h-full rounded-full bg-[var(--color-accent)] transition-all duration-150" data-progress-bar style="width: {{ 100 / question_steps|length }}%"></span>
         </div>
       {% endif %}
     </div>
 
     <form class="runner-form" method="post" action="/quizzes/{{ quiz.id }}/submit">
-      {% for question in quiz.questions %}
+      {% for step in question_steps %}
+        {% set question = step.question %}
         <fieldset
           class="runner-step"
           data-question-step
           data-step-index="{{ loop.index0 }}"
           {% if not loop.first %}hidden{% endif %}
         >
-          <legend class="sr-only">Question {{ loop.index }} of {{ quiz.questions|length }}</legend>
+          <legend class="sr-only">Question {{ loop.index }} of {{ question_steps|length }}</legend>
           <div class="runner-question">
             <p>{{ question.stem }}</p>
           </div>
           <div class="runner-options">
-            {% for choice in question.choices %}
+            {% for choice in step.choices %}
               <label class="runner-option">
                 <input type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" required>
                 <span class="runner-key" aria-hidden="true">{{ loop.index }}</span>

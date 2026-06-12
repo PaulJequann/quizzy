@@ -37,6 +37,7 @@ def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | N
     correct_count = 0
     attempt = Attempt(
         quiz_id=quiz.id,
+        session_type=quiz.quiz_type.value,
         total_questions=total_questions,
         started_at=datetime.now(UTC),
         submitted_at=datetime.now(UTC),
@@ -129,21 +130,7 @@ def build_concept_queue_items(rows: list[ConceptMastery]) -> list[ConceptQueueIt
         if row.total_attempts == 0 or row.status == "strong":
             continue
 
-        missed_question_ids: set[int] = set()
-        missed_source_references: set[str] = set()
-        tagged_source_references: set[str] = set()
-        for question in row.concept.questions:
-            if question.source_reference:
-                tagged_source_references.add(question.source_reference)
-
-            question_was_missed = any(not answer.is_correct for answer in question.attempt_answers)
-            if not question_was_missed:
-                continue
-
-            missed_question_ids.add(question.id)
-            if question.source_reference:
-                missed_source_references.add(question.source_reference)
-
+        missed_question_ids = _missed_question_ids(row.concept)
         queue_items.append(
             ConceptQueueItem(
                 concept_id=row.concept.id,
@@ -155,8 +142,8 @@ def build_concept_queue_items(rows: list[ConceptMastery]) -> list[ConceptQueueIt
                 accuracy=row.accuracy,
                 last_missed_at=row.last_missed_at,
                 status=row.status,
-                missed_question_ids=sorted(missed_question_ids),
-                source_references=sorted(missed_source_references or tagged_source_references),
+                missed_question_ids=missed_question_ids,
+                source_references=_queue_source_references(row.concept),
             )
         )
 
@@ -169,6 +156,26 @@ def build_concept_queue_items(rows: list[ConceptMastery]) -> list[ConceptQueueIt
             item.name.casefold(),
         ),
     )
+
+
+def _missed_question_ids(concept: Concept) -> list[int]:
+    return sorted(question.id for question in concept.questions if _question_was_missed(question))
+
+
+def _queue_source_references(concept: Concept) -> list[str]:
+    missed_references = {
+        question.source_reference
+        for question in concept.questions
+        if question.source_reference and _question_was_missed(question)
+    }
+    tagged_references = {
+        question.source_reference for question in concept.questions if question.source_reference
+    }
+    return sorted(missed_references or tagged_references)
+
+
+def _question_was_missed(question: Question) -> bool:
+    return any(not answer.is_correct for answer in question.attempt_answers)
 
 
 def get_concept_queue_items(db: Session) -> list[ConceptQueueItem]:

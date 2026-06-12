@@ -14,6 +14,9 @@
         <span class="meta-chip">{{ subject.concepts|length }} concepts</span>
         <span class="meta-chip">{{ subject.questions|length }} questions</span>
         <span class="meta-chip">{{ quizzes|length }} quizzes</span>
+        {% if question_review_items %}
+          <span class="meta-chip">{{ question_review_items|length }} question reviews</span>
+        {% endif %}
         {% if mastery_group and mastery_group.total_attempts %}
           <span class="meta-chip">{{ "%.0f"|format(mastery_group.accuracy) }}% mastery</span>
         {% endif %}
@@ -22,12 +25,15 @@
     <div class="panel">
       <p class="eyebrow">Actions</p>
       <div class="mt-4 grid gap-3">
+        <form method="post" action="/subjects/{{ subject.id }}/practice">
+          <button class="btn-primary w-full" type="submit">Start quick practice</button>
+        </form>
         {% if mastery_group and mastery_group.queue_items %}
           <form method="post" action="/subjects/{{ subject.id }}/review">
-            <button class="btn-primary w-full" type="submit">Review weak concepts</button>
+            <button class="btn-secondary w-full" type="submit">Practice weak concepts</button>
           </form>
         {% endif %}
-        <a class="btn-secondary text-center" href="/quizzes/new">Create quiz</a>
+        <a class="btn-secondary text-center" href="/quizzes/new">Build practice</a>
         <a class="btn-secondary text-center" href="/subjects">All subjects</a>
       </div>
     </div>
@@ -53,6 +59,9 @@
               <div class="font-medium">{{ row.concept.name|display_label }}</div>
               <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
             </div>
+            <form class="mt-3" method="post" action="/concepts/{{ row.concept.id }}/practice">
+              <button class="btn-secondary" type="submit">Drill concept</button>
+            </form>
             <dl class="mastery-row-stats">
               <div>
                 <dt>Attempts</dt>
@@ -77,6 +86,26 @@
                 </dd>
               </div>
             </dl>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if question_review_items %}
+    <section class="panel mb-6">
+      <div class="mb-5">
+        <p class="eyebrow">Question health</p>
+        <h2 class="section-title">Review queue</h2>
+      </div>
+      <div class="grid gap-3">
+        {% for item in question_review_items %}
+          <article class="answer-review">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <p class="font-medium">{{ item.question_stem }}</p>
+              <span class="meta-chip">{{ item.suggested_action|display_label }}</span>
+            </div>
+            <p class="mt-2 text-sm text-[var(--color-text-2)]">{{ item.reason }}</p>
           </article>
         {% endfor %}
       </div>

@@ -1,10 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import Session
 
-from app.database import Base, get_db
+from app.database import get_db
 from app.main import create_app
 from app.models import (
     Choice,
@@ -18,20 +16,22 @@ from app.models import (
     QuizStatus,
     Subject,
 )
+from tests.db_utils import clear_database_caches, reset_database, testcontainers_postgres_database
+
+
+@pytest.fixture(scope="session")
+def test_database_url():
+    with testcontainers_postgres_database() as database_url:
+        yield database_url
+    clear_database_caches()
 
 
 @pytest.fixture
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    with session_factory() as session:
+def db_session(test_database_url, monkeypatch):
+    for session in reset_database(test_database_url, monkeypatch):
         seed_test_quiz(session)
         yield session
+    clear_database_caches()
 
 
 @pytest.fixture

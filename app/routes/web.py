@@ -1,12 +1,15 @@
+import random
+from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Attempt, AttemptAnswer, Difficulty, Question, Quiz, QuizStatus
+from app.models import Attempt, AttemptAnswer, Concept, Difficulty, Question, Quiz, QuizStatus
+from app.services import practice_service, question_health_service
 from app.services.grading_service import (
     build_concept_queue_items,
     get_mastery_rows,
@@ -17,10 +20,7 @@ from app.services.grading_service import (
 )
 from app.services.quiz_service import (
     create_question,
-    create_quiz,
-    create_review_quiz_from_concepts,
     form_question_create,
-    form_quiz_create,
     get_quiz,
     list_quizzes,
     update_quiz_status,
@@ -39,6 +39,86 @@ router = APIRouter()
 
 def redirect(path: str) -> RedirectResponse:
     return RedirectResponse(path, status_code=status.HTTP_303_SEE_OTHER)
+
+
+def redirect_to_practice(factory: Callable[[], Quiz], fallback_path: str) -> RedirectResponse:
+    try:
+        quiz = factory()
+    except ValueError:
+        return redirect(fallback_path)
+    return redirect(f"/quizzes/{quiz.id}/take")
+
+
+def shuffled_quiz_steps(quiz: Quiz) -> list[dict]:
+    return [
+        {"question": question, "choices": random.sample(question.choices, len(question.choices))}
+        for question in random.sample(quiz.questions, len(quiz.questions))
+    ]
+
+
+def practice_builder_context(db: Session, *, error: str | None = None) -> dict:
+    subjects = get_subjects(db)
+    return {
+        "subjects": subjects,
+        "difficulties": [difficulty for difficulty in Difficulty if difficulty != Difficulty.MIXED],
+        "count_options": [5, 10, 20],
+        "error": error,
+    }
+
+
+def practice_builder_input(form) -> practice_service.PracticeAssemblyInput:
+    subject_id = form_int(form, "subject_id")
+    if subject_id <= 0:
+        raise ValueError("Choose a subject to practice.")
+    concept_ids = form_int_list(form, "concept_ids")
+    difficulty = form_difficulty(form_text(form, "difficulty"))
+    return practice_service.PracticeAssemblyInput(
+        subject_id=subject_id,
+        count=form_count(form_int(form, "count", practice_service.DEFAULT_PRACTICE_COUNT)),
+        strategy="concept_drill" if concept_ids else "random_subject",
+        concept_ids=concept_ids or None,
+        difficulty=difficulty,
+    )
+
+
+def form_difficulty(value: str) -> Difficulty | None:
+    if not value:
+        return None
+    difficulty = Difficulty(value)
+    if difficulty == Difficulty.MIXED:
+        raise ValueError("Choose a specific difficulty or Any.")
+    return difficulty
+
+
+def form_count(value: int) -> int:
+    return value if value in {5, 10, 20} else practice_service.DEFAULT_PRACTICE_COUNT
+
+
+def form_text(form, key: str, default: str = "") -> str:
+    value = form.get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def form_int(form, key: str, default: int = 0) -> int:
+    value = form.get(key, str(default))
+    if not isinstance(value, str):
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid {key.replace('_', ' ')}.") from exc
+
+
+def form_int_list(form, key: str) -> list[int]:
+    values: list[int] = []
+    for value in form.getlist(key):
+        if not isinstance(value, str):
+            continue
+        try:
+            values.append(int(value))
+        except ValueError as exc:
+            raise ValueError(f"Invalid {key.replace('_', ' ')}.") from exc
+    return values
 
 
 @router.get("/", include_in_schema=False)
@@ -73,19 +153,7 @@ def mastery(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 @router.post("/mastery/review")
 def create_mastery_review_quiz(db: Annotated[Session, Depends(get_db)]):
-    queue_items = build_concept_queue_items(get_mastery_rows(db))
-    if not queue_items:
-        return redirect("/mastery")
-
-    try:
-        quiz = create_review_quiz_from_concepts(
-            db,
-            [item.concept_id for item in queue_items],
-        )
-    except ValueError:
-        return redirect("/mastery")
-
-    return redirect(f"/quizzes/{quiz.id}/take")
+    return redirect_to_practice(lambda: practice_service.assemble_mastery_review(db), "/mastery")
 
 
 @router.get("/subjects", response_class=HTMLResponse)
@@ -114,7 +182,25 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
             "subject": subject,
             "mastery_group": mastery_group,
             "quizzes": quizzes_for_subject(subject),
+            "question_review_items": question_health_service.list_question_review_queue(
+                db,
+                subject_id=subject.id,
+            ),
         },
+    )
+
+
+@router.post("/subjects/{subject_id}/practice")
+def create_subject_practice(
+    subject_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    return redirect_to_practice(
+        lambda: practice_service.assemble_practice_session(
+            db,
+            practice_service.PracticeAssemblyInput(subject_id=subject_id),
+        ),
+        f"/subjects/{subject_id}",
     )
 
 
@@ -127,41 +213,56 @@ def create_subject_review_quiz(
     if subject is None:
         raise HTTPException(status_code=404, detail="Subject not found")
 
-    mastery_rows = [row for row in get_mastery_rows(db) if row.concept.subject_id == subject.id]
-    queue_items = build_concept_queue_items(mastery_rows)
-    if not queue_items:
-        return redirect(f"/subjects/{subject.id}")
+    return redirect_to_practice(
+        lambda: practice_service.assemble_mastery_review(db, subject_id=subject.id),
+        f"/subjects/{subject.id}",
+    )
 
-    try:
-        quiz = create_review_quiz_from_concepts(
+
+@router.post("/concepts/{concept_id}/practice")
+def create_concept_practice(
+    concept_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    concept = db.get(Concept, concept_id)
+    if concept is None:
+        raise HTTPException(status_code=404, detail="Concept not found")
+    return redirect_to_practice(
+        lambda: practice_service.assemble_concept_drill(
             db,
-            [item.concept_id for item in queue_items],
-        )
-    except ValueError:
-        return redirect(f"/subjects/{subject.id}")
-
-    return redirect(f"/quizzes/{quiz.id}/take")
+            concept_ids=[concept.id],
+            count=10,
+        ),
+        f"/subjects/{concept.subject_id}",
+    )
 
 
 @router.get("/quizzes/new", response_class=HTMLResponse)
-def new_quiz(request: Request):
+def new_quiz(request: Request, db: Annotated[Session, Depends(get_db)]):
     return templates.TemplateResponse(
         request,
         "quizzes/new.html",
-        {"difficulties": list(Difficulty), "error": None},
+        practice_builder_context(db),
     )
 
 
 @router.post("/quizzes")
-def post_quiz(
+async def post_quiz(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
-    title: Annotated[str, Form()],
-    description: Annotated[str, Form()] = "",
-    topic: Annotated[str, Form()] = "",
-    difficulty: Annotated[str, Form()] = Difficulty.BEGINNER.value,
 ):
-    quiz = create_quiz(db, form_quiz_create(title, description, topic, difficulty))
-    return redirect(f"/quizzes/{quiz.id}/questions/new")
+    form = await request.form()
+    try:
+        practice_input = practice_builder_input(form)
+        quiz = practice_service.assemble_practice_session(db, practice_input)
+    except ValueError as error:
+        return templates.TemplateResponse(
+            request,
+            "quizzes/new.html",
+            practice_builder_context(db, error=str(error)),
+            status_code=422,
+        )
+    return redirect(f"/quizzes/{quiz.id}/take")
 
 
 @router.get("/quizzes/{quiz_id}", response_class=HTMLResponse)
@@ -198,32 +299,29 @@ def new_question(request: Request, quiz_id: int, db: Annotated[Session, Depends(
 
 
 @router.post("/quizzes/{quiz_id}/questions", response_class=HTMLResponse)
-def post_question(
+async def post_question(
     request: Request,
     quiz_id: int,
     db: Annotated[Session, Depends(get_db)],
-    stem: Annotated[str, Form()],
-    choice_1: Annotated[str, Form()],
-    choice_2: Annotated[str, Form()],
-    choice_3: Annotated[str, Form()],
-    choice_4: Annotated[str, Form()],
-    correct_choice: Annotated[int, Form()],
-    explanation: Annotated[str, Form()] = "",
-    source_reference: Annotated[str, Form()] = "",
-    concepts: Annotated[str, Form()] = "",
 ):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
 
+    form = await request.form()
     try:
         question_data = form_question_create(
-            stem=stem,
-            choices=[choice_1, choice_2, choice_3, choice_4],
-            correct_choice=correct_choice,
-            explanation=explanation,
-            source_reference=source_reference,
-            concepts=concepts,
+            stem=form_text(form, "stem"),
+            choices=[
+                form_text(form, "choice_1"),
+                form_text(form, "choice_2"),
+                form_text(form, "choice_3"),
+                form_text(form, "choice_4"),
+            ],
+            correct_choice=form_int(form, "correct_choice"),
+            explanation=form_text(form, "explanation"),
+            source_reference=form_text(form, "source_reference"),
+            concepts=form_text(form, "concepts"),
         )
     except ValueError as error:
         return templates.TemplateResponse(
@@ -251,7 +349,11 @@ def take_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(get
         raise HTTPException(status_code=404, detail="Quiz not found")
     if not quiz.questions:
         raise HTTPException(status_code=400, detail="Quiz has no questions")
-    return templates.TemplateResponse(request, "quizzes/take.html", {"quiz": quiz})
+    return templates.TemplateResponse(
+        request,
+        "quizzes/take.html",
+        {"quiz": quiz, "question_steps": shuffled_quiz_steps(quiz)},
+    )
 
 
 @router.post("/quizzes/{quiz_id}/submit")
@@ -265,6 +367,7 @@ async def submit_quiz(request: Request, quiz_id: int, db: Annotated[Session, Dep
         raw_answer = form.get(f"question_{question.id}")
         answers[question.id] = int(raw_answer) if isinstance(raw_answer, str) else None
     attempt = submit_attempt(db, quiz, answers)
+    question_health_service.record_attempt_evidence(db, attempt.id)
     return redirect(f"/attempts/{attempt.id}/results")
 
 

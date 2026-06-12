@@ -911,6 +911,217 @@
       width: 100%;
     }
   }
+
+  /* ---------- Practice builder ---------- */
+
+  .practice-builder-heading {
+    max-width: 48rem;
+  }
+
+  .practice-builder {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.42fr);
+    gap: 1rem;
+    align-items: start;
+    margin-top: 2rem;
+  }
+
+  .practice-builder-main {
+    display: grid;
+    gap: 1.35rem;
+  }
+
+  .builder-row {
+    max-width: 28rem;
+  }
+
+  .builder-fieldset {
+    display: grid;
+    gap: 0.7rem;
+    min-width: 0;
+  }
+
+  .builder-fieldset legend {
+    color: var(--color-text-2);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  .builder-options-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.46fr) minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .concept-pick-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+
+  .concept-pick {
+    position: relative;
+    display: inline-flex;
+    min-height: 2.35rem;
+    align-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    background: var(--color-surface-2);
+    color: var(--color-text-2);
+    cursor: pointer;
+    font-size: 0.86rem;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0.5rem 0.75rem;
+    transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+  }
+
+  .concept-pick:hover {
+    border-color: var(--color-border-strong);
+    color: var(--color-text);
+  }
+
+  .concept-pick:has(input:checked) {
+    border-color: var(--color-accent);
+    background: var(--color-accent-subtle);
+    color: var(--color-accent-text);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+
+  .concept-pick:has(input:focus-visible) {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  }
+
+  .concept-pick input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .builder-empty {
+    color: var(--color-text-3);
+    font-size: 0.9rem;
+  }
+
+  .segmented-control {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.3rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.65rem;
+    background: var(--color-surface-2);
+    padding: 0.3rem;
+  }
+
+  .segmented-control-three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .segmented-control label {
+    position: relative;
+    min-width: 0;
+  }
+
+  .segmented-control input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .segmented-control span {
+    display: flex;
+    min-height: 2.15rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.45rem;
+    color: var(--color-text-2);
+    font-size: 0.84rem;
+    font-weight: 600;
+    text-align: center;
+    transition: background 130ms ease, box-shadow 130ms ease, color 130ms ease;
+  }
+
+  .segmented-control input:checked + span {
+    background: var(--color-surface);
+    box-shadow: var(--shadow-card);
+    color: var(--color-text);
+  }
+
+  .segmented-control input:focus-visible + span {
+    box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  }
+
+  .builder-submit {
+    width: fit-content;
+    min-width: 10rem;
+  }
+
+  .practice-builder-summary {
+    position: sticky;
+    top: 5rem;
+    display: grid;
+    gap: 1rem;
+  }
+
+  .practice-builder-summary h2 {
+    font-size: 1.35rem;
+    line-height: 1.2;
+  }
+
+  .practice-builder-summary dl {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .practice-builder-summary dl div {
+    display: grid;
+    gap: 0.12rem;
+  }
+
+  .practice-builder-summary dt {
+    color: var(--color-text-3);
+    font-size: 0.76rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .practice-builder-summary dd {
+    color: var(--color-text-2);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 900px) {
+    .practice-builder {
+      grid-template-columns: 1fr;
+    }
+
+    .practice-builder-summary {
+      position: static;
+      order: -1;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .builder-row,
+    .builder-submit {
+      width: 100%;
+      max-width: none;
+    }
+
+    .builder-options-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .segmented-control {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .segmented-control-three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
 }
 
 .metadata-details {

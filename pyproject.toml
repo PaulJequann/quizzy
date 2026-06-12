@@ -21,6 +21,7 @@ dependencies = [
 dev = [
     "pytest>=8.4.1",
     "ruff>=0.12.0",
+    "testcontainers[postgres]>=4.12.0",
     "ty>=0.0.1a10",
 ]
 
@@ -34,4 +35,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-
+markers = [
+    "api: FastAPI route and API behavior tests",
+    "integration: database-backed integration tests",
+    "mcp: MCP server integration tests",
+    "migration: Alembic migration verification tests",
+    "unit: pure logic tests that do not require a database or Docker",
+]
