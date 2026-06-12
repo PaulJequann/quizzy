@@ -33,17 +33,31 @@
         </div>
       </section>
     {% endif %}
-    <div class="space-y-6">
+    <section class="mastery-controls panel mb-6">
+      <label class="field-label mastery-search">
+        <span>Search concepts</span>
+        <input class="field" type="search" placeholder="Route 53, IAM, fixtures..." data-mastery-search>
+      </label>
+      <div class="mastery-filters" aria-label="Filter mastery concepts by status">
+        <button class="mastery-filter is-active" type="button" data-status-filter="all" aria-pressed="true">All</button>
+        <button class="mastery-filter" type="button" data-status-filter="weak" aria-pressed="false">Weak</button>
+        <button class="mastery-filter" type="button" data-status-filter="improving" aria-pressed="false">Improving</button>
+        <button class="mastery-filter" type="button" data-status-filter="strong" aria-pressed="false">Strong</button>
+      </div>
+    </section>
+
+    <div class="space-y-4" data-mastery-groups>
       {% for group in mastery_groups %}
-        <section class="panel overflow-x-auto">
-          <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
-            <div>
+        <details class="panel mastery-subject" data-mastery-subject {% if loop.first or group.weak_count or group.improving_count %}open{% endif %}>
+          <summary class="mastery-subject-summary">
+            <div class="mastery-subject-heading">
               <p class="eyebrow">{{ group.subject.slug }}</p>
               <h2 class="section-title">
                 <a href="/subjects/{{ group.subject.id }}">{{ group.subject.name }}</a>
               </h2>
+              <p class="mastery-subject-meta">{{ group.mastery_rows|length }} concepts · {{ group.total_attempts }} attempts</p>
             </div>
-            <div class="flex flex-wrap gap-2">
+            <div class="mastery-subject-badges">
               {% if group.total_attempts %}
                 <span class="meta-chip">{{ "%.0f"|format(group.accuracy) }}% mastery</span>
               {% endif %}
@@ -51,41 +65,99 @@
               <span class="mastery-status mastery-improving">{{ group.improving_count }} Improving</span>
               <span class="mastery-status mastery-strong">{{ group.strong_count }} Strong</span>
             </div>
+          </summary>
+
+          <div class="mastery-list" data-mastery-list>
+            {% for row in group.mastery_rows %}
+              <article
+                class="mastery-row"
+                data-mastery-row
+                data-status="{{ row.status }}"
+                data-concept="{{ row.concept.name|display_label|lower }}"
+              >
+                <div class="mastery-row-main">
+                  <div class="font-medium">{{ row.concept.name|display_label }}</div>
+                  <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
+                </div>
+                <dl class="mastery-row-stats">
+                  <div>
+                    <dt>Attempts</dt>
+                    <dd>{{ row.total_attempts }}</dd>
+                  </div>
+                  <div>
+                    <dt>Correct</dt>
+                    <dd>{{ row.correct_attempts }}</dd>
+                  </div>
+                  <div>
+                    <dt>Accuracy</dt>
+                    <dd>{{ "%.0f"|format(row.accuracy) }}%</dd>
+                  </div>
+                  <div>
+                    <dt>Last missed</dt>
+                    <dd>
+                      {% if row.last_missed_at %}
+                        {{ row.last_missed_at.strftime("%b %-d, %Y") }}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </dd>
+                  </div>
+                </dl>
+              </article>
+            {% endfor %}
           </div>
-          <table class="mastery-table">
-            <thead>
-              <tr>
-                <th>Concept</th>
-                <th>Total attempts</th>
-                <th>Correct</th>
-                <th>Accuracy</th>
-                <th>Last missed</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in group.mastery_rows %}
-                <tr>
-                  <td><div class="font-medium">{{ row.concept.name|display_label }}</div></td>
-                  <td>{{ row.total_attempts }}</td>
-                  <td>{{ row.correct_attempts }}</td>
-                  <td>{{ "%.0f"|format(row.accuracy) }}%</td>
-                  <td>
-                    {% if row.last_missed_at %}
-                      {{ row.last_missed_at.strftime("%b %-d, %Y") }}
-                    {% else %}
-                      -
-                    {% endif %}
-                  </td>
-                  <td><span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span></td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </section>
+        </details>
       {% endfor %}
     </div>
+    <div class="empty-state mt-6" data-mastery-empty hidden>No matching concepts.</div>
   {% else %}
     <div class="empty-state">No concepts have been tagged yet.</div>
   {% endif %}
+
+  <script>
+    (() => {
+      const search = document.querySelector("[data-mastery-search]");
+      const filters = [...document.querySelectorAll("[data-status-filter]")];
+      const subjects = [...document.querySelectorAll("[data-mastery-subject]")];
+      const emptyState = document.querySelector("[data-mastery-empty]");
+      let activeStatus = "all";
+
+      const applyFilters = () => {
+        const query = (search?.value || "").trim().toLowerCase();
+        let visibleSubjects = 0;
+
+        subjects.forEach((subject) => {
+          const rows = [...subject.querySelectorAll("[data-mastery-row]")];
+          let visibleRows = 0;
+
+          rows.forEach((row) => {
+            const statusMatches = activeStatus === "all" || row.dataset.status === activeStatus;
+            const conceptMatches = !query || (row.dataset.concept || "").includes(query);
+            const isVisible = statusMatches && conceptMatches;
+            row.hidden = !isVisible;
+            if (isVisible) visibleRows += 1;
+          });
+
+          subject.hidden = visibleRows === 0;
+          if (visibleRows > 0) visibleSubjects += 1;
+        });
+
+        if (emptyState) emptyState.hidden = visibleSubjects > 0;
+      };
+
+      filters.forEach((button) => {
+        button.addEventListener("click", () => {
+          activeStatus = button.dataset.statusFilter || "all";
+          filters.forEach((item) => {
+            const isActive = item === button;
+            item.classList.toggle("is-active", isActive);
+            item.setAttribute("aria-pressed", String(isActive));
+          });
+          applyFilters();
+        });
+      });
+
+      search?.addEventListener("input", applyFilters);
+    })();
+  </script>
 {% endblock %}

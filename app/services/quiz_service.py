@@ -110,6 +110,7 @@ def get_or_create_concepts(db: Session, names: list[str], subject: Subject) -> l
 
         concept = Concept(name=name, slug=slug, subject=subject)
         db.add(concept)
+        db.flush()
         concepts.append(concept)
     return concepts
 

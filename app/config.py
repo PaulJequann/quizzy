@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://quizzy:quizzy@localhost:5432/quizzy"
     app_env: str = "development"
     secret_key: str = "change-me-in-production"
+    default_difficulty: str = "intermediate"
+    obsidian_vault_roots: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

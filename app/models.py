@@ -52,6 +52,13 @@ class TimestampMixin:
     )
 
 
+class AppSetting(TimestampMixin, Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class Subject(TimestampMixin, Base):
     __tablename__ = "subjects"
     __table_args__ = (UniqueConstraint("slug", name="uq_subjects_slug"),)
@@ -68,6 +75,23 @@ class Subject(TimestampMixin, Base):
     )
     questions: Mapped[list["Question"]] = relationship(back_populates="subject")
     primary_quizzes: Mapped[list["Quiz"]] = relationship(back_populates="primary_subject")
+    source_documents: Mapped[list["SourceDocument"]] = relationship(back_populates="subject")
+
+
+class SourceDocument(TimestampMixin, Base):
+    __tablename__ = "source_documents"
+    __table_args__ = (UniqueConstraint("path", name="uq_source_documents_path"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[int | None] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"))
+    source_type: Mapped[str] = mapped_column(String(40), nullable=False, default="obsidian")
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    obsidian_uri: Mapped[str | None] = mapped_column(String(1024))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+    subject: Mapped[Subject | None] = relationship(back_populates="source_documents")
 
 
 class QuizQuestion(Base):
@@ -214,7 +238,8 @@ class Question(TimestampMixin, Base):
         nullable=False,
         default=QuestionStatus.ACTIVE,
     )
-    source_reference: Mapped[str | None] = mapped_column(String(255))
+    source_reference: Mapped[str | None] = mapped_column(String(1024))
+    source_excerpt: Mapped[str | None] = mapped_column(Text)
 
     subject: Mapped[Subject] = relationship(back_populates="questions")
     quiz_links: Mapped[list[QuizQuestion]] = relationship(

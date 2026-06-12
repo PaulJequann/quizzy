@@ -71,6 +71,9 @@ def test_mastery_page_tracks_attempt_accuracy(client: TestClient, db_session: Se
 
     mastery_response = client.get("/mastery")
     assert mastery_response.status_code == 200
+    assert "data-mastery-search" in mastery_response.text
+    assert 'data-status-filter="weak"' in mastery_response.text
+    assert "data-mastery-row" in mastery_response.text
     assert "Pytest Basics" in mastery_response.text
     assert "0%" in mastery_response.text
     assert "Weak" in mastery_response.text

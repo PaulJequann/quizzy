@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -24,14 +25,33 @@ def slugify(value: str) -> str:
     return slug or "general"
 
 
+def _migration_enums(bind) -> tuple[sa.Enum, sa.Enum, sa.Enum]:
+    if bind.dialect.name == "postgresql":
+        quiz_type = postgresql.ENUM(
+            "standard", "review", "generated", name="quiz_type", create_type=False
+        )
+        question_status = postgresql.ENUM(
+            "draft", "active", "archived", name="question_status", create_type=False
+        )
+        difficulty = postgresql.ENUM(
+            "beginner", "intermediate", "advanced", name="difficulty", create_type=False
+        )
+        return quiz_type, question_status, difficulty
+
+    return (
+        sa.Enum("standard", "review", "generated", name="quiz_type"),
+        sa.Enum("draft", "active", "archived", name="question_status"),
+        sa.Enum("beginner", "intermediate", "advanced", name="difficulty"),
+    )
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     now = datetime.now(UTC)
     if bind.dialect.name == "postgresql":
         op.execute("ALTER TYPE quiz_status ADD VALUE IF NOT EXISTS 'archived'")
 
-    quiz_type = sa.Enum("standard", "review", "generated", name="quiz_type")
-    question_status = sa.Enum("draft", "active", "archived", name="question_status")
+    quiz_type, question_status, difficulty = _migration_enums(bind)
     quiz_type.create(bind, checkfirst=True)
     question_status.create(bind, checkfirst=True)
 
@@ -153,7 +173,7 @@ def upgrade() -> None:
         "questions",
         sa.Column(
             "difficulty",
-            sa.Enum("beginner", "intermediate", "advanced", name="difficulty"),
+            difficulty,
             nullable=False,
             server_default="beginner",
         ),

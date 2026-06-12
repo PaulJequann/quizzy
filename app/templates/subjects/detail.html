@@ -34,7 +34,7 @@
   </section>
 
   {% if mastery_group %}
-    <section class="panel mb-6 overflow-x-auto">
+    <section class="panel subject-mastery-panel mb-6">
       <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p class="eyebrow">Mastery</p>
@@ -46,36 +46,40 @@
           <span class="mastery-status mastery-strong">{{ mastery_group.strong_count }} Strong</span>
         </div>
       </div>
-      <table class="mastery-table">
-        <thead>
-          <tr>
-            <th>Concept</th>
-            <th>Total attempts</th>
-            <th>Correct</th>
-            <th>Accuracy</th>
-            <th>Last missed</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in mastery_group.mastery_rows %}
-            <tr>
-              <td><div class="font-medium">{{ row.concept.name|display_label }}</div></td>
-              <td>{{ row.total_attempts }}</td>
-              <td>{{ row.correct_attempts }}</td>
-              <td>{{ "%.0f"|format(row.accuracy) }}%</td>
-              <td>
-                {% if row.last_missed_at %}
-                  {{ row.last_missed_at.strftime("%b %-d, %Y") }}
-                {% else %}
-                  -
-                {% endif %}
-              </td>
-              <td><span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="mastery-list subject-mastery-list">
+        {% for row in mastery_group.mastery_rows %}
+          <article class="mastery-row">
+            <div class="mastery-row-main">
+              <div class="font-medium">{{ row.concept.name|display_label }}</div>
+              <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
+            </div>
+            <dl class="mastery-row-stats">
+              <div>
+                <dt>Attempts</dt>
+                <dd>{{ row.total_attempts }}</dd>
+              </div>
+              <div>
+                <dt>Correct</dt>
+                <dd>{{ row.correct_attempts }}</dd>
+              </div>
+              <div>
+                <dt>Accuracy</dt>
+                <dd>{{ "%.0f"|format(row.accuracy) }}%</dd>
+              </div>
+              <div>
+                <dt>Last missed</dt>
+                <dd>
+                  {% if row.last_missed_at %}
+                    {{ row.last_missed_at.strftime("%b %-d, %Y") }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </dd>
+              </div>
+            </dl>
+          </article>
+        {% endfor %}
+      </div>
     </section>
   {% endif %}
 

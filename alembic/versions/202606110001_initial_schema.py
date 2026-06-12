@@ -8,6 +8,7 @@ Create Date: 2026-06-11 00:01:00
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -17,11 +18,23 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _initial_enums(bind) -> tuple[sa.Enum, sa.Enum]:
+    if bind.dialect.name == "postgresql":
+        difficulty = postgresql.ENUM(
+            "beginner", "intermediate", "advanced", name="difficulty", create_type=False
+        )
+        quiz_status = postgresql.ENUM("draft", "published", name="quiz_status", create_type=False)
+    else:
+        difficulty = sa.Enum("beginner", "intermediate", "advanced", name="difficulty")
+        quiz_status = sa.Enum("draft", "published", name="quiz_status")
+    return difficulty, quiz_status
+
+
 def upgrade() -> None:
-    difficulty = sa.Enum("beginner", "intermediate", "advanced", name="difficulty")
-    quiz_status = sa.Enum("draft", "published", name="quiz_status")
-    difficulty.create(op.get_bind(), checkfirst=True)
-    quiz_status.create(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    difficulty, quiz_status = _initial_enums(bind)
+    difficulty.create(bind, checkfirst=True)
+    quiz_status.create(bind, checkfirst=True)
 
     op.create_table(
         "quizzes",
@@ -41,7 +54,8 @@ def upgrade() -> None:
         sa.Column("quiz_id", sa.Integer(), nullable=False),
         sa.Column("stem", sa.Text(), nullable=False),
         sa.Column("explanation", sa.Text(), nullable=True),
-        sa.Column("source_reference", sa.String(length=255), nullable=True),
+        sa.Column("source_reference", sa.String(length=1024), nullable=True),
+        sa.Column("source_excerpt", sa.Text(), nullable=True),
         sa.Column("order_index", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
