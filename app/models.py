@@ -27,11 +27,20 @@ class QuizType(StrEnum):
     STANDARD = "standard"
     REVIEW = "review"
     GENERATED = "generated"
+    PRACTICE = "practice"
 
 
 class QuestionStatus(StrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class QuestionHealthState(StrEnum):
+    UNTESTED = "untested"
+    HEALTHY = "healthy"
+    NEEDS_REVIEW = "needs_review"
+    SUSPECT = "suspect"
     ARCHIVED = "archived"
 
 
@@ -74,6 +83,14 @@ class Subject(TimestampMixin, Base):
         order_by="Concept.name",
     )
     questions: Mapped[list["Question"]] = relationship(back_populates="subject")
+    generation_batches: Mapped[list["QuestionGenerationBatch"]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+    )
+    question_review_items: Mapped[list["QuestionReviewItem"]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+    )
     primary_quizzes: Mapped[list["Quiz"]] = relationship(back_populates="primary_subject")
     source_documents: Mapped[list["SourceDocument"]] = relationship(back_populates="subject")
 
@@ -92,6 +109,35 @@ class SourceDocument(TimestampMixin, Base):
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
 
     subject: Mapped[Subject | None] = relationship(back_populates="source_documents")
+    questions: Mapped[list["Question"]] = relationship(back_populates="source_document")
+    generation_batches: Mapped[list["QuestionGenerationBatch"]] = relationship(
+        back_populates="source_document"
+    )
+
+
+class QuestionGenerationBatch(TimestampMixin, Base):
+    __tablename__ = "question_generation_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
+    )
+    source_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="SET NULL")
+    )
+    generator_type: Mapped[str] = mapped_column(String(40), nullable=False, default="mcp_agent")
+    generator_name: Mapped[str | None] = mapped_column(String(160))
+    settings_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    subject: Mapped[Subject] = relationship(back_populates="generation_batches")
+    source_document: Mapped[SourceDocument | None] = relationship(
+        back_populates="generation_batches"
+    )
+    questions: Mapped[list["Question"]] = relationship(back_populates="generation_batch")
+    review_items: Mapped[list["QuestionReviewItem"]] = relationship(
+        back_populates="generation_batch"
+    )
 
 
 class QuizQuestion(Base):
@@ -104,6 +150,8 @@ class QuizQuestion(Base):
         ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True
     )
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    selection_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    selection_score: Mapped[float | None] = mapped_column(Float)
 
     quiz: Mapped["Quiz"] = relationship(back_populates="question_links")
     question: Mapped["Question"] = relationship(back_populates="quiz_links")
@@ -145,6 +193,9 @@ class Quiz(TimestampMixin, Base):
         nullable=False,
         default=QuizStatus.DRAFT,
     )
+    assembly_strategy: Mapped[str | None] = mapped_column(String(80))
+    assembly_params_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    is_disposable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     question_links: Mapped[list[QuizQuestion]] = relationship(
         back_populates="quiz",
@@ -239,9 +290,30 @@ class Question(TimestampMixin, Base):
         default=QuestionStatus.ACTIVE,
     )
     source_reference: Mapped[str | None] = mapped_column(String(1024))
+    source_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="SET NULL")
+    )
     source_excerpt: Mapped[str | None] = mapped_column(Text)
+    generation_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_generation_batches.id", ondelete="SET NULL")
+    )
+    health_state: Mapped[QuestionHealthState] = mapped_column(
+        Enum(
+            QuestionHealthState,
+            name="question_health_state",
+            values_callable=lambda enum_class: [member.value for member in enum_class],
+        ),
+        nullable=False,
+        default=QuestionHealthState.UNTESTED,
+    )
+    health_score: Mapped[float | None] = mapped_column(Float)
+    last_health_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     subject: Mapped[Subject] = relationship(back_populates="questions")
+    source_document: Mapped[SourceDocument | None] = relationship(back_populates="questions")
+    generation_batch: Mapped[QuestionGenerationBatch | None] = relationship(
+        back_populates="questions"
+    )
     quiz_links: Mapped[list[QuizQuestion]] = relationship(
         back_populates="question",
         cascade="all, delete-orphan",
@@ -254,6 +326,10 @@ class Question(TimestampMixin, Base):
     )
     attempt_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="question")
     concept_links: Mapped[list[QuestionConcept]] = relationship(
+        back_populates="question",
+        cascade="all, delete-orphan",
+    )
+    review_items: Mapped[list["QuestionReviewItem"]] = relationship(
         back_populates="question",
         cascade="all, delete-orphan",
     )
@@ -286,6 +362,32 @@ class Choice(Base):
     selected_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="selected_choice")
 
 
+class QuestionReviewItem(TimestampMixin, Base):
+    __tablename__ = "question_review_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
+    )
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
+    )
+    generation_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_generation_batches.id", ondelete="SET NULL")
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    suggested_action: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="open")
+    resolution_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    question: Mapped[Question] = relationship(back_populates="review_items")
+    subject: Mapped[Subject] = relationship(back_populates="question_review_items")
+    generation_batch: Mapped[QuestionGenerationBatch | None] = relationship(
+        back_populates="review_items"
+    )
+
+
 class Attempt(Base):
     __tablename__ = "attempts"
 
@@ -296,6 +398,7 @@ class Attempt(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    session_type: Mapped[str] = mapped_column(String(40), nullable=False, default="practice")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -324,6 +427,7 @@ class AttemptAnswer(Base):
     selected_choice_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     correct_choice_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     explanation_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     attempt: Mapped[Attempt] = relationship(back_populates="answers")
     question: Mapped[Question] = relationship(back_populates="attempt_answers")

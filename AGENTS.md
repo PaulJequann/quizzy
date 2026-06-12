@@ -5,6 +5,23 @@ If anything conflicts with your instincts, follow this.
 
 ## Quality Gates
 
+### Database Policy
+
+This repo has two Postgres contexts: the active development app database and the automated test
+database. Keep them separate.
+
+- Do not create temporary SQLite databases for migration, e2e, MCP, or app verification.
+- Do not run destructive automated tests against the active dev database from `.env`.
+- Automated DB/API/MCP/migration tests use Testcontainers Postgres.
+- Testcontainers starts one `postgres:16-alpine` container per pytest session.
+- Alembic migrations create test schema. Do not use `Base.metadata.create_all()` as the integration
+  test schema path.
+- Test isolation resets data inside the Testcontainers database and preserves Alembic metadata.
+- If active dev schema or data is stale, run migrations against Postgres or intentionally wipe/reseed
+  Postgres.
+- SQLite compatibility branches may exist in application code for SQLAlchemy connection handling or
+  legacy migration support, but SQLite checks are not evidence that the app works in this repo.
+
 ### Default Flow
 
 1. Code changes: run the normal Python checks once after edits and before staging:
@@ -13,12 +30,19 @@ If anything conflicts with your instincts, follow this.
    uv run ruff check .
    uv run ruff format --check .
    uv run ty check
-   uv run pytest
+   make test
    ```
 
 2. If formatting is the only failure, run `uv run ruff format .`, then rerun the checks once.
 3. Docs-only changes can skip Python checks unless they alter executable examples or setup commands.
 4. If tests reveal unrelated failures outside the touched area, do not broaden the change by default. Note the failures and keep the fix scoped.
+
+### Test Commands
+
+- `make test-unit`: pure unit tests; no database and no Docker.
+- `make test-db`: API, MCP, integration, and migration tests against Testcontainers Postgres.
+- `make test`: full local suite.
+- `make test-final`: full suite with fresh-container assumptions for final validation.
 
 ### CodeScene Code Health
 

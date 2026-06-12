@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models import Difficulty, QuestionStatus, QuizStatus, QuizType
+from app.models import Difficulty, QuestionHealthState, QuestionStatus, QuizStatus, QuizType
 
 
 class ChoiceCreate(BaseModel):
@@ -58,7 +58,12 @@ class QuestionRead(BaseModel):
     explanation: str | None
     difficulty: Difficulty
     status: QuestionStatus
+    health_state: QuestionHealthState
+    health_score: float | None
+    source_document_id: int | None
     source_reference: str | None
+    source_excerpt: str | None
+    generation_batch_id: int | None
     order_index: int
     subject: SubjectRead
     choices: list[ChoiceRead]
@@ -85,6 +90,9 @@ class QuizRead(BaseModel):
     quiz_type: QuizType
     difficulty: Difficulty
     status: QuizStatus
+    assembly_strategy: str | None
+    assembly_params_json: str
+    is_disposable: bool
     created_at: datetime
     updated_at: datetime
     questions: list[QuestionRead] = Field(default_factory=list)
@@ -107,6 +115,7 @@ class AttemptRead(BaseModel):
     score: float
     total_questions: int
     correct_count: int
+    session_type: str
     submitted_at: datetime | None
 
     model_config = {"from_attributes": True}

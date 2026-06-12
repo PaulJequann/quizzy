@@ -5,50 +5,45 @@ from pathlib import Path
 
 import pytest
 from fastmcp.exceptions import ToolError
-from sqlalchemy import String, create_engine, func, select
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import String, func, select
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import Base, get_engine, get_session_factory
+from app.database import get_engine
 from app.mcp.server import build_server
-from app.models import Difficulty, Question, Quiz, QuizType, SourceDocument
-from app.services import generation_service, settings_service, source_service
+from app.models import Difficulty, Question, QuestionHealthState, Quiz, QuizType, SourceDocument
+from app.services import (
+    generation_service,
+    question_health_service,
+    settings_service,
+    source_service,
+)
 from app.services.generation_service import (
     GeneratedChoiceInput,
     GeneratedQuestionInput,
     GeneratedQuizCreateInput,
 )
+from app.services.grading_service import submit_attempt
+from tests.db_utils import clear_database_caches, reset_database
+
+pytestmark = pytest.mark.mcp
 
 
 @pytest.fixture
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
-    with session_factory() as session:
-        yield session
+def db_session(test_database_url, monkeypatch):
+    yield from reset_database(test_database_url, monkeypatch)
+    clear_database_caches()
 
 
 @pytest.fixture
-def mcp_database(tmp_path, monkeypatch):
-    db_path = tmp_path / "quizzy.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
-    get_settings.cache_clear()
-    get_engine.cache_clear()
-    get_session_factory.cache_clear()
-    engine = get_engine()
-    Base.metadata.create_all(engine)
-    try:
-        yield db_path
-    finally:
-        get_settings.cache_clear()
-        get_engine.cache_clear()
-        get_session_factory.cache_clear()
+def mcp_database(test_database_url, monkeypatch):
+    clear_database_caches()
+    for session in reset_database(test_database_url, monkeypatch):
+        session.close()
+        try:
+            yield
+        finally:
+            clear_database_caches()
 
 
 async def _invoke(server, name: str, args: dict):
@@ -175,6 +170,9 @@ def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: 
     assert isinstance(source_reference_type, String)
     assert source_reference_type.length == 1024
     assert saved_question.source_reference == note.path
+    assert saved_question.source_document_id == note.id
+    assert saved_question.generation_batch_id is not None
+    assert saved_question.health_state == QuestionHealthState.UNTESTED
     assert saved_question.source_excerpt == "Glacier is for archival access."
     assert result["questions"][0]["source_excerpt"] == "Glacier is for archival access."
     assert [concept.name for concept in saved_question.concepts] == ["storage classes"]
@@ -315,6 +313,7 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     guidance = asyncio.run(_invoke(server, "get_generation_guidance", {}))
     assert "Distractor Control" in guidance["guidance"]
     assert "common misconceptions" in guidance["guidance"]
+    assert "create_generated_questions" in guidance["guidance"]
     assert "Concept granularity rules" in guidance["guidance"]
 
     note_path = write_note(tmp_path / "aws-s3.md")
@@ -356,6 +355,7 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     assert created["difficulty"] == "intermediate"
     assert created["quiz_type"] == "generated"
     assert created["questions"][0]["source_reference"] == str(note_path.resolve())
+    assert created["questions"][0]["generation_batch_id"] is not None
 
 
 def test_mcp_prepare_generation_context_returns_existing_concepts_and_policy(
@@ -582,3 +582,90 @@ def test_mcp_rejects_unsourced_generated_question(mcp_database):
                 },
             )
         )
+
+
+def create_bank_question_with_mcp(server, tmp_path) -> tuple[dict, int]:
+    note_path = write_note(tmp_path / "aws-s3.md")
+    ingest = asyncio.run(
+        _invoke(
+            server,
+            "ingest_obsidian_note",
+            {"path": str(note_path), "subject_name": "AWS"},
+        )
+    )
+    document_id = ingest["document"]["id"]
+    created = asyncio.run(
+        _invoke(
+            server,
+            "create_generated_questions",
+            {
+                "subject_name": "AWS",
+                "source_document_id": document_id,
+                "questions": [
+                    {
+                        "stem": "Which S3 storage class is intended for archival data?",
+                        "choices": [
+                            {"text": "S3 Glacier", "is_correct": True},
+                            {"text": "S3 Standard because it is always cheapest"},
+                            {"text": "CloudFront because it stores all origin data permanently"},
+                            {"text": "IAM because policies retain objects"},
+                        ],
+                        "explanation": "Glacier is the archival storage class.",
+                        "concept_names": ["S3 storage classes"],
+                    }
+                ],
+            },
+        )
+    )
+    bank = asyncio.run(_invoke(server, "list_question_bank", {"subject_name": "AWS"}))
+    return created, bank["questions"][0]["subject_id"]
+
+
+def assemble_mcp_practice(server, subject_id: int) -> dict:
+    return asyncio.run(
+        _invoke(server, "assemble_practice_session", {"subject_id": subject_id, "count": 1})
+    )
+
+
+def miss_practice_question(practice_id: int, question_id: int) -> None:
+    with Session(get_engine()) as db:
+        quiz = db.get(Quiz, practice_id)
+        assert quiz is not None
+        question = db.get(Question, question_id)
+        assert question is not None
+        wrong_choice = next(choice for choice in question.choices if not choice.is_correct)
+        attempt = submit_attempt(db, quiz, {question.id: wrong_choice.id})
+        question_health_service.record_attempt_evidence(db, attempt.id)
+
+
+def test_mcp_question_first_generation_practice_and_repair_queue(mcp_database, tmp_path):
+    server = build_server()
+    created, subject_id = create_bank_question_with_mcp(server, tmp_path)
+    practice = assemble_mcp_practice(server, subject_id)
+    question_id = created["question_ids"][0]
+
+    assert created["questions_created"] == 1
+    assert practice["quiz_type"] == "practice"
+    assert practice["questions"][0]["id"] == question_id
+
+    miss_practice_question(practice["id"], question_id)
+    queue = asyncio.run(_invoke(server, "list_question_review_queue", {"subject_id": subject_id}))
+    item = queue["review_items"][0]
+    context = asyncio.run(
+        _invoke(
+            server,
+            "prepare_question_repair_context",
+            {"question_id": question_id},
+        )
+    )
+    resolved = asyncio.run(
+        _invoke(
+            server,
+            "resolve_question_review_item",
+            {"item_id": item["id"], "action": "resolved", "notes": "Reviewed in test."},
+        )
+    )
+
+    assert item["suggested_action"] == "clarify_explanation"
+    assert context["health"]["state"] == "needs_review"
+    assert resolved["status"] == "resolved"

@@ -52,11 +52,18 @@ uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "message"
 uv run python -m scripts.seed
 uv run uvicorn app.main:app --reload
-uv run pytest
+make test-unit
+make test-db
+make test
+make test-final
 uv run ruff check .
 uv run ruff format .
 uv run ty check
 ```
+
+Automated DB/API/MCP/migration tests use Testcontainers Postgres and run Alembic migrations
+against the disposable test database. They do not wipe the active development Postgres database
+from `.env`.
 
 ## Agent workflow
 
