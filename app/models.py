@@ -238,7 +238,8 @@ class Question(TimestampMixin, Base):
         nullable=False,
         default=QuestionStatus.ACTIVE,
     )
-    source_reference: Mapped[str | None] = mapped_column(String(255))
+    source_reference: Mapped[str | None] = mapped_column(String(1024))
+    source_excerpt: Mapped[str | None] = mapped_column(Text)
 
     subject: Mapped[Subject] = relationship(back_populates="questions")
     quiz_links: Mapped[list[QuizQuestion]] = relationship(

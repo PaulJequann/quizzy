@@ -167,11 +167,7 @@ def _resolve_note_path(path: str | Path) -> Path:
 
 
 def _ensure_path_allowed(path: Path) -> None:
-    roots = [
-        Path(raw).expanduser().resolve()
-        for raw in get_settings().obsidian_vault_roots.split(",")
-        if raw.strip()
-    ]
+    roots = _vault_roots()
     if not roots:
         return
     if not any(path == root or root in path.parents for root in roots):
@@ -213,5 +209,21 @@ def _frontmatter_string(metadata: dict[str, object], key: str) -> str | None:
 
 def _obsidian_uri(path: Path, *, vault_name: str | None) -> str:
     if vault_name:
-        return f"obsidian://open?vault={quote(vault_name)}&file={quote(path.stem)}"
+        note_path = _vault_relative_note_path(path) or path.stem
+        return f"obsidian://open?vault={quote(vault_name)}&file={quote(note_path)}"
     return f"obsidian://open?path={quote(str(path))}"
+
+
+def _vault_roots() -> list[Path]:
+    return [
+        Path(raw.strip()).expanduser().resolve()
+        for raw in get_settings().obsidian_vault_roots.split(",")
+        if raw.strip()
+    ]
+
+
+def _vault_relative_note_path(path: Path) -> str | None:
+    for root in _vault_roots():
+        if path == root or root in path.parents:
+            return path.relative_to(root).with_suffix("").as_posix()
+    return None

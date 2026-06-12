@@ -214,6 +214,7 @@ def _generated_question_to_dict(question: Question) -> dict[str, Any]:
         "stem": question.stem,
         "difficulty": question.difficulty.value,
         "source_reference": question.source_reference,
+        "source_excerpt": question.source_excerpt,
         "concepts": [concept.name for concept in question.concepts],
     }
 
@@ -234,6 +235,7 @@ def _build_question(
         difficulty=question_input.difficulty or context.quiz.difficulty,
         status=QuestionStatus.ACTIVE,
         source_reference=source_reference,
+        source_excerpt=(question_input.source_excerpt or "").strip() or None,
     )
     db.add(question)
     for index, choice_input in enumerate(question_input.choices, start=1):

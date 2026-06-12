@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastmcp.exceptions import ToolError
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import String, create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -57,6 +57,7 @@ async def _invoke(server, name: str, args: dict):
 
 
 def write_note(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "---\ntitle: S3 Storage Classes\nsubject: AWS\n---\n"
         "# S3 Storage Classes\n\n"
@@ -120,6 +121,25 @@ def test_ingest_obsidian_note_creates_or_updates_source_document(db_session: Ses
     assert "Glacier" in documents[0].content
 
 
+def test_ingest_obsidian_note_uses_vault_relative_uri_and_stripped_roots(
+    db_session: Session, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("OBSIDIAN_VAULT_ROOTS", f" {tmp_path} ")
+    get_settings.cache_clear()
+    note_path = write_note(tmp_path / "aws" / "route53.md")
+
+    try:
+        report = source_service.ingest_obsidian_note(
+            db_session,
+            note_path,
+            vault_name="Study Vault",
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert report.document.obsidian_uri == ("obsidian://open?vault=Study%20Vault&file=aws/route53")
+
+
 def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: Session, tmp_path):
     settings_service.set_default_difficulty(db_session, Difficulty.ADVANCED)
     note = source_service.ingest_obsidian_note(
@@ -136,6 +156,7 @@ def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: 
         explanation="Glacier is designed for archival storage access patterns.",
         concept_names=["storage classes"],
         source_document_id=note.id,
+        source_excerpt="Glacier is for archival access.",
     )
 
     result = generation_service.create_generated_quiz_with_questions(
@@ -150,7 +171,12 @@ def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: 
     assert quiz.quiz_type == QuizType.GENERATED
     assert quiz.difficulty == Difficulty.ADVANCED
     assert saved_question is not None
+    source_reference_type = Question.__table__.c.source_reference.type
+    assert isinstance(source_reference_type, String)
+    assert source_reference_type.length == 1024
     assert saved_question.source_reference == note.path
+    assert saved_question.source_excerpt == "Glacier is for archival access."
+    assert result["questions"][0]["source_excerpt"] == "Glacier is for archival access."
     assert [concept.name for concept in saved_question.concepts] == ["storage classes"]
 
 

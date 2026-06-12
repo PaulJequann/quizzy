@@ -461,7 +461,7 @@ def _register_concept_maintenance_tools(server: FastMCP) -> None:
             )
 
     read = {"readOnlyHint": True, "idempotentHint": True}
-    write = {"destructiveHint": True, "idempotentHint": True}
+    write = {"destructiveHint": True, "idempotentHint": False}
     register_tool(server, "suggest_concept_merges", suggest_concept_merges, annotations=read)
     register_tool(server, "merge_concepts", merge_concepts, annotations=write)
 
