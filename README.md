@@ -56,6 +56,7 @@ uv run ty check
 
 - `GET /` redirects to `/quizzes`
 - `GET /quizzes`
+- `GET /mastery`
 - `GET /quizzes/new`
 - `POST /quizzes`
 - `GET /quizzes/{quiz_id}`
@@ -66,4 +67,3 @@ uv run ty check
 - `GET /attempts/{attempt_id}/results`
 
 Minimal JSON routes are available under `/api`.
-

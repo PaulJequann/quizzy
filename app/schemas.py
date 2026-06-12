@@ -19,11 +19,23 @@ class ChoiceRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ConceptRead(BaseModel):
+    id: int
+    name: str
+    description: str
+    topic: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class QuestionCreate(BaseModel):
     stem: str = Field(min_length=1)
     choices: list[ChoiceCreate] = Field(min_length=4, max_length=4)
     explanation: str | None = None
     source_reference: str | None = None
+    concept_names: list[str] = Field(default_factory=list)
 
 
 class QuestionRead(BaseModel):
@@ -33,6 +45,7 @@ class QuestionRead(BaseModel):
     source_reference: str | None
     order_index: int
     choices: list[ChoiceRead]
+    concepts: list[ConceptRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -54,7 +67,7 @@ class QuizRead(BaseModel):
     status: QuizStatus
     created_at: datetime
     updated_at: datetime
-    questions: list[QuestionRead] = []
+    questions: list[QuestionRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import create_app
-from app.models import Choice, Difficulty, Question, Quiz, QuizStatus
+from app.models import Choice, Concept, Difficulty, Question, Quiz, QuizStatus
 
 
 @pytest.fixture
@@ -49,6 +49,7 @@ def seed_test_quiz(session: Session) -> None:
         Choice(text="Migrations", is_correct=False, order_index=3),
         Choice(text="Containers", is_correct=False, order_index=4),
     ]
+    question.concepts = [Concept(name="pytest basics", topic="testing")]
     quiz.questions.append(question)
     session.add(quiz)
     session.commit()

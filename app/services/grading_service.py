@@ -1,8 +1,20 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
-from app.models import Attempt, AttemptAnswer, Quiz
+from app.models import Attempt, AttemptAnswer, Concept, Question, Quiz
+
+
+@dataclass(frozen=True)
+class ConceptMastery:
+    concept: Concept
+    total_attempts: int
+    correct_attempts: int
+    accuracy: float
+    last_missed_at: datetime | None
+    status: str
 
 
 def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | None]) -> Attempt:
@@ -36,6 +48,66 @@ def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | N
     db.commit()
     db.refresh(attempt)
     return attempt
+
+
+def mastery_status(accuracy: float) -> str:
+    if accuracy >= 90:
+        return "strong"
+    if accuracy >= 70:
+        return "improving"
+    return "weak"
+
+
+def get_mastery_rows(db: Session) -> list[ConceptMastery]:
+    concepts = db.scalars(
+        select(Concept)
+        .options(
+            selectinload(Concept.questions)
+            .selectinload(Question.attempt_answers)
+            .selectinload(AttemptAnswer.attempt)
+        )
+        .order_by(Concept.name)
+    ).all()
+
+    rows: list[ConceptMastery] = []
+    for concept in concepts:
+        total_attempts = 0
+        correct_attempts = 0
+        last_missed_at: datetime | None = None
+
+        for question in concept.questions:
+            for answer in question.attempt_answers:
+                total_attempts += 1
+                if answer.is_correct:
+                    correct_attempts += 1
+                    continue
+                missed_at = answer.attempt.submitted_at
+                if missed_at and (last_missed_at is None or missed_at > last_missed_at):
+                    last_missed_at = missed_at
+
+        accuracy = round((correct_attempts / total_attempts) * 100, 2) if total_attempts else 0
+        rows.append(
+            ConceptMastery(
+                concept=concept,
+                total_attempts=total_attempts,
+                correct_attempts=correct_attempts,
+                accuracy=accuracy,
+                last_missed_at=last_missed_at,
+                status=mastery_status(accuracy),
+            )
+        )
+
+    return rows
+
+
+def missed_concepts_for_attempt(attempt: Attempt) -> list[Concept]:
+    concepts_by_id: dict[int, Concept] = {}
+    for answer in attempt.answers:
+        if answer.is_correct:
+            continue
+        for concept in answer.question.concepts:
+            concepts_by_id[concept.id] = concept
+    return sorted(concepts_by_id.values(), key=lambda concept: concept.name.casefold())
 
 
 def letter_grade(score: float) -> str:

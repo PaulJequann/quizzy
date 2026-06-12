@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import Attempt, AttemptAnswer, Difficulty, Question, Quiz, QuizStatus
-from app.services.grading_service import letter_grade, passed, submit_attempt
+from app.services.grading_service import (
+    get_mastery_rows,
+    letter_grade,
+    missed_concepts_for_attempt,
+    passed,
+    submit_attempt,
+)
 from app.services.quiz_service import (
     create_question,
     create_quiz,
@@ -38,6 +44,15 @@ def quiz_list(request: Request, db: Annotated[Session, Depends(get_db)]):
         request,
         "quizzes/list.html",
         {"quizzes": quizzes},
+    )
+
+
+@router.get("/mastery", response_class=HTMLResponse)
+def mastery(request: Request, db: Annotated[Session, Depends(get_db)]):
+    return templates.TemplateResponse(
+        request,
+        "mastery/index.html",
+        {"mastery_rows": get_mastery_rows(db)},
     )
 
 
@@ -108,6 +123,7 @@ def post_question(
     correct_choice: Annotated[int, Form()],
     explanation: Annotated[str, Form()] = "",
     source_reference: Annotated[str, Form()] = "",
+    concepts: Annotated[str, Form()] = "",
 ):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
@@ -120,6 +136,7 @@ def post_question(
             correct_choice=correct_choice,
             explanation=explanation,
             source_reference=source_reference,
+            concepts=concepts,
         )
     except ValueError as error:
         return templates.TemplateResponse(
@@ -171,9 +188,13 @@ def attempt_results(request: Request, attempt_id: int, db: Annotated[Session, De
         .where(Attempt.id == attempt_id)
         .options(
             selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.choices),
+            selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.concepts),
             selectinload(Attempt.answers)
             .selectinload(AttemptAnswer.question)
             .selectinload(Question.choices),
+            selectinload(Attempt.answers)
+            .selectinload(AttemptAnswer.question)
+            .selectinload(Question.concepts),
             selectinload(Attempt.answers).selectinload(AttemptAnswer.selected_choice),
         )
     )
@@ -191,6 +212,7 @@ def attempt_results(request: Request, attempt_id: int, db: Annotated[Session, De
             "attempt": attempt,
             "answer_by_question": answer_by_question,
             "correct_by_question": correct_by_question,
+            "missed_concepts": missed_concepts_for_attempt(attempt),
             "letter_grade": letter_grade(attempt.score),
             "passed": passed(attempt.score),
         },

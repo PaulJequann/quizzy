@@ -26,6 +26,16 @@
           <span class="status-draft">Needs review</span>
         {% endif %}
       </p>
+      {% if missed_concepts %}
+        <div class="mt-5">
+          <p class="eyebrow">Concepts to review</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            {% for concept in missed_concepts %}
+              <span class="concept-chip concept-chip-missed">{{ concept.name }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
     </div>
     <div>
       <p class="eyebrow">Review</p>
@@ -49,6 +59,13 @@
             <span class="verdict verdict-incorrect"><span class="verdict-glyph">✗</span>Incorrect</span>
           {% endif %}
         </div>
+        {% if question.concepts %}
+          <div class="mt-4 flex flex-wrap gap-2">
+            {% for concept in question.concepts %}
+              <span class="concept-chip {% if not answer or not answer.is_correct %}concept-chip-missed{% endif %}">{{ concept.name }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
         <div class="mt-5 grid gap-3 md:grid-cols-2">
           <div class="answer-review">
             <p class="eyebrow">Selected</p>
@@ -66,4 +83,3 @@
     {% endfor %}
   </ol>
 {% endblock %}
-

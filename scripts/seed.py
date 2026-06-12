@@ -1,5 +1,5 @@
 from app.database import get_session_factory
-from app.models import Choice, Difficulty, Question, Quiz, QuizStatus
+from app.models import Choice, Concept, Difficulty, Question, Quiz, QuizStatus
 
 QUIZZES = [
     {
@@ -178,6 +178,8 @@ def main() -> None:
                     source_reference=source,
                     order_index=question_index,
                 )
+                concept_name = source.rsplit("#", maxsplit=1)[-1].replace("-", " ")
+                question.concepts = [Concept(name=concept_name, topic=quiz_data["topic"])]
                 for choice_index, choice_text in enumerate(choices, start=1):
                     question.choices.append(
                         Choice(

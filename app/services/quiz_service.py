@@ -1,12 +1,15 @@
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Choice, Difficulty, Question, Quiz, QuizStatus
+from app.models import Choice, Concept, Difficulty, Question, Quiz, QuizStatus
 from app.schemas import ChoiceCreate, QuestionCreate, QuizCreate
 
 
 def quiz_query() -> Select[tuple[Quiz]]:
-    return select(Quiz).options(selectinload(Quiz.questions).selectinload(Question.choices))
+    return select(Quiz).options(
+        selectinload(Quiz.questions).selectinload(Question.choices),
+        selectinload(Quiz.questions).selectinload(Question.concepts),
+    )
 
 
 def list_quizzes(db: Session) -> list[Quiz]:
@@ -38,6 +41,42 @@ def update_quiz_status(db: Session, quiz: Quiz, status: QuizStatus) -> Quiz:
     return quiz
 
 
+def parse_concept_names(raw_concepts: str | None) -> list[str]:
+    if not raw_concepts:
+        return []
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for raw_name in raw_concepts.split(","):
+        name = raw_name.strip()
+        key = name.casefold()
+        if name and key not in seen:
+            names.append(name)
+            seen.add(key)
+    return names
+
+
+def get_or_create_concepts(db: Session, names: list[str], topic: str) -> list[Concept]:
+    concepts: list[Concept] = []
+    seen: set[str] = set()
+    for raw_name in names:
+        name = raw_name.strip()
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+
+        existing = db.scalar(select(Concept).where(func.lower(Concept.name) == name.lower()))
+        if existing is not None:
+            concepts.append(existing)
+            continue
+
+        concept = Concept(name=name, topic=topic.strip())
+        db.add(concept)
+        concepts.append(concept)
+    return concepts
+
+
 def create_question(db: Session, quiz: Quiz, data: QuestionCreate) -> Question:
     order_index = db.scalar(
         select(func.coalesce(func.max(Question.order_index), 0) + 1).where(
@@ -59,6 +98,7 @@ def create_question(db: Session, quiz: Quiz, data: QuestionCreate) -> Question:
                 order_index=index,
             )
         )
+    question.concepts = get_or_create_concepts(db, data.concept_names, quiz.topic)
     db.add(question)
     db.commit()
     db.refresh(question)
@@ -80,6 +120,7 @@ def form_question_create(
     correct_choice: int,
     explanation: str | None,
     source_reference: str | None,
+    concepts: str | None = None,
 ) -> QuestionCreate:
     if len(choices) != 4:
         raise ValueError("Exactly four choices are required.")
@@ -92,6 +133,7 @@ def form_question_create(
         stem=stem,
         explanation=explanation,
         source_reference=source_reference,
+        concept_names=parse_concept_names(concepts),
         choices=[
             ChoiceCreate(text=choice, is_correct=index == correct_choice)
             for index, choice in enumerate(choices)

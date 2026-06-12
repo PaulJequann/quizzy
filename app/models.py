@@ -1,7 +1,17 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -65,6 +75,33 @@ class Quiz(TimestampMixin, Base):
     )
 
 
+class QuestionConcept(Base):
+    __tablename__ = "question_concepts"
+
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True
+    )
+    concept_id: Mapped[int] = mapped_column(
+        ForeignKey("concepts.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class Concept(TimestampMixin, Base):
+    __tablename__ = "concepts"
+    __table_args__ = (UniqueConstraint("name", name="uq_concepts_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    topic: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+
+    questions: Mapped[list["Question"]] = relationship(
+        "Question",
+        secondary="question_concepts",
+        back_populates="concepts",
+    )
+
+
 class Question(TimestampMixin, Base):
     __tablename__ = "questions"
 
@@ -84,6 +121,11 @@ class Question(TimestampMixin, Base):
         order_by="Choice.order_index",
     )
     attempt_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="question")
+    concepts: Mapped[list[Concept]] = relationship(
+        secondary="question_concepts",
+        back_populates="questions",
+        order_by="Concept.name",
+    )
 
 
 class Choice(Base):
