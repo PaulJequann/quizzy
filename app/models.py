@@ -48,6 +48,7 @@ class Difficulty(StrEnum):
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
     ADVANCED = "advanced"
+    MIXED = "mixed"
 
 
 def utc_now() -> datetime:
@@ -398,7 +399,7 @@ class Attempt(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    session_type: Mapped[str] = mapped_column(String(40), nullable=False, default="practice")
+    session_type: Mapped[str] = mapped_column(String(40), nullable=False, default="standard")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

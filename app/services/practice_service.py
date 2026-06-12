@@ -22,6 +22,7 @@ from app.models import (
 from app.services.grading_service import get_concept_queue_items
 
 DEFAULT_PRACTICE_COUNT = 10
+QUESTION_DIFFICULTIES = (Difficulty.BEGINNER, Difficulty.INTERMEDIATE, Difficulty.ADVANCED)
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,7 @@ def assemble_practice_session(
         title=_practice_title(subject, data.strategy),
         description="Disposable practice assembled from the subject question bank.",
         primary_subject=subject,
-        difficulty=data.difficulty or Difficulty.BEGINNER,
+        difficulty=data.difficulty or Difficulty.MIXED,
         quiz_type=QuizType.PRACTICE,
         status=QuizStatus.PUBLISHED,
         assembly_strategy=data.strategy,
@@ -205,7 +206,7 @@ def _group_selections_by_difficulty(
             for question in candidates
             if question.difficulty == difficulty
         ]
-        for difficulty in Difficulty
+        for difficulty in QUESTION_DIFFICULTIES
     }
     for selections in grouped.values():
         selections.sort(key=lambda selection: (-selection.score, selection.question.id))
@@ -235,7 +236,7 @@ def _next_difficulty_round(
     remaining: int,
 ) -> list[PracticeSelection]:
     round_selection: list[PracticeSelection] = []
-    for difficulty in Difficulty:
+    for difficulty in QUESTION_DIFFICULTIES:
         if grouped[difficulty] and len(round_selection) < remaining:
             round_selection.append(grouped[difficulty].pop(0))
     return round_selection

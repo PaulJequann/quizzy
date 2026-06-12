@@ -239,7 +239,7 @@ def _source_reference(
     source_document_id = _question_source_document_id(question_input, fallback_source_document_id)
     if source_document_id is None:
         raise ValueError("Generated questions require source_document_id or source_reference.")
-    document = db.scalar(select(SourceDocument).where(SourceDocument.id == source_document_id))
+    document = db.get(SourceDocument, source_document_id)
     if document is None:
         raise ValueError(f"Unknown source document id {source_document_id}")
     return document.path

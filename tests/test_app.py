@@ -7,6 +7,7 @@ from app.models import (
     AttemptAnswer,
     Choice,
     Concept,
+    Difficulty,
     Question,
     QuestionHealthState,
     QuestionStatus,
@@ -78,6 +79,9 @@ def test_take_page_shuffles_presentation_without_position_based_grading(
 
     assert result_response.status_code == 200
     assert "100%" in result_response.text
+    answer = db_session.scalar(select(AttemptAnswer))
+    assert answer is not None
+    assert answer.attempt.session_type == QuizType.STANDARD.value
 
 
 def test_question_creation_tags_concepts(client: TestClient, db_session: Session) -> None:
@@ -280,6 +284,35 @@ def test_practice_builder_starts_concept_mix(client: TestClient, db_session: Ses
     assert practice.difficulty.value == "beginner"
     assert [question.stem for question in practice.questions] == ["What does pytest run?"]
     assert practice.question_links[0].selection_reason.startswith("concept_drill:")
+
+
+def test_practice_builder_handles_malformed_form_values(client: TestClient) -> None:
+    response = client.post(
+        "/quizzes",
+        data={
+            "subject_id": "not-a-number",
+            "count": "5",
+            "difficulty": "",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Invalid subject id." in response.text
+
+
+def test_any_difficulty_practice_is_persisted_as_mixed(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    response = client.post(
+        "/subjects/1/practice",
+        follow_redirects=False,
+    )
+
+    practice = db_session.scalar(select(Quiz).where(Quiz.quiz_type == QuizType.PRACTICE))
+    assert practice is not None
+    assert response.status_code == 303
+    assert practice.difficulty == Difficulty.MIXED
 
 
 def test_subject_pages_show_namespace_workspace(client: TestClient) -> None:

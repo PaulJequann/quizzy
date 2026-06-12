@@ -29,6 +29,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
         op.execute("ALTER TYPE quiz_type ADD VALUE IF NOT EXISTS 'practice'")
+        op.execute("ALTER TYPE difficulty ADD VALUE IF NOT EXISTS 'mixed'")
 
     health_state = _health_state_enum(bind)
     health_state.create(bind, checkfirst=True)
@@ -126,10 +127,21 @@ def _add_practice_columns() -> None:
         sa.Column("selection_reason", sa.Text(), nullable=False, server_default=""),
     )
     op.add_column("quiz_questions", sa.Column("selection_score", sa.Float(), nullable=True))
-    op.add_column(
-        "attempts",
-        sa.Column("session_type", sa.String(length=40), nullable=False, server_default="practice"),
-    )
+    op.add_column("attempts", sa.Column("session_type", sa.String(length=40), nullable=True))
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        op.execute("UPDATE attempts SET session_type = 'standard' WHERE session_type IS NULL")
+    else:
+        op.execute(
+            """
+            UPDATE attempts
+            SET session_type = quizzes.quiz_type
+            FROM quizzes
+            WHERE attempts.quiz_id = quizzes.id
+            """
+        )
+        op.execute("UPDATE attempts SET session_type = 'standard' WHERE session_type IS NULL")
+        op.alter_column("attempts", "session_type", nullable=False)
     op.add_column(
         "attempt_answers",
         sa.Column("answered_at", sa.DateTime(timezone=True), nullable=True),

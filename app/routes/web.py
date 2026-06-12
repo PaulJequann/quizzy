@@ -60,7 +60,7 @@ def practice_builder_context(db: Session, *, error: str | None = None) -> dict:
     subjects = get_subjects(db)
     return {
         "subjects": subjects,
-        "difficulties": list(Difficulty),
+        "difficulties": [difficulty for difficulty in Difficulty if difficulty != Difficulty.MIXED],
         "count_options": [5, 10, 20],
         "error": error,
     }
@@ -82,7 +82,12 @@ def practice_builder_input(form) -> practice_service.PracticeAssemblyInput:
 
 
 def form_difficulty(value: str) -> Difficulty | None:
-    return Difficulty(value) if value else None
+    if not value:
+        return None
+    difficulty = Difficulty(value)
+    if difficulty == Difficulty.MIXED:
+        raise ValueError("Choose a specific difficulty or Any.")
+    return difficulty
 
 
 def form_count(value: int) -> int:
@@ -96,11 +101,24 @@ def form_text(form, key: str, default: str = "") -> str:
 
 def form_int(form, key: str, default: int = 0) -> int:
     value = form.get(key, str(default))
-    return int(value) if isinstance(value, str) else default
+    if not isinstance(value, str):
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid {key.replace('_', ' ')}.") from exc
 
 
 def form_int_list(form, key: str) -> list[int]:
-    return [int(value) for value in form.getlist(key) if isinstance(value, str)]
+    values: list[int] = []
+    for value in form.getlist(key):
+        if not isinstance(value, str):
+            continue
+        try:
+            values.append(int(value))
+        except ValueError as exc:
+            raise ValueError(f"Invalid {key.replace('_', ' ')}.") from exc
+    return values
 
 
 @router.get("/", include_in_schema=False)
