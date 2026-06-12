@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ subject.name }} · Quizzy{% endblock %}
+{% block content %}
+  <section class="mb-8 grid gap-6 lg:grid-cols-[1fr_0.7fr] lg:items-start">
+    <div>
+      <p class="eyebrow">{{ subject.slug }}</p>
+      <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">{{ subject.name }}</h1>
+      {% if subject.description %}
+        <p class="mt-3 max-w-3xl leading-7 text-[var(--color-text-2)]">{{ subject.description }}</p>
+      {% else %}
+        <p class="mt-3 max-w-3xl leading-7 text-[var(--color-text-2)]">Concepts, questions, quizzes, and mastery scoped to this subject.</p>
+      {% endif %}
+      <div class="mt-5 flex flex-wrap gap-2">
+        <span class="meta-chip">{{ subject.concepts|length }} concepts</span>
+        <span class="meta-chip">{{ subject.questions|length }} questions</span>
+        <span class="meta-chip">{{ quizzes|length }} quizzes</span>
+        {% if mastery_group and mastery_group.total_attempts %}
+          <span class="meta-chip">{{ "%.0f"|format(mastery_group.accuracy) }}% mastery</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="panel">
+      <p class="eyebrow">Actions</p>
+      <div class="mt-4 grid gap-3">
+        {% if mastery_group and mastery_group.queue_items %}
+          <form method="post" action="/subjects/{{ subject.id }}/review">
+            <button class="btn-primary w-full" type="submit">Review weak concepts</button>
+          </form>
+        {% endif %}
+        <a class="btn-secondary text-center" href="/quizzes/new">Create quiz</a>
+        <a class="btn-secondary text-center" href="/subjects">All subjects</a>
+      </div>
+    </div>
+  </section>
+
+  {% if mastery_group %}
+    <section class="panel mb-6 overflow-x-auto">
+      <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="eyebrow">Mastery</p>
+          <h2 class="section-title">Concept performance</h2>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <span class="mastery-status mastery-weak">{{ mastery_group.weak_count }} Weak</span>
+          <span class="mastery-status mastery-improving">{{ mastery_group.improving_count }} Improving</span>
+          <span class="mastery-status mastery-strong">{{ mastery_group.strong_count }} Strong</span>
+        </div>
+      </div>
+      <table class="mastery-table">
+        <thead>
+          <tr>
+            <th>Concept</th>
+            <th>Total attempts</th>
+            <th>Correct</th>
+            <th>Accuracy</th>
+            <th>Last missed</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in mastery_group.mastery_rows %}
+            <tr>
+              <td><div class="font-medium">{{ row.concept.name|display_label }}</div></td>
+              <td>{{ row.total_attempts }}</td>
+              <td>{{ row.correct_attempts }}</td>
+              <td>{{ "%.0f"|format(row.accuracy) }}%</td>
+              <td>
+                {% if row.last_missed_at %}
+                  {{ row.last_missed_at.strftime("%b %-d, %Y") }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td><span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  <div class="grid gap-6 lg:grid-cols-2">
+    <section class="panel">
+      <div class="mb-5">
+        <p class="eyebrow">Question bank</p>
+        <h2 class="section-title">Reusable questions</h2>
+      </div>
+      {% if subject.questions %}
+        <ol class="space-y-4">
+          {% for question in subject.questions %}
+            <li class="question-preview">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <p class="font-medium">{{ question.stem }}</p>
+              </div>
+              {% include "questions/_metadata.html" %}
+              {% include "questions/_details.html" %}
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <div class="empty-state">No questions have been created for this subject yet.</div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <div class="mb-5">
+        <p class="eyebrow">Delivery</p>
+        <h2 class="section-title">Quizzes</h2>
+      </div>
+      {% if quizzes %}
+        <div class="grid gap-3">
+          {% for quiz in quizzes %}
+            <a class="answer-review block" href="/quizzes/{{ quiz.id }}">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <span class="font-medium">{{ quiz.title }}</span>
+                <span class="meta-chip">{{ quiz.quiz_type|display_label }}</span>
+              </div>
+              <p class="mt-2 text-sm text-[var(--color-text-2)]">{{ quiz.questions|length }} questions</p>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">No quizzes use this subject yet.</div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

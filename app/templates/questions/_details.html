@@ -1,0 +1,19 @@
+{% if question.status or question.source_reference %}
+  <details class="metadata-details">
+    <summary>Details</summary>
+    <dl>
+      {% if question.status %}
+        <div>
+          <dt>Status</dt>
+          <dd>{{ question.status|display_label }}</dd>
+        </div>
+      {% endif %}
+      {% if question.source_reference %}
+        <div>
+          <dt>Source</dt>
+          <dd>{{ question.source_reference }}</dd>
+        </div>
+      {% endif %}
+    </dl>
+  </details>
+{% endif %}

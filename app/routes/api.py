@@ -7,12 +7,13 @@ from app.database import get_db
 from app.schemas import (
     AttemptCreate,
     AttemptRead,
+    ConceptQueueItemRead,
     QuestionCreate,
     QuestionRead,
     QuizCreate,
     QuizRead,
 )
-from app.services.grading_service import submit_attempt
+from app.services.grading_service import get_concept_queue_items, submit_attempt
 from app.services.quiz_service import create_question, create_quiz, get_quiz, list_quizzes
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -21,6 +22,11 @@ router = APIRouter(prefix="/api", tags=["api"])
 @router.get("/quizzes", response_model=list[QuizRead])
 def api_quizzes(db: Annotated[Session, Depends(get_db)]):
     return list_quizzes(db)
+
+
+@router.get("/mastery/weak-concepts", response_model=list[ConceptQueueItemRead])
+def api_weak_concepts(db: Annotated[Session, Depends(get_db)]):
+    return get_concept_queue_items(db)
 
 
 @router.get("/quizzes/{quiz_id}", response_model=QuizRead)

@@ -17,6 +17,21 @@ class ConceptMastery:
     status: str
 
 
+@dataclass(frozen=True)
+class ConceptQueueItem:
+    concept_id: int
+    subject_id: int
+    subject_name: str
+    name: str
+    total_attempts: int
+    correct_attempts: int
+    accuracy: float
+    last_missed_at: datetime | None
+    status: str
+    missed_question_ids: list[int]
+    source_references: list[str]
+
+
 def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | None]) -> Attempt:
     total_questions = len(quiz.questions)
     correct_count = 0
@@ -30,6 +45,9 @@ def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | N
     for question in quiz.questions:
         selected_choice_id = submitted_answers.get(question.id)
         correct_choice = next((choice for choice in question.choices if choice.is_correct), None)
+        selected_choice = next(
+            (choice for choice in question.choices if choice.id == selected_choice_id), None
+        )
         is_correct = selected_choice_id is not None and correct_choice is not None
         is_correct = is_correct and selected_choice_id == correct_choice.id
         if is_correct:
@@ -39,6 +57,10 @@ def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | N
                 question_id=question.id,
                 selected_choice_id=selected_choice_id,
                 is_correct=is_correct,
+                question_stem_snapshot=question.stem,
+                selected_choice_text_snapshot=selected_choice.text if selected_choice else "",
+                correct_choice_text_snapshot=correct_choice.text if correct_choice else "",
+                explanation_snapshot=question.explanation or "",
             )
         )
 
@@ -62,9 +84,10 @@ def get_mastery_rows(db: Session) -> list[ConceptMastery]:
     concepts = db.scalars(
         select(Concept)
         .options(
+            selectinload(Concept.subject),
             selectinload(Concept.questions)
             .selectinload(Question.attempt_answers)
-            .selectinload(AttemptAnswer.attempt)
+            .selectinload(AttemptAnswer.attempt),
         )
         .order_by(Concept.name)
     ).all()
@@ -98,6 +121,58 @@ def get_mastery_rows(db: Session) -> list[ConceptMastery]:
         )
 
     return rows
+
+
+def build_concept_queue_items(rows: list[ConceptMastery]) -> list[ConceptQueueItem]:
+    queue_items: list[ConceptQueueItem] = []
+    for row in rows:
+        if row.total_attempts == 0 or row.status == "strong":
+            continue
+
+        missed_question_ids: set[int] = set()
+        missed_source_references: set[str] = set()
+        tagged_source_references: set[str] = set()
+        for question in row.concept.questions:
+            if question.source_reference:
+                tagged_source_references.add(question.source_reference)
+
+            question_was_missed = any(not answer.is_correct for answer in question.attempt_answers)
+            if not question_was_missed:
+                continue
+
+            missed_question_ids.add(question.id)
+            if question.source_reference:
+                missed_source_references.add(question.source_reference)
+
+        queue_items.append(
+            ConceptQueueItem(
+                concept_id=row.concept.id,
+                subject_id=row.concept.subject_id,
+                subject_name=row.concept.subject.name,
+                name=row.concept.name,
+                total_attempts=row.total_attempts,
+                correct_attempts=row.correct_attempts,
+                accuracy=row.accuracy,
+                last_missed_at=row.last_missed_at,
+                status=row.status,
+                missed_question_ids=sorted(missed_question_ids),
+                source_references=sorted(missed_source_references or tagged_source_references),
+            )
+        )
+
+    status_priority = {"weak": 0, "improving": 1}
+    return sorted(
+        queue_items,
+        key=lambda item: (
+            status_priority.get(item.status, 99),
+            item.accuracy,
+            item.name.casefold(),
+        ),
+    )
+
+
+def get_concept_queue_items(db: Session) -> list[ConceptQueueItem]:
+    return build_concept_queue_items(get_mastery_rows(db))
 
 
 def missed_concepts_for_attempt(attempt: Attempt) -> list[Concept]:

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.models import Attempt, AttemptAnswer, Difficulty, Question, Quiz, QuizStatus
 from app.services.grading_service import (
+    build_concept_queue_items,
     get_mastery_rows,
     letter_grade,
     missed_concepts_for_attempt,
@@ -17,11 +18,19 @@ from app.services.grading_service import (
 from app.services.quiz_service import (
     create_question,
     create_quiz,
+    create_review_quiz_from_concepts,
     form_question_create,
     form_quiz_create,
     get_quiz,
     list_quizzes,
     update_quiz_status,
+)
+from app.services.subject_service import (
+    build_subject_mastery_groups,
+    build_subject_summaries,
+    get_subject,
+    get_subjects,
+    quizzes_for_subject,
 )
 from app.templating import templates
 
@@ -49,11 +58,89 @@ def quiz_list(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 @router.get("/mastery", response_class=HTMLResponse)
 def mastery(request: Request, db: Annotated[Session, Depends(get_db)]):
+    mastery_rows = get_mastery_rows(db)
+    mastery_groups = build_subject_mastery_groups(mastery_rows)
     return templates.TemplateResponse(
         request,
         "mastery/index.html",
-        {"mastery_rows": get_mastery_rows(db)},
+        {
+            "mastery_rows": mastery_rows,
+            "queue_items": build_concept_queue_items(mastery_rows),
+            "mastery_groups": mastery_groups,
+        },
     )
+
+
+@router.post("/mastery/review")
+def create_mastery_review_quiz(db: Annotated[Session, Depends(get_db)]):
+    queue_items = build_concept_queue_items(get_mastery_rows(db))
+    if not queue_items:
+        return redirect("/mastery")
+
+    try:
+        quiz = create_review_quiz_from_concepts(
+            db,
+            [item.concept_id for item in queue_items],
+        )
+    except ValueError:
+        return redirect("/mastery")
+
+    return redirect(f"/quizzes/{quiz.id}/take")
+
+
+@router.get("/subjects", response_class=HTMLResponse)
+def subject_list(request: Request, db: Annotated[Session, Depends(get_db)]):
+    mastery_groups = build_subject_mastery_groups(get_mastery_rows(db))
+    subjects = get_subjects(db)
+    return templates.TemplateResponse(
+        request,
+        "subjects/list.html",
+        {"subject_summaries": build_subject_summaries(subjects, mastery_groups)},
+    )
+
+
+@router.get("/subjects/{subject_id}", response_class=HTMLResponse)
+def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Depends(get_db)]):
+    subject = get_subject(db, subject_id)
+    if subject is None:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    mastery_rows = [row for row in get_mastery_rows(db) if row.concept.subject_id == subject.id]
+    mastery_groups = build_subject_mastery_groups(mastery_rows)
+    mastery_group = mastery_groups[0] if mastery_groups else None
+    return templates.TemplateResponse(
+        request,
+        "subjects/detail.html",
+        {
+            "subject": subject,
+            "mastery_group": mastery_group,
+            "quizzes": quizzes_for_subject(subject),
+        },
+    )
+
+
+@router.post("/subjects/{subject_id}/review")
+def create_subject_review_quiz(
+    subject_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    subject = get_subject(db, subject_id)
+    if subject is None:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    mastery_rows = [row for row in get_mastery_rows(db) if row.concept.subject_id == subject.id]
+    queue_items = build_concept_queue_items(mastery_rows)
+    if not queue_items:
+        return redirect(f"/subjects/{subject.id}")
+
+    try:
+        quiz = create_review_quiz_from_concepts(
+            db,
+            [item.concept_id for item in queue_items],
+        )
+    except ValueError:
+        return redirect(f"/subjects/{subject.id}")
+
+    return redirect(f"/quizzes/{quiz.id}/take")
 
 
 @router.get("/quizzes/new", response_class=HTMLResponse)
@@ -187,8 +274,10 @@ def attempt_results(request: Request, attempt_id: int, db: Annotated[Session, De
         select(Attempt)
         .where(Attempt.id == attempt_id)
         .options(
+            selectinload(Attempt.quiz).selectinload(Quiz.primary_subject),
             selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.choices),
             selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.concepts),
+            selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.subject),
             selectinload(Attempt.answers)
             .selectinload(AttemptAnswer.question)
             .selectinload(Question.choices),

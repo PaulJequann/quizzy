@@ -7,7 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <link rel="stylesheet" href="https://fonts.bunny.net/css?family=fraunces:500,600,600i,700|source-sans-3:400,500,600&display=swap">
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}?v=20260612-metadata-details">
   </head>
   <body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]{% endblock %}">
     {% block site_header %}
@@ -21,6 +21,7 @@
           </span>
         </a>
         <div class="flex items-center gap-2">
+          <a class="btn-secondary" href="/subjects">Subjects</a>
           <a class="btn-secondary" href="/quizzes">Quizzes</a>
           <a class="btn-secondary" href="/mastery">Mastery</a>
           <a class="btn-primary" href="/quizzes/new">New quiz</a>

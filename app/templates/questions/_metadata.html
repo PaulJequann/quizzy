@@ -1,0 +1,15 @@
+<div class="mt-3 flex flex-wrap gap-2">
+  {% if question.subject %}
+    <span class="meta-chip">{{ question.subject.name }}</span>
+  {% endif %}
+  {% if question.difficulty %}
+    <span class="meta-chip">{{ question.difficulty|display_label }}</span>
+  {% endif %}
+</div>
+{% if question.concepts %}
+  <div class="mt-3 flex flex-wrap gap-2">
+    {% for concept in question.concepts %}
+      <span class="concept-chip {{ concept_chip_class|default('') }}">{{ concept.name|display_label }}</span>
+    {% endfor %}
+  </div>
+{% endif %}

@@ -31,7 +31,7 @@
           <p class="eyebrow">Concepts to review</p>
           <div class="mt-2 flex flex-wrap gap-2">
             {% for concept in missed_concepts %}
-              <span class="concept-chip concept-chip-missed">{{ concept.name }}</span>
+              <span class="concept-chip concept-chip-missed">{{ concept.name|display_label }}</span>
             {% endfor %}
           </div>
         </div>
@@ -47,11 +47,14 @@
     {% for question in attempt.quiz.questions %}
       {% set answer = answer_by_question.get(question.id) %}
       {% set correct_choice = correct_by_question.get(question.id) %}
+      {% set question_text = answer.question_stem_snapshot if answer and answer.question_stem_snapshot else question.stem %}
+      {% set selected_text = answer.selected_choice_text_snapshot if answer and answer.selected_choice_text_snapshot else answer.selected_choice.text if answer and answer.selected_choice else "No answer" %}
+      {% set correct_text = answer.correct_choice_text_snapshot if answer and answer.correct_choice_text_snapshot else correct_choice.text if correct_choice else "Missing correct answer" %}
       <li id="q-{{ loop.index }}" class="panel">
         <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
           <div>
             <p class="text-sm font-medium text-[var(--color-text-3)]">Question {{ loop.index }}</p>
-            <h2 class="font-display mt-1 text-xl">{{ question.stem }}</h2>
+            <h2 class="font-display mt-1 text-xl">{{ question_text }}</h2>
           </div>
           {% if answer and answer.is_correct %}
             <span class="verdict verdict-correct"><span class="verdict-glyph">✓</span>Correct</span>
@@ -59,26 +62,23 @@
             <span class="verdict verdict-incorrect"><span class="verdict-glyph">✗</span>Incorrect</span>
           {% endif %}
         </div>
-        {% if question.concepts %}
-          <div class="mt-4 flex flex-wrap gap-2">
-            {% for concept in question.concepts %}
-              <span class="concept-chip {% if not answer or not answer.is_correct %}concept-chip-missed{% endif %}">{{ concept.name }}</span>
-            {% endfor %}
-          </div>
-        {% endif %}
+        {% set concept_chip_class = "concept-chip-missed" if not answer or not answer.is_correct else "" %}
+        {% include "questions/_metadata.html" %}
         <div class="mt-5 grid gap-3 md:grid-cols-2">
           <div class="answer-review">
             <p class="eyebrow">Selected</p>
-            <p>{{ answer.selected_choice.text if answer and answer.selected_choice else "No answer" }}</p>
+            <p>{{ selected_text }}</p>
           </div>
           <div class="answer-review">
             <p class="eyebrow">Correct</p>
-            <p>{{ correct_choice.text if correct_choice else "Missing correct answer" }}</p>
+            <p>{{ correct_text }}</p>
           </div>
         </div>
-        {% if question.explanation %}
-          <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-4 py-3 text-sm leading-6 text-[var(--color-text-2)]">{{ question.explanation }}</p>
+        {% set explanation = answer.explanation_snapshot if answer and answer.explanation_snapshot else question.explanation %}
+        {% if explanation %}
+          <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-4 py-3 text-sm leading-6 text-[var(--color-text-2)]">{{ explanation }}</p>
         {% endif %}
+        {% include "questions/_details.html" %}
       </li>
     {% endfor %}
   </ol>

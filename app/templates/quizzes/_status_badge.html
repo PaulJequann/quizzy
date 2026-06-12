@@ -1,4 +1,4 @@
 <span
   {% if badge_id is defined %}id="{{ badge_id }}"{% endif %}
   class="status-pill status-{{ quiz.status.value }}"
->{{ quiz.status.value }}</span>
+>{{ quiz.status|display_label }}</span>

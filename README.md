@@ -1,6 +1,6 @@
 # Quizzy
 
-Quizzy is a small FastAPI quiz web app POC. It uses Jinja templates, HTMX, Tailwind CSS v4 in the browser, SQLAlchemy, Alembic, Postgres, uv, Ruff, ty, and pytest.
+Quizzy is a small FastAPI quiz web app POC. It tracks reusable questions, subject-scoped concepts, quiz attempts, and concept-level mastery. It uses Jinja templates, HTMX, Tailwind CSS v4 in the browser, SQLAlchemy, Alembic, Postgres, uv, Ruff, ty, and pytest.
 
 ## Local setup
 
@@ -55,8 +55,12 @@ uv run ty check
 ## Routes
 
 - `GET /` redirects to `/quizzes`
+- `GET /subjects`
+- `GET /subjects/{subject_id}`
+- `POST /subjects/{subject_id}/review`
 - `GET /quizzes`
 - `GET /mastery`
+- `POST /mastery/review`
 - `GET /quizzes/new`
 - `POST /quizzes`
 - `GET /quizzes/{quiz_id}`
@@ -66,4 +70,4 @@ uv run ty check
 - `POST /quizzes/{quiz_id}/submit`
 - `GET /attempts/{attempt_id}/results`
 
-Minimal JSON routes are available under `/api`.
+Minimal JSON routes are available under `/api`, including `GET /api/mastery/weak-concepts`.

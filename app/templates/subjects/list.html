@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Subjects · Quizzy{% endblock %}
+{% block content %}
+  <section class="mb-8 grid gap-6 lg:grid-cols-[1fr_0.65fr] lg:items-end">
+    <div>
+      <p class="eyebrow">Knowledge areas</p>
+      <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">Subjects</h1>
+      <p class="mt-3 max-w-2xl text-[var(--color-text-2)]">Browse the namespaces that organize concepts, reusable questions, quizzes, and mastery.</p>
+    </div>
+    {% set totals = namespace(concepts=0, questions=0) %}
+    {% for summary in subject_summaries %}
+      {% set totals.concepts = totals.concepts + summary.concept_count %}
+      {% set totals.questions = totals.questions + summary.question_count %}
+    {% endfor %}
+    <div class="stats-strip">
+      <div><strong>{{ subject_summaries|length }}</strong><span>subjects</span></div>
+      <div><strong>{{ totals.questions }}</strong><span>questions</span></div>
+    </div>
+  </section>
+
+  {% if subject_summaries %}
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {% for summary in subject_summaries %}
+        <article class="quiz-card">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="eyebrow">{{ summary.subject.slug }}</p>
+              <h2 class="font-display mt-2 text-xl leading-tight">{{ summary.subject.name }}</h2>
+            </div>
+            {% if summary.weak_concept_count %}
+              <span class="mastery-status mastery-weak">{{ summary.weak_concept_count }} Weak</span>
+            {% endif %}
+          </div>
+          {% if summary.subject.description %}
+            <p class="mt-4 min-h-16 text-sm leading-6 text-[var(--color-text-2)]">{{ summary.subject.description }}</p>
+          {% else %}
+            <p class="mt-4 min-h-16 text-sm leading-6 text-[var(--color-text-2)]">Concepts and reusable questions scoped to {{ summary.subject.name }}.</p>
+          {% endif %}
+          <div class="mt-6 flex flex-wrap gap-2">
+            <span class="meta-chip">{{ summary.concept_count }} concepts</span>
+            <span class="meta-chip">{{ summary.question_count }} questions</span>
+            <span class="meta-chip">{{ summary.quiz_count }} quizzes</span>
+            {% if summary.total_attempts %}
+              <span class="meta-chip">{{ "%.0f"|format(summary.accuracy) }}% mastery</span>
+            {% endif %}
+          </div>
+          <div class="mt-6">
+            <a class="btn-primary w-full text-center" href="/subjects/{{ summary.subject.id }}">Open subject</a>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">No subjects yet. Create a quiz with a subject to start building the knowledge map.</div>
+  {% endif %}
+{% endblock %}

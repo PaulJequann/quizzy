@@ -1,5 +1,18 @@
+from typing import cast
+
 from app.database import get_session_factory
-from app.models import Choice, Concept, Difficulty, Question, Quiz, QuizStatus
+from app.models import (
+    Choice,
+    Concept,
+    Difficulty,
+    Question,
+    QuestionConcept,
+    QuestionStatus,
+    Quiz,
+    QuizQuestion,
+    QuizStatus,
+)
+from app.services.quiz_service import get_or_create_subject, slugify
 
 QUIZZES = [
     {
@@ -160,26 +173,43 @@ def main() -> None:
         existing_titles = {title for (title,) in db.query(Quiz.title).all()}
         created = 0
         for quiz_data in QUIZZES:
-            if quiz_data["title"] in existing_titles:
+            title = cast(str, quiz_data["title"])
+            description = cast(str, quiz_data["description"])
+            topic = cast(str, quiz_data["topic"])
+            difficulty = cast(Difficulty, quiz_data["difficulty"])
+            questions = cast(list[tuple[str, list[str], int, str, str]], quiz_data["questions"])
+            if title in existing_titles:
                 continue
+            subject = get_or_create_subject(db, topic)
             quiz = Quiz(
-                title=quiz_data["title"],
-                description=quiz_data["description"],
-                topic=quiz_data["topic"],
-                difficulty=quiz_data["difficulty"],
+                title=title,
+                description=description,
+                primary_subject=subject,
+                difficulty=difficulty,
                 status=QuizStatus.PUBLISHED,
             )
             for question_index, (stem, choices, correct_index, explanation, source) in enumerate(
-                quiz_data["questions"], start=1
+                questions, start=1
             ):
                 question = Question(
+                    subject=subject,
                     stem=stem,
                     explanation=explanation,
+                    difficulty=difficulty,
+                    status=QuestionStatus.ACTIVE,
                     source_reference=source,
-                    order_index=question_index,
                 )
                 concept_name = source.rsplit("#", maxsplit=1)[-1].replace("-", " ")
-                question.concepts = [Concept(name=concept_name, topic=quiz_data["topic"])]
+                question.concept_links = [
+                    QuestionConcept(
+                        concept=Concept(
+                            name=concept_name,
+                            slug=slugify(concept_name),
+                            subject=subject,
+                        ),
+                        is_primary=True,
+                    )
+                ]
                 for choice_index, choice_text in enumerate(choices, start=1):
                     question.choices.append(
                         Choice(
@@ -188,7 +218,9 @@ def main() -> None:
                             order_index=choice_index,
                         )
                     )
-                quiz.questions.append(question)
+                quiz.question_links.append(
+                    QuizQuestion(question=question, order_index=question_index)
+                )
             db.add(quiz)
             created += 1
         db.commit()

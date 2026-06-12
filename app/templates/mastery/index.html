@@ -7,47 +7,84 @@
       <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">Mastery</h1>
       <p class="mt-3 max-w-3xl leading-7 text-[var(--color-text-2)]">Concept-level performance based on submitted quiz attempts.</p>
     </div>
-    <a class="btn-secondary" href="/quizzes">Back to quizzes</a>
+    <div class="flex flex-wrap gap-3">
+      {% if queue_items %}
+        <form method="post" action="/mastery/review">
+          <button class="btn-primary" type="submit">Review weak concepts</button>
+        </form>
+      {% endif %}
+      <a class="btn-secondary" href="/quizzes">Back to quizzes</a>
+    </div>
   </section>
 
-  {% if mastery_rows %}
-    <section class="panel overflow-x-auto">
-      <table class="mastery-table">
-        <thead>
-          <tr>
-            <th>Concept</th>
-            <th>Total attempts</th>
-            <th>Correct</th>
-            <th>Accuracy</th>
-            <th>Last missed</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in mastery_rows %}
-            <tr>
-              <td>
-                <div class="font-medium">{{ row.concept.name }}</div>
-                {% if row.concept.topic %}
-                  <div class="text-sm text-[var(--color-text-3)]">{{ row.concept.topic }}</div>
-                {% endif %}
-              </td>
-              <td>{{ row.total_attempts }}</td>
-              <td>{{ row.correct_attempts }}</td>
-              <td>{{ "%.0f"|format(row.accuracy) }}%</td>
-              <td>
-                {% if row.last_missed_at %}
-                  {{ row.last_missed_at.strftime("%b %-d, %Y") }}
-                {% else %}
-                  -
-                {% endif %}
-              </td>
-              <td><span class="mastery-status mastery-{{ row.status }}">{{ row.status }}</span></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </section>
+  {% if mastery_groups %}
+    {% if queue_items %}
+      <section class="panel mb-6">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p class="eyebrow">Queue</p>
+            <h2 class="section-title">{{ queue_items|length }} concepts ready for review</h2>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            {% for item in queue_items[:6] %}
+              <span class="concept-chip {% if item.status == 'weak' %}concept-chip-missed{% endif %}">{{ item.subject_name }} / {{ item.name|display_label }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+    {% endif %}
+    <div class="space-y-6">
+      {% for group in mastery_groups %}
+        <section class="panel overflow-x-auto">
+          <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p class="eyebrow">{{ group.subject.slug }}</p>
+              <h2 class="section-title">
+                <a href="/subjects/{{ group.subject.id }}">{{ group.subject.name }}</a>
+              </h2>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              {% if group.total_attempts %}
+                <span class="meta-chip">{{ "%.0f"|format(group.accuracy) }}% mastery</span>
+              {% endif %}
+              <span class="mastery-status mastery-weak">{{ group.weak_count }} Weak</span>
+              <span class="mastery-status mastery-improving">{{ group.improving_count }} Improving</span>
+              <span class="mastery-status mastery-strong">{{ group.strong_count }} Strong</span>
+            </div>
+          </div>
+          <table class="mastery-table">
+            <thead>
+              <tr>
+                <th>Concept</th>
+                <th>Total attempts</th>
+                <th>Correct</th>
+                <th>Accuracy</th>
+                <th>Last missed</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in group.mastery_rows %}
+                <tr>
+                  <td><div class="font-medium">{{ row.concept.name|display_label }}</div></td>
+                  <td>{{ row.total_attempts }}</td>
+                  <td>{{ row.correct_attempts }}</td>
+                  <td>{{ "%.0f"|format(row.accuracy) }}%</td>
+                  <td>
+                    {% if row.last_missed_at %}
+                      {{ row.last_missed_at.strftime("%b %-d, %Y") }}
+                    {% else %}
+                      -
+                    {% endif %}
+                  </td>
+                  <td><span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+      {% endfor %}
+    </div>
   {% else %}
     <div class="empty-state">No concepts have been tagged yet.</div>
   {% endif %}

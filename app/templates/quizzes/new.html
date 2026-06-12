@@ -17,14 +17,14 @@
       </label>
       <div class="grid gap-4 sm:grid-cols-2">
         <label class="field-label">
-          Topic / tags
-          <input class="field" name="topic" placeholder="aws, cloud">
+          Subject
+          <input class="field" name="topic" placeholder="AWS">
         </label>
         <label class="field-label">
           Difficulty
           <select class="field" name="difficulty">
             {% for difficulty in difficulties %}
-              <option value="{{ difficulty.value }}">{{ difficulty.value }}</option>
+              <option value="{{ difficulty.value }}">{{ difficulty|display_label }}</option>
             {% endfor %}
           </select>
         </label>
@@ -33,4 +33,3 @@
     </form>
   </section>
 {% endblock %}
-

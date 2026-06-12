@@ -6,7 +6,18 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import create_app
-from app.models import Choice, Concept, Difficulty, Question, Quiz, QuizStatus
+from app.models import (
+    Choice,
+    Concept,
+    Difficulty,
+    Question,
+    QuestionConcept,
+    QuestionStatus,
+    Quiz,
+    QuizQuestion,
+    QuizStatus,
+    Subject,
+)
 
 
 @pytest.fixture
@@ -35,21 +46,33 @@ def client(db_session):
 
 
 def seed_test_quiz(session: Session) -> None:
+    subject = Subject(name="testing", slug="testing")
     quiz = Quiz(
         title="Test quiz",
         description="A small seeded quiz for route tests.",
-        topic="testing",
+        primary_subject=subject,
         difficulty=Difficulty.BEGINNER,
         status=QuizStatus.PUBLISHED,
     )
-    question = Question(stem="What does pytest run?", order_index=1)
+    question = Question(
+        subject=subject,
+        stem="What does pytest run?",
+        difficulty=Difficulty.BEGINNER,
+        status=QuestionStatus.ACTIVE,
+        source_reference="testing/pytest.md#basics",
+    )
     question.choices = [
         Choice(text="Tests", is_correct=True, order_index=1),
         Choice(text="Backups", is_correct=False, order_index=2),
         Choice(text="Migrations", is_correct=False, order_index=3),
         Choice(text="Containers", is_correct=False, order_index=4),
     ]
-    question.concepts = [Concept(name="pytest basics", topic="testing")]
-    quiz.questions.append(question)
+    question.concept_links = [
+        QuestionConcept(
+            concept=Concept(name="pytest basics", slug="pytest-basics", subject=subject),
+            is_primary=True,
+        )
+    ]
+    quiz.question_links.append(QuizQuestion(question=question, order_index=1))
     session.add(quiz)
     session.commit()

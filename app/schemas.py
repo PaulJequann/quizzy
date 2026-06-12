@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models import Difficulty, QuizStatus
+from app.models import Difficulty, QuestionStatus, QuizStatus, QuizType
 
 
 class ChoiceCreate(BaseModel):
@@ -19,11 +19,24 @@ class ChoiceRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ConceptRead(BaseModel):
+class SubjectRead(BaseModel):
     id: int
     name: str
+    slug: str
     description: str
-    topic: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ConceptRead(BaseModel):
+    id: int
+    subject_id: int
+    name: str
+    slug: str
+    description: str
+    subject: SubjectRead
     created_at: datetime
     updated_at: datetime
 
@@ -40,10 +53,14 @@ class QuestionCreate(BaseModel):
 
 class QuestionRead(BaseModel):
     id: int
+    subject_id: int
     stem: str
     explanation: str | None
+    difficulty: Difficulty
+    status: QuestionStatus
     source_reference: str | None
     order_index: int
+    subject: SubjectRead
     choices: list[ChoiceRead]
     concepts: list[ConceptRead] = Field(default_factory=list)
 
@@ -63,6 +80,9 @@ class QuizRead(BaseModel):
     title: str
     description: str
     topic: str
+    primary_subject_id: int | None
+    primary_subject: SubjectRead | None
+    quiz_type: QuizType
     difficulty: Difficulty
     status: QuizStatus
     created_at: datetime
@@ -88,5 +108,21 @@ class AttemptRead(BaseModel):
     total_questions: int
     correct_count: int
     submitted_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class ConceptQueueItemRead(BaseModel):
+    concept_id: int
+    subject_id: int
+    subject_name: str
+    name: str
+    total_attempts: int
+    correct_attempts: int
+    accuracy: float
+    last_missed_at: datetime | None
+    status: str
+    missed_question_ids: list[int]
+    source_references: list[str]
 
     model_config = {"from_attributes": True}
