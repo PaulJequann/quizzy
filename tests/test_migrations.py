@@ -51,6 +51,29 @@ def test_question_first_migration_backfills_attempt_session_type(
         clear_database_caches()
 
 
+def test_concept_stewardship_migration_backfills_runtime_normalized_names(
+    test_database_url, monkeypatch
+) -> None:
+    set_database_url(test_database_url, monkeypatch)
+    config = Config("alembic.ini")
+    command.downgrade(config, "202606120007")
+    try:
+        _clear_app_tables()
+        _seed_pre_concept_stewardship_concepts()
+        clear_database_caches()
+        command.upgrade(config, "head")
+
+        assert _concept_normalized_names([901, 902, 903]) == {
+            901: "s3",
+            902: "pytest-basic",
+            903: "fixture-scope",
+        }
+    finally:
+        clear_database_caches()
+        command.upgrade(config, "head")
+        clear_database_caches()
+
+
 def _seed_pre_question_first_attempt() -> None:
     with get_engine().begin() as connection:
         connection.execute(
@@ -107,12 +130,69 @@ def _seed_pre_question_first_attempt() -> None:
         )
 
 
+def _seed_pre_concept_stewardship_concepts() -> None:
+    with get_engine().begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO subjects (id, name, slug, description, created_at, updated_at)
+                VALUES (901, 'AWS', 'aws', '', now(), now())
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO concepts (
+                    id,
+                    subject_id,
+                    name,
+                    slug,
+                    description,
+                    created_at,
+                    updated_at
+                )
+                VALUES
+                    (901, 901, 'AWS S3', 'aws-s3', '', now(), now()),
+                    (902, 901, 'pytest basics', 'pytest-basics', '', now(), now()),
+                    (903, 901, 'fixture scopes', 'fixture-scopes', '', now(), now())
+                """
+            )
+        )
+
+
+def _clear_app_tables() -> None:
+    inspector = inspect(get_engine())
+    table_names = [
+        table_name for table_name in inspector.get_table_names() if table_name != "alembic_version"
+    ]
+    if not table_names:
+        return
+    with get_engine().begin() as connection:
+        connection.execute(text(f"TRUNCATE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
+
+
 def _attempt_session_type(attempt_id: int) -> str | None:
     with get_engine().connect() as connection:
         return connection.scalar(
             text("SELECT session_type FROM attempts WHERE id = :attempt_id"),
             {"attempt_id": attempt_id},
         )
+
+
+def _concept_normalized_names(concept_ids: list[int]) -> dict[int, str]:
+    with get_engine().connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT id, normalized_name
+                FROM concepts
+                WHERE id = ANY(:concept_ids)
+                """
+            ),
+            {"concept_ids": concept_ids},
+        )
+        return {row.id: row.normalized_name for row in rows}
 
 
 def _column_names(inspector, table_name: str) -> set[str]:

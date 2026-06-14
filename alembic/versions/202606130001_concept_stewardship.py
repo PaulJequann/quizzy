@@ -56,7 +56,7 @@ def _upgrade_concepts(concept_status: sa.Enum) -> None:
         sa.Column("status", concept_status, nullable=False, server_default="active"),
     )
     op.add_column("concepts", sa.Column("parent_concept_id", sa.Integer(), nullable=True))
-    op.execute("UPDATE concepts SET normalized_name = slug WHERE normalized_name IS NULL")
+    _backfill_normalized_concept_names()
     op.alter_column("concepts", "normalized_name", nullable=False)
     op.create_foreign_key(
         "fk_concepts_parent_concept_id_concepts",
@@ -233,3 +233,55 @@ def _downgrade_concepts() -> None:
     op.drop_column("concepts", "parent_concept_id")
     op.drop_column("concepts", "status")
     op.drop_column("concepts", "normalized_name")
+
+
+def _backfill_normalized_concept_names() -> None:
+    bind = op.get_bind()
+    rows = bind.execute(
+        sa.text(
+            """
+            SELECT concepts.id, concepts.slug, subjects.slug AS subject_slug
+            FROM concepts
+            JOIN subjects ON subjects.id = concepts.subject_id
+            WHERE concepts.normalized_name IS NULL
+            """
+        )
+    ).mappings()
+    for row in rows:
+        bind.execute(
+            sa.text("UPDATE concepts SET normalized_name = :normalized_name WHERE id = :id"),
+            {
+                "id": row["id"],
+                "normalized_name": _normalize_legacy_concept_slug(
+                    row["slug"],
+                    row["subject_slug"],
+                ),
+            },
+        )
+
+
+def _normalize_legacy_concept_slug(slug: str, subject_slug: str) -> str:
+    normalized = slug
+    prefix = f"{subject_slug}-"
+    if subject_slug and normalized.startswith(prefix):
+        normalized = normalized[len(prefix) :]
+    tokens = [_singular_token(token) for token in normalized.split("-") if token]
+    return "-".join(tokens) or "untitled"
+
+
+def _singular_token(token: str) -> str:
+    if len(token) > 4 and token.endswith("ies"):
+        return f"{token[:-3]}y"
+    if _has_plural_es_suffix(token):
+        return token[:-2]
+    if _has_simple_plural_suffix(token):
+        return token[:-1]
+    return token
+
+
+def _has_plural_es_suffix(token: str) -> bool:
+    return len(token) > 4 and token.endswith(("ches", "shes", "sses", "xes", "zes"))
+
+
+def _has_simple_plural_suffix(token: str) -> bool:
+    return len(token) > 3 and token.endswith("s") and not token.endswith(("ias", "ss", "us"))

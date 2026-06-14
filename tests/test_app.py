@@ -20,6 +20,7 @@ from app.models import (
     QuizType,
 )
 from app.routes import web as web_routes
+from app.services import concept_service
 from app.services.concept_service import normalize_concept_name
 from app.services.grading_service import get_mastery_rows
 
@@ -175,6 +176,14 @@ def test_mastery_rolls_child_evidence_into_parent_concept(
         normalized_name=normalize_concept_name("fixture workflows", subject_name=subject.name),
         status=ConceptStatus.ACTIVE,
     )
+    sibling = Concept(
+        subject=subject,
+        parent=parent,
+        name="assertion workflows",
+        slug="assertion-workflows",
+        normalized_name=normalize_concept_name("assertion workflows", subject_name=subject.name),
+        status=ConceptStatus.ACTIVE,
+    )
     question = Question(
         subject=subject,
         stem="What does a fixture workflow organize?",
@@ -188,7 +197,10 @@ def test_mastery_rolls_child_evidence_into_parent_concept(
         Choice(text="A DNS record", is_correct=False, order_index=3),
         Choice(text="A browser tab", is_correct=False, order_index=4),
     ]
-    question.concept_links = [QuestionConcept(concept=child, role=ConceptAssignmentRole.PRIMARY)]
+    question.concept_links = [
+        QuestionConcept(concept=child, role=ConceptAssignmentRole.PRIMARY),
+        QuestionConcept(concept=sibling, role=ConceptAssignmentRole.SECONDARY),
+    ]
     quiz.question_links.append(QuizQuestion(question=question, order_index=2))
     db_session.commit()
     wrong_choice = next(choice for choice in question.choices if not choice.is_correct)
@@ -200,6 +212,52 @@ def test_mastery_rolls_child_evidence_into_parent_concept(
     assert rows["pytest workflows"].descendant_question_count == 1
     assert rows["pytest workflows"].total_attempts == 1
     assert rows["fixture workflows"].direct_question_count == 1
+    assert rows["assertion workflows"].direct_question_count == 1
+
+
+def test_assignment_role_validation_uses_shared_question_wording(db_session: Session) -> None:
+    quiz = db_session.get(Quiz, 1)
+    assert quiz is not None
+    assert quiz.primary_subject is not None
+    subject = quiz.primary_subject
+
+    with pytest.raises(ValueError, match="Questions require exactly one primary"):
+        concept_service.resolve_concept_assignments(
+            db_session,
+            concept_service.AssignmentResolutionRequest(
+                subject=subject,
+                proposals=[
+                    concept_service.ConceptProposal(
+                        name="pytest basics",
+                        role=ConceptAssignmentRole.SECONDARY,
+                    )
+                ],
+                allow_new_active=True,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="Questions can tag at most two concepts"):
+        concept_service.resolve_concept_assignments(
+            db_session,
+            concept_service.AssignmentResolutionRequest(
+                subject=subject,
+                proposals=[
+                    concept_service.ConceptProposal(
+                        name="pytest basics",
+                        role=ConceptAssignmentRole.PRIMARY,
+                    ),
+                    concept_service.ConceptProposal(
+                        name="fixtures",
+                        role=ConceptAssignmentRole.SECONDARY,
+                    ),
+                    concept_service.ConceptProposal(
+                        name="assertions",
+                        role=ConceptAssignmentRole.SECONDARY,
+                    ),
+                ],
+                allow_new_active=True,
+            ),
+        )
 
 
 def test_results_page_falls_back_to_live_answer_and_shows_question_metadata(

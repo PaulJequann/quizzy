@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -5,9 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     Concept,
+    ConceptDecisionEvent,
+    ConceptReviewItem,
     ConceptStatus,
     Question,
     QuestionConcept,
+    Subject,
 )
 from app.services.concept_service import normalize_concept_name
 
@@ -71,8 +76,19 @@ def test_concept_management_api_splits_and_merges(
 ) -> None:
     source = _concept(db_session, "pytest basics")
     target = _add_concept(db_session, "testing fundamentals")
+    unrelated = _add_concept(db_session, "pending draft concept")
     question = db_session.scalar(select(Question).where(Question.stem == "What does pytest run?"))
     assert question is not None
+    review = ConceptReviewItem(
+        subject=source.subject,
+        concept=unrelated,
+        review_type="unresolved_assignment",
+        reason="Unrelated draft question needs stewardship.",
+        suggested_action="approve_or_reject_concept",
+        evidence_json="{}",
+    )
+    db_session.add(review)
+    db_session.commit()
 
     split_response = client.post(
         f"/api/concepts/{source.id}/split",
@@ -104,6 +120,7 @@ def test_concept_management_api_splits_and_merges(
         QuestionConcept,
         {"question_id": question.id, "concept_id": target.id},
     )
+    assert db_session.get(ConceptReviewItem, review.id) is not None
 
 
 def test_concept_management_api_deletes_only_empty_history_free_concepts(
@@ -111,11 +128,53 @@ def test_concept_management_api_deletes_only_empty_history_free_concepts(
     db_session: Session,
 ) -> None:
     concept = _add_concept(db_session, "temporary concept")
+    db_session.add(
+        ConceptDecisionEvent(
+            subject_id=concept.subject_id,
+            action="concept_creation",
+            affected_concept_ids_json=json.dumps([concept.id * 10]),
+            affected_question_ids_json="[]",
+            rationale="History for another concept with a prefix-overlapping id.",
+            actor="app",
+            source="web",
+            metadata_json="{}",
+        )
+    )
+    db_session.commit()
 
     response = client.delete(f"/api/concepts/{concept.id}")
 
     assert response.status_code == 204
     assert db_session.get(Concept, concept.id) is None
+
+
+def test_concept_management_api_returns_422_for_cross_subject_parent(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    source = _concept(db_session, "pytest basics")
+    other_subject = Subject(name="other", slug="other")
+    parent = Concept(
+        subject=other_subject,
+        name="foreign parent",
+        slug="foreign-parent",
+        normalized_name=normalize_concept_name("foreign parent", subject_name=other_subject.name),
+        status=ConceptStatus.ACTIVE,
+    )
+    db_session.add(parent)
+    db_session.commit()
+
+    response = client.post(
+        f"/api/subjects/{source.subject_id}/concepts",
+        json={
+            "name": "invalid child",
+            "parent_concept_id": parent.id,
+            "rationale": "Should be rejected as a client error.",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Parent concept must belong to the same subject."
 
 
 def _concept(db_session: Session, name: str) -> Concept:

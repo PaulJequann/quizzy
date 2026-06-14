@@ -54,6 +54,14 @@ class ConceptQueueItem:
     source_references: list[str]
 
 
+@dataclass(frozen=True)
+class _AnswerEvidence:
+    answer_id: int | None
+    question_id: int
+    is_correct: bool | None
+    submitted_at: datetime | None
+
+
 @dataclass
 class _RollupAccumulator:
     direct_question_ids: set[int] = field(default_factory=set)
@@ -62,6 +70,7 @@ class _RollupAccumulator:
     secondary_question_ids: set[int] = field(default_factory=set)
     missed_question_ids: set[int] = field(default_factory=set)
     source_references: set[str] = field(default_factory=set)
+    counted_answer_ids: set[int] = field(default_factory=set)
     total_attempts: int = 0
     correct_attempts: int = 0
     primary_attempts: int = 0
@@ -271,6 +280,7 @@ def _accumulate_assignment_rows(
             QuestionConcept.question_id,
             QuestionConcept.role,
             Question.source_reference,
+            AttemptAnswer.id,
             AttemptAnswer.is_correct,
             Attempt.submitted_at,
         )
@@ -293,7 +303,7 @@ def _accumulate_assignment_row(
     ancestors_by_concept_id: dict[int, list[int]],
     row,
 ) -> None:
-    concept_id, question_id, role, source_reference, is_correct, submitted_at = row
+    concept_id, question_id, role, source_reference, answer_id, is_correct, submitted_at = row
     for rollup_concept_id in ancestors_by_concept_id.get(concept_id, [concept_id]):
         accumulator = accumulators[rollup_concept_id]
         _accumulate_question_identity(
@@ -303,7 +313,15 @@ def _accumulate_assignment_row(
             source_reference=source_reference,
         )
         _accumulate_role(accumulator, role, question_id, is_correct)
-        _accumulate_answer_evidence(accumulator, question_id, is_correct, submitted_at)
+        _accumulate_answer_evidence(
+            accumulator,
+            _AnswerEvidence(
+                answer_id=answer_id,
+                question_id=question_id,
+                is_correct=is_correct,
+                submitted_at=submitted_at,
+            ),
+        )
 
 
 def _missed_active_concepts(answer: AttemptAnswer) -> dict[int, Concept]:
@@ -342,19 +360,22 @@ def _accumulate_question_identity(
 
 def _accumulate_answer_evidence(
     accumulator: _RollupAccumulator,
-    question_id: int,
-    is_correct: bool | None,
-    submitted_at: datetime | None,
+    evidence: _AnswerEvidence,
 ) -> None:
-    if is_correct is None:
+    if evidence.is_correct is None:
         return
+    if evidence.answer_id is None:
+        return
+    if evidence.answer_id in accumulator.counted_answer_ids:
+        return
+    accumulator.counted_answer_ids.add(evidence.answer_id)
     accumulator.total_attempts += 1
-    if is_correct:
+    if evidence.is_correct:
         accumulator.correct_attempts += 1
         return
-    accumulator.missed_question_ids.add(question_id)
-    if _is_newer_miss(accumulator, submitted_at):
-        accumulator.last_missed_at = submitted_at
+    accumulator.missed_question_ids.add(evidence.question_id)
+    if _is_newer_miss(accumulator, evidence.submitted_at):
+        accumulator.last_missed_at = evidence.submitted_at
 
 
 def _is_newer_miss(

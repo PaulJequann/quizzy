@@ -211,9 +211,9 @@ def _dedupe_proposals(
 def _validate_assignment_roles(proposals: list[ConceptProposal]) -> None:
     primary_count = sum(proposal.role == ConceptAssignmentRole.PRIMARY for proposal in proposals)
     if primary_count != 1:
-        raise ValueError("Active questions require exactly one primary concept assignment.")
+        raise ValueError("Questions require exactly one primary concept assignment.")
     if len(proposals) > 2:
-        raise ValueError("Generated questions can tag at most two concepts.")
+        raise ValueError("Questions can tag at most two concepts.")
 
 
 def _resolve_one_assignment(

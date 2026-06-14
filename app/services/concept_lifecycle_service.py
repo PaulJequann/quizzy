@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -534,12 +535,17 @@ def _would_create_cycle(concept: Concept, parent: Concept) -> bool:
 
 
 def _has_concept_history(db: Session, concept: Concept) -> bool:
-    return (
-        db.scalar(
-            select(func.count(ConceptDecisionEvent.id)).where(
-                ConceptDecisionEvent.subject_id == concept.subject_id,
-                ConceptDecisionEvent.affected_concept_ids_json.contains(str(concept.id)),
-            )
+    rows = db.scalars(
+        select(ConceptDecisionEvent.affected_concept_ids_json).where(
+            ConceptDecisionEvent.subject_id == concept.subject_id,
         )
-        or 0
-    ) > 0
+    )
+    return any(_json_ids_include(raw_ids, concept.id) for raw_ids in rows)
+
+
+def _json_ids_include(raw_ids: str, concept_id: int) -> bool:
+    try:
+        ids = json.loads(raw_ids)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(ids, list) and concept_id in ids

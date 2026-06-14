@@ -66,14 +66,13 @@ def api_create_subject_concept(
     db: Annotated[Session, Depends(get_db)],
 ):
     subject = _require_subject(db, subject_id)
-    parent = _parent_concept(db, subject_id, payload.parent_concept_id)
     return _run_concept_action(
         lambda: concept_lifecycle_service.create_concept(
             db,
             concept_lifecycle_service.CreateConceptRequest(
                 subject=subject,
                 name=payload.name,
-                parent=parent,
+                parent=_parent_concept(db, subject_id, payload.parent_concept_id),
                 status=payload.status,
                 rationale=payload.rationale,
             ),

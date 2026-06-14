@@ -332,7 +332,7 @@ def _finish_merge(
             },
         ),
     )
-    _close_stale_reviews(db, context.subject)
+    _close_stale_reviews(db, context)
     db.commit()
     db.refresh(context.target)
 
@@ -450,11 +450,16 @@ def _open_duplicate_review_item(
     )
 
 
-def _close_stale_reviews(db: Session, subject: Subject) -> None:
+def _close_stale_reviews(db: Session, context: MergeContext) -> None:
     db.execute(
         delete(ConceptReviewItem).where(
-            ConceptReviewItem.subject_id == subject.id,
+            ConceptReviewItem.subject_id == context.subject.id,
             ConceptReviewItem.status == "open",
             ConceptReviewItem.review_type.in_(["near_duplicate", "unresolved_assignment"]),
+            ConceptReviewItem.concept_id.in_(_merged_concept_ids(context)),
         )
     )
+
+
+def _merged_concept_ids(context: MergeContext) -> list[int]:
+    return [context.target.id, *[source.id for source in context.sources]]
