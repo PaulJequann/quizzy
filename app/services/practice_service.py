@@ -9,8 +9,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import (
     AttemptAnswer,
     Concept,
+    ConceptAssignmentRole,
+    ConceptStatus,
     Difficulty,
     Question,
+    QuestionConcept,
     QuestionHealthState,
     QuestionStatus,
     Quiz,
@@ -147,7 +150,7 @@ def _candidate_questions(
         )
         .options(
             selectinload(Question.choices),
-            selectinload(Question.concepts),
+            selectinload(Question.concept_links).selectinload(QuestionConcept.concept),
             selectinload(Question.attempt_answers).selectinload(AttemptAnswer.attempt),
         )
         .order_by(Question.id)
@@ -156,8 +159,10 @@ def _candidate_questions(
         statement = statement.where(Question.difficulty == data.difficulty)
     if data.source_document_id is not None:
         statement = statement.where(Question.source_document_id == data.source_document_id)
-    if data.concept_ids and data.strategy == "concept_drill":
-        statement = statement.join(Question.concepts).where(Concept.id.in_(data.concept_ids))
+    if data.concept_ids:
+        statement = statement.join(QuestionConcept).where(
+            QuestionConcept.concept_id.in_(_expanded_concept_ids(db, data.concept_ids))
+        )
     return list(db.scalars(statement).unique())
 
 
@@ -255,6 +260,8 @@ def _health_selection_score(question: Question) -> float:
 def _strategy_score(question: Question, data: PracticeAssemblyInput) -> float:
     if data.strategy == "mastery_review" and _has_priority_concept(question, data.concept_ids):
         return 50 + _recency_score(question)
+    if data.strategy == "concept_drill":
+        return _concept_drill_score(question, data.concept_ids) + _recency_score(question)
     if data.strategy == "spaced_review":
         return _spaced_review_score(question)
     return _recency_score(question)
@@ -263,7 +270,48 @@ def _strategy_score(question: Question, data: PracticeAssemblyInput) -> float:
 def _has_priority_concept(question: Question, concept_ids: list[int] | None) -> bool:
     if not concept_ids:
         return False
-    return any(concept.id in concept_ids for concept in question.concepts)
+    return any(
+        link.concept_id in concept_ids and link.role == ConceptAssignmentRole.PRIMARY
+        for link in question.concept_links
+    )
+
+
+def _concept_drill_score(question: Question, concept_ids: list[int] | None) -> float:
+    if not concept_ids:
+        return 0
+    if any(
+        link.concept_id in concept_ids and link.role == ConceptAssignmentRole.PRIMARY
+        for link in question.concept_links
+    ):
+        return 40
+    if any(link.concept_id in concept_ids for link in question.concept_links):
+        return 8
+    return 0
+
+
+def _expanded_concept_ids(db: Session, concept_ids: list[int]) -> list[int]:
+    concepts = list(
+        db.scalars(
+            select(Concept).where(
+                Concept.status == ConceptStatus.ACTIVE,
+                Concept.id.in_(concept_ids) | Concept.parent_concept_id.in_(concept_ids),
+            )
+        )
+    )
+    all_ids = {concept.id for concept in concepts}
+    frontier = {concept.id for concept in concepts if concept.id not in concept_ids}
+    while frontier:
+        children = list(
+            db.scalars(
+                select(Concept.id).where(
+                    Concept.status == ConceptStatus.ACTIVE,
+                    Concept.parent_concept_id.in_(frontier),
+                )
+            )
+        )
+        frontier = set(children) - all_ids
+        all_ids.update(children)
+    return sorted(all_ids | set(concept_ids))
 
 
 def _recency_score(question: Question) -> float:

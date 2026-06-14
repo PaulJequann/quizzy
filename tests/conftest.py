@@ -7,6 +7,8 @@ from app.main import create_app
 from app.models import (
     Choice,
     Concept,
+    ConceptAssignmentRole,
+    ConceptStatus,
     Difficulty,
     Question,
     QuestionConcept,
@@ -16,6 +18,7 @@ from app.models import (
     QuizStatus,
     Subject,
 )
+from app.services.concept_service import normalize_concept_name
 from tests.db_utils import clear_database_caches, reset_database, testcontainers_postgres_database
 
 
@@ -69,8 +72,14 @@ def seed_test_quiz(session: Session) -> None:
     ]
     question.concept_links = [
         QuestionConcept(
-            concept=Concept(name="pytest basics", slug="pytest-basics", subject=subject),
-            is_primary=True,
+            concept=Concept(
+                name="pytest basics",
+                slug="pytest-basics",
+                normalized_name=normalize_concept_name("pytest basics", subject_name="testing"),
+                status=ConceptStatus.ACTIVE,
+                subject=subject,
+            ),
+            role=ConceptAssignmentRole.PRIMARY,
         )
     ]
     quiz.question_links.append(QuizQuestion(question=question, order_index=1))

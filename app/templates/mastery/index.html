@@ -81,12 +81,12 @@
                 </div>
                 <dl class="mastery-row-stats">
                   <div>
-                    <dt>Attempts</dt>
-                    <dd>{{ row.total_attempts }}</dd>
+                    <dt>Questions</dt>
+                    <dd>{{ row.linked_question_count }}</dd>
                   </div>
                   <div>
-                    <dt>Correct</dt>
-                    <dd>{{ row.correct_attempts }}</dd>
+                    <dt>Attempts</dt>
+                    <dd>{{ row.total_attempts }}</dd>
                   </div>
                   <div>
                     <dt>Accuracy</dt>
@@ -101,6 +101,10 @@
                         -
                       {% endif %}
                     </dd>
+                  </div>
+                  <div>
+                    <dt>Primary</dt>
+                    <dd>{{ row.primary_question_count }}</dd>
                   </div>
                 </dl>
               </article>

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import Attempt, AttemptAnswer, Concept, Difficulty, Question, Quiz, QuizStatus
-from app.services import practice_service, question_health_service
+from app.services import concept_service, practice_service, question_health_service
 from app.services.grading_service import (
     build_concept_queue_items,
     get_mastery_rows,
@@ -19,6 +19,7 @@ from app.services.grading_service import (
     submit_attempt,
 )
 from app.services.quiz_service import (
+    QuestionFormInput,
     create_question,
     form_question_create,
     get_quiz,
@@ -172,9 +173,10 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
     subject = get_subject(db, subject_id)
     if subject is None:
         raise HTTPException(status_code=404, detail="Subject not found")
-    mastery_rows = [row for row in get_mastery_rows(db) if row.concept.subject_id == subject.id]
+    mastery_rows = get_mastery_rows(db, subject_id=subject.id)
     mastery_groups = build_subject_mastery_groups(mastery_rows)
     mastery_group = mastery_groups[0] if mastery_groups else None
+    concept_review_items = concept_service.list_open_concept_reviews(db, subject_id=subject.id)
     return templates.TemplateResponse(
         request,
         "subjects/detail.html",
@@ -182,12 +184,23 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
             "subject": subject,
             "mastery_group": mastery_group,
             "quizzes": quizzes_for_subject(subject),
+            "concept_review_items": concept_review_items,
+            "concept_review_count_by_concept_id": _concept_review_counts(concept_review_items),
             "question_review_items": question_health_service.list_question_review_queue(
                 db,
                 subject_id=subject.id,
             ),
         },
     )
+
+
+def _concept_review_counts(review_items: list[dict]) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    for item in review_items:
+        concept_id = item.get("concept_id")
+        if concept_id is not None:
+            counts[concept_id] = counts.get(concept_id, 0) + 1
+    return counts
 
 
 @router.post("/subjects/{subject_id}/practice")
@@ -311,17 +324,19 @@ async def post_question(
     form = await request.form()
     try:
         question_data = form_question_create(
-            stem=form_text(form, "stem"),
-            choices=[
-                form_text(form, "choice_1"),
-                form_text(form, "choice_2"),
-                form_text(form, "choice_3"),
-                form_text(form, "choice_4"),
-            ],
-            correct_choice=form_int(form, "correct_choice"),
-            explanation=form_text(form, "explanation"),
-            source_reference=form_text(form, "source_reference"),
-            concepts=form_text(form, "concepts"),
+            QuestionFormInput(
+                stem=form_text(form, "stem"),
+                choices=[
+                    form_text(form, "choice_1"),
+                    form_text(form, "choice_2"),
+                    form_text(form, "choice_3"),
+                    form_text(form, "choice_4"),
+                ],
+                correct_choice=form_int(form, "correct_choice"),
+                explanation=form_text(form, "explanation"),
+                source_reference=form_text(form, "source_reference"),
+                concepts=form_text(form, "concepts"),
+            )
         )
     except ValueError as error:
         return templates.TemplateResponse(

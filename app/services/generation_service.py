@@ -9,18 +9,22 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     Concept,
+    ConceptAssignmentRole,
+    ConceptStatus,
     Difficulty,
     Question,
+    QuestionConcept,
     Quiz,
     QuizQuestion,
     QuizStatus,
     QuizType,
     Subject,
 )
-from app.services import question_bank_service
+from app.services import concept_service, question_bank_service
 from app.services.question_bank_service import BatchMetadata, QuestionBankCreateInput
-from app.services.quiz_service import get_or_create_subject, slugify
+from app.services.quiz_service import get_or_create_subject
 from app.services.settings_service import get_default_difficulty
+from app.services.text_service import slugify
 
 
 class GeneratedChoiceInput(BaseModel):
@@ -28,14 +32,36 @@ class GeneratedChoiceInput(BaseModel):
     is_correct: bool = False
 
 
+class GeneratedConceptProposal(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    parent_name: str | None = Field(default=None, max_length=160)
+    role: ConceptAssignmentRole = ConceptAssignmentRole.PRIMARY
+    rationale: str = ""
+
+
 class GeneratedQuestionInput(BaseModel):
     stem: str = Field(min_length=1)
     choices: list[GeneratedChoiceInput] = Field(min_length=4, max_length=4)
     explanation: str | None = None
-    difficulty: Difficulty | None = None
-    concept_names: list[str] = Field(default_factory=list)
-    source_document_id: int | None = None
-    source_reference: str | None = None
+    difficulty: Difficulty | None = Field(
+        default=None,
+        description=(
+            "Question difficulty. Valid values are beginner, intermediate, advanced, or mixed; "
+            "omit to use the app default."
+        ),
+    )
+    concept_proposals: list[GeneratedConceptProposal] = Field(default_factory=list)
+    source_document_id: int | None = Field(
+        default=None,
+        description="Ingested source document id that grounds this generated question.",
+    )
+    source_reference: str | None = Field(
+        default=None,
+        description=(
+            "Explicit source reference when source_document_id is not available. Use this exact "
+            "field name, not source_ref."
+        ),
+    )
     source_excerpt: str | None = None
 
 
@@ -46,6 +72,22 @@ class GeneratedQuizCreateInput:
     description: str = ""
     difficulty: Difficulty | None = None
     status: QuizStatus = QuizStatus.DRAFT
+
+
+@dataclass(frozen=True)
+class GeneratedQuestionWriteOptions:
+    approve_new_concepts: bool = False
+    save_unresolved_as_draft: bool = False
+
+
+@dataclass(frozen=True)
+class AddQuestionsToQuizInput:
+    quiz_id: int
+    questions: list[GeneratedQuestionInput]
+    options: GeneratedQuestionWriteOptions = GeneratedQuestionWriteOptions()
+
+
+DEFAULT_WRITE_OPTIONS = GeneratedQuestionWriteOptions()
 
 
 def default_difficulty(db: Session) -> Difficulty:
@@ -65,8 +107,19 @@ def list_subjects(db: Session) -> list[dict[str, Any]]:
     ]
 
 
-def list_concepts(db: Session, *, subject_name: str | None = None) -> list[dict[str, Any]]:
-    statement = select(Concept).options(selectinload(Concept.subject)).order_by(Concept.name)
+def list_concepts(
+    db: Session,
+    *,
+    subject_name: str | None = None,
+    statuses: list[ConceptStatus] | None = None,
+) -> list[dict[str, Any]]:
+    requested_statuses = statuses or [ConceptStatus.ACTIVE]
+    statement = (
+        select(Concept)
+        .where(Concept.status.in_(requested_statuses))
+        .options(selectinload(Concept.subject))
+        .order_by(Concept.status, Concept.name)
+    )
     if subject_name:
         subject = db.scalar(select(Subject).where(Subject.slug == slugify(subject_name)))
         if subject is None:
@@ -77,6 +130,9 @@ def list_concepts(db: Session, *, subject_name: str | None = None) -> list[dict[
             "id": concept.id,
             "name": concept.name,
             "slug": concept.slug,
+            "normalized_name": concept.normalized_name,
+            "status": concept.status.value,
+            "parent_concept_id": concept.parent_concept_id,
             "subject_id": concept.subject_id,
             "subject": concept.subject.name,
             "description": concept.description,
@@ -122,28 +178,38 @@ def create_generated_quiz_with_questions(
     db: Session,
     quiz_input: GeneratedQuizCreateInput,
     questions: list[GeneratedQuestionInput],
+    *,
+    options: GeneratedQuestionWriteOptions = DEFAULT_WRITE_OPTIONS,
 ) -> dict[str, Any]:
     question_bank_service.validate_question_batch(db, questions)
     quiz = create_generated_quiz(db, quiz_input)
-    add_questions_to_quiz(db, quiz_id=quiz.id, questions=questions)
+    add_questions_to_quiz(
+        db,
+        AddQuestionsToQuizInput(
+            quiz_id=quiz.id,
+            questions=questions,
+            options=options,
+        ),
+    )
     return generated_quiz_to_dict(db, quiz.id)
 
 
 def add_questions_to_quiz(
-    db: Session, *, quiz_id: int, questions: list[GeneratedQuestionInput]
+    db: Session,
+    data: AddQuestionsToQuizInput,
 ) -> dict[str, Any]:
     quiz = db.scalar(
         select(Quiz)
-        .where(Quiz.id == quiz_id)
+        .where(Quiz.id == data.quiz_id)
         .options(selectinload(Quiz.primary_subject), selectinload(Quiz.question_links))
     )
     if quiz is None:
-        raise ValueError(f"Unknown quiz id {quiz_id}")
+        raise ValueError(f"Unknown quiz id {data.quiz_id}")
     subject = quiz.primary_subject
     if subject is None:
         raise ValueError("Generated questions require a quiz with a primary subject.")
 
-    prepared_questions = _questions_with_default_difficulty(questions, quiz.difficulty)
+    prepared_questions = _questions_with_default_difficulty(data.questions, quiz.difficulty)
     question_bank_service.validate_question_batch(db, prepared_questions)
     starting_order = db.scalar(
         select(func.coalesce(func.max(QuizQuestion.order_index), 0)).where(
@@ -155,7 +221,12 @@ def add_questions_to_quiz(
         QuestionBankCreateInput(
             subject_name=subject.name,
             questions=prepared_questions,
-            batch_metadata=BatchMetadata(generator_type="mcp_agent", notes=f"quiz_id={quiz.id}"),
+            batch_metadata=BatchMetadata(
+                generator_type="mcp_agent",
+                notes=f"quiz_id={quiz.id}",
+            ),
+            approve_new_concepts=data.options.approve_new_concepts,
+            save_unresolved_as_draft=data.options.save_unresolved_as_draft,
         ),
     )
     inserted = db.scalars(
@@ -184,7 +255,9 @@ def generated_quiz_to_dict(db: Session, quiz_id: int) -> dict[str, Any]:
         .options(
             selectinload(Quiz.primary_subject),
             selectinload(Quiz.questions).selectinload(Question.choices),
-            selectinload(Quiz.questions).selectinload(Question.concepts),
+            selectinload(Quiz.questions)
+            .selectinload(Question.concept_links)
+            .selectinload(QuestionConcept.concept),
         )
     )
     if quiz is None:
@@ -215,7 +288,19 @@ def _generated_question_to_dict(question: Question) -> dict[str, Any]:
         "source_excerpt": question.source_excerpt,
         "generation_batch_id": question.generation_batch_id,
         "health_state": question.health_state.value,
-        "concepts": [concept.name for concept in question.concepts],
+        "concepts": [
+            {
+                "id": link.concept.id,
+                "name": link.concept.name,
+                "role": link.role.value,
+                "status": link.concept.status.value,
+                "parent_concept_id": link.concept.parent_concept_id,
+            }
+            for link in sorted(
+                question.concept_links,
+                key=lambda link: (link.role.value, link.concept.name.casefold()),
+            )
+        ],
     }
 
 
@@ -224,6 +309,19 @@ def create_generated_questions(
     data: QuestionBankCreateInput,
 ) -> dict[str, Any]:
     return question_bank_service.create_generated_questions(db, data)
+
+
+def prepare_concept_plan(
+    db: Session,
+    *,
+    subject_name: str,
+    proposals: list[GeneratedConceptProposal],
+) -> dict[str, Any]:
+    return concept_service.prepare_concept_plan(
+        db,
+        subject_name=subject_name,
+        proposals=[_generated_proposal_to_domain(proposal) for proposal in proposals],
+    )
 
 
 def list_question_bank(
@@ -244,3 +342,14 @@ def _questions_with_default_difficulty(
         else question.model_copy(update={"difficulty": difficulty})
         for question in questions
     ]
+
+
+def _generated_proposal_to_domain(
+    proposal: GeneratedConceptProposal,
+) -> concept_service.ConceptProposal:
+    return concept_service.ConceptProposal(
+        name=proposal.name,
+        parent_name=proposal.parent_name,
+        role=proposal.role,
+        rationale=proposal.rationale,
+    )

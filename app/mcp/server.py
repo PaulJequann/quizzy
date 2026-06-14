@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Annotated, Any
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 from pydantic import Field
@@ -12,17 +12,21 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_session_factory
-from app.mcp import question_first_tools
+from app.mcp import concept_approval, question_first_tools, read_tools
 from app.models import Difficulty, Question, Quiz, QuizStatus, SourceDocument, Subject
 from app.services import (
-    concept_service,
+    concept_maintenance_service,
     generation_service,
     settings_service,
     source_service,
 )
-from app.services.concept_service import MergeConceptsInput
-from app.services.generation_service import GeneratedQuestionInput, GeneratedQuizCreateInput
-from app.services.quiz_service import slugify
+from app.services.concept_maintenance_service import MergeConceptsInput
+from app.services.generation_service import (
+    GeneratedConceptProposal,
+    GeneratedQuestionInput,
+    GeneratedQuizCreateInput,
+)
+from app.services.text_service import slugify
 
 GENERATION_GUIDANCE = """
 Quizzy does not perform AI inference. The MCP client/agent is responsible for reading
@@ -31,7 +35,13 @@ choosing which questions belong in a quiz.
 
 Required question-writing contract:
 - Every question must be grounded in an ingested source document or explicit source reference.
+- If a note does not declare a subject, pass subject_name explicitly when ingesting it and when
+  writing generated questions. Subject namespaces are required for concept reuse and review.
 - Each multiple-choice question must have exactly four choices and exactly one correct answer.
+- Difficulty values are beginner, intermediate, advanced, or mixed. Omit difficulty to use the
+  app default; do not invent alternate labels such as easy, medium, or hard.
+- Each generated question must include source_document_id or source_reference. The field name is
+  source_reference for explicit references; source_ref is not a valid input field.
 - Distractor Control: distractors must represent known common misconceptions, adjacent
   confusions, or plausible mistakes about the same concept. Do not use random answers,
   joke answers, absurd options, or factually unrelated items outside the domain context.
@@ -52,6 +62,10 @@ Concept granularity rules:
   taxonomy smell.
 - A question should normally tag exactly 1 primary concept and never more than 2 concepts.
 - Create a new concept only when it is likely to support at least 3 future questions or reviews.
+- Do not collapse source-specific objectives into a broad existing concept to avoid approval. If a
+  concept plan identifies new reusable concepts, preserve those proposals and let FastMCP
+  elicitation ask for approval, or use save_unresolved_as_draft=true when elicitation is
+  unavailable.
 - Do not create separate concepts for protocol variants, threshold values, timing details,
   comparison phrasings, implementation patterns, or gotchas when they are examples of the same
   source-level learning objective.
@@ -59,17 +73,19 @@ Concept granularity rules:
   it. The user can split concepts later during review; merging noisy concepts is more expensive.
 
 Recommended workflow:
-1. Ingest Obsidian notes with ingest_obsidian_note or ingest_obsidian_directory.
+1. Ingest Obsidian notes with ingest_obsidian_note or ingest_obsidian_directory. Pass
+   subject_name when the note frontmatter/path does not already provide the intended subject.
 2. Use prepare_generation_context to inspect app state, existing concepts, and concept policy.
 3. Read relevant notes with get_source_document.
 4. Draft a canonical concept plan: choose existing concepts first, then at most a few new durable
    source-level concepts.
 5. Write stems, correct answers, distractors, explanations, difficulty, and source references using
    only the planned concept names.
-6. Review the full batch for concept drift before calling create_generated_questions.
-7. Write durable bank questions with create_generated_questions.
+6. Call prepare_concept_plan before persistence. New active concepts require approval.
+7. Write durable bank questions with create_generated_questions after approval, or save unresolved
+   taxonomy as draft/proposed review work.
 8. Optionally assemble a disposable practice session from the bank.
-9. Resolve app-created question review items when maintaining the bank.
+9. Resolve app-created question and concept review items when maintaining the bank.
 """.strip()
 
 CONCEPT_POLICY = {
@@ -85,7 +101,8 @@ CONCEPT_POLICY = {
     "batch_review": [
         "Choose the canonical concept set before writing questions.",
         "Reuse planned concept names verbatim across the batch.",
-        "Review all concept_names before persistence and collapse near-duplicates manually.",
+        "Review structured concept_proposals before persistence.",
+        "Call prepare_concept_plan and get user approval before creating active taxonomy.",
     ],
     "avoid": [
         "one-off facts",
@@ -220,17 +237,6 @@ def list_subjects() -> dict[str, Any]:
         return {"subjects": generation_service.list_subjects(db)}
 
 
-def list_concepts(
-    subject_name: Annotated[
-        str | None,
-        Field(description="Optional subject name used to scope concepts."),
-    ] = None,
-) -> dict[str, Any]:
-    """List existing concepts, optionally scoped to one subject."""
-    with _session_scope() as db:
-        return {"concepts": generation_service.list_concepts(db, subject_name=subject_name)}
-
-
 def prepare_generation_context(
     subject_name: Annotated[
         str | None,
@@ -260,6 +266,22 @@ def prepare_generation_context(
         }
 
 
+def prepare_concept_plan(
+    subject_name: Annotated[str, Field(description="Subject namespace chosen by the agent.")],
+    proposals: Annotated[
+        list[GeneratedConceptProposal],
+        Field(description="Structured concept proposals to resolve before generation."),
+    ],
+) -> dict[str, Any]:
+    """Resolve exact concept/alias matches and surface new taxonomy needing approval."""
+    with _session_scope() as db:
+        return generation_service.prepare_concept_plan(
+            db,
+            subject_name=subject_name,
+            proposals=proposals,
+        )
+
+
 def list_quizzes() -> dict[str, Any]:
     """List quizzes with their subject, status, type, and difficulty."""
     with _session_scope() as db:
@@ -285,12 +307,42 @@ def get_quiz(quiz_id: Annotated[int, Field(description="Quiz id to read.")]) -> 
         return generation_service.generated_quiz_to_dict(db, quiz_id)
 
 
+def list_question_bank(
+    subject_name: Annotated[
+        str | None,
+        Field(description="Optional subject name used to filter the bank."),
+    ] = None,
+) -> dict[str, Any]:
+    """List durable questions independent of quiz containers."""
+    with _session_scope() as db:
+        subject = _subject_for_context(db, subject_name)
+        return {
+            "questions": generation_service.list_question_bank(
+                db,
+                subject_id=subject.id if subject else None,
+            )
+        }
+
+
 def _register_read_tools(server: FastMCP) -> None:
     ro = {"readOnlyHint": True, "idempotentHint": True}
     register_tool(server, "get_generation_guidance", get_generation_guidance, annotations=ro)
     register_tool(server, "get_status", get_status, annotations=ro)
     register_tool(server, "list_subjects", list_subjects, annotations=ro)
-    register_tool(server, "list_concepts", list_concepts, annotations=ro)
+    register_tool(server, "list_concepts", read_tools.list_concepts, annotations=ro)
+    register_tool(
+        server,
+        "list_concept_review_queue",
+        read_tools.list_concept_review_queue,
+        annotations=ro,
+    )
+    register_tool(server, "get_mastery_focus", read_tools.get_mastery_focus, annotations=ro)
+    register_tool(
+        server,
+        "get_subject_mastery_tree",
+        read_tools.get_subject_mastery_tree,
+        annotations=ro,
+    )
     register_tool(server, "prepare_generation_context", prepare_generation_context, annotations=ro)
     register_tool(
         server,
@@ -298,8 +350,10 @@ def _register_read_tools(server: FastMCP) -> None:
         prepare_generation_context,
         annotations=ro,
     )
+    register_tool(server, "prepare_concept_plan", prepare_concept_plan, annotations=ro)
     register_tool(server, "list_quizzes", list_quizzes, annotations=ro)
     register_tool(server, "get_quiz", get_quiz, annotations=ro)
+    register_tool(server, "list_question_bank", list_question_bank, annotations=ro)
 
 
 def _register_source_tools(server: FastMCP) -> None:
@@ -312,7 +366,12 @@ def _register_source_ingest_tools(server: FastMCP) -> None:
         path: Annotated[str, Field(description="Absolute path to an Obsidian Markdown note.")],
         subject_name: Annotated[
             str | None,
-            Field(description="Subject namespace to attach the note to. The agent decides this."),
+            Field(
+                description=(
+                    "Subject namespace to attach the note to. Pass this when the note lacks "
+                    "subject metadata; generated questions should use the same subject_name."
+                )
+            ),
         ] = None,
         vault_name: Annotated[
             str | None,
@@ -333,7 +392,12 @@ def _register_source_ingest_tools(server: FastMCP) -> None:
         path: Annotated[str, Field(description="Absolute path to an Obsidian notes directory.")],
         subject_name: Annotated[
             str | None,
-            Field(description="Optional subject applied to every note in this ingest batch."),
+            Field(
+                description=(
+                    "Optional subject applied to every note in this ingest batch. Use this when "
+                    "notes do not reliably declare their own subject metadata."
+                )
+            ),
         ] = None,
         glob: Annotated[
             str,
@@ -459,7 +523,10 @@ def _register_concept_maintenance_tools(server: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Suggest low-use concepts that may be candidates for consolidation."""
         with _session_scope() as db:
-            return concept_service.suggest_concept_merges(db, subject_name=subject_name)
+            return concept_maintenance_service.suggest_concept_merges(
+                db,
+                subject_name=subject_name,
+            )
 
     def merge_concepts(
         subject_name: Annotated[str, Field(description="Subject namespace containing concepts.")],
@@ -478,7 +545,7 @@ def _register_concept_maintenance_tools(server: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Merge source concepts into a target concept while preserving question history."""
         with _session_scope() as db:
-            return concept_service.merge_concepts(
+            return concept_maintenance_service.merge_concepts(
                 db,
                 MergeConceptsInput(
                     subject_name=subject_name,
@@ -533,15 +600,17 @@ def _register_generated_question_tools(server: FastMCP) -> None:
 
 
 def _register_question_bank_tools(server: FastMCP) -> None:
-    def create_generated_questions(
+    async def create_generated_questions(
+        ctx: Context,
         subject_name: Annotated[str, Field(description="Subject namespace chosen by the agent.")],
         questions: Annotated[
             list[GeneratedQuestionInput],
             Field(
                 description=(
                     "Durable question-bank questions. The agent must provide exactly four "
-                    "choices, one correct answer, concepts, difficulty when needed, and source "
-                    "grounding."
+                    "choices, one correct answer, structured concept proposals, difficulty when "
+                    "needed using beginner/intermediate/advanced/mixed, and source grounding via "
+                    "source_document_id or source_reference."
                 )
             ),
         ],
@@ -550,9 +619,27 @@ def _register_question_bank_tools(server: FastMCP) -> None:
             Field(description="Optional source document shared by every question in the batch."),
         ] = None,
         notes: Annotated[str, Field(description="Optional batch notes.")] = "",
+        approve_new_concepts: Annotated[
+            bool,
+            Field(description="Set true only after user approval of prepare_concept_plan."),
+        ] = False,
+        save_unresolved_as_draft: Annotated[
+            bool,
+            Field(description="Save unresolved proposals as draft questions and concept reviews."),
+        ] = False,
     ) -> dict[str, Any]:
         """Create durable generated questions without creating a quiz."""
         with _session_scope() as db:
+            options = await concept_approval.write_options_after_concept_approval(
+                ctx,
+                db,
+                concept_approval.ConceptApprovalRequest(
+                    subject_name=subject_name,
+                    questions=questions,
+                    approve_new_concepts=approve_new_concepts,
+                    save_unresolved_as_draft=save_unresolved_as_draft,
+                ),
+            )
             return generation_service.create_generated_questions(
                 db,
                 generation_service.QuestionBankCreateInput(
@@ -560,53 +647,62 @@ def _register_question_bank_tools(server: FastMCP) -> None:
                     questions=questions,
                     source_document_id=source_document_id,
                     batch_metadata=generation_service.BatchMetadata(notes=notes),
+                    approve_new_concepts=options.approve_new_concepts,
+                    save_unresolved_as_draft=options.save_unresolved_as_draft,
                 ),
             )
 
-    def list_question_bank(
-        subject_name: Annotated[
-            str | None,
-            Field(description="Optional subject name used to filter the bank."),
-        ] = None,
-    ) -> dict[str, Any]:
-        """List durable questions independent of quiz containers."""
-        with _session_scope() as db:
-            subject = _subject_for_context(db, subject_name)
-            return {
-                "questions": generation_service.list_question_bank(
-                    db,
-                    subject_id=subject.id if subject else None,
-                )
-            }
-
     write = {"destructiveHint": False, "idempotentHint": False}
-    read = {"readOnlyHint": True, "idempotentHint": True}
     register_tool(
         server,
         "create_generated_questions",
         create_generated_questions,
         annotations=write,
     )
-    register_tool(server, "list_question_bank", list_question_bank, annotations=read)
 
 
 def _register_add_questions_tool(server: FastMCP) -> None:
-    def add_questions_to_quiz(
+    async def add_questions_to_quiz(
+        ctx: Context,
         quiz_id: Annotated[int, Field(description="Quiz id to append questions to.")],
         questions: Annotated[
             list[GeneratedQuestionInput],
             Field(
                 description=(
                     "Generated questions. The agent must provide exactly four choices, one "
-                    "correct answer, concepts, difficulty when needed, and source grounding."
+                    "correct answer, structured concept proposals, difficulty when needed, and "
+                    "source grounding via source_document_id or source_reference."
                 )
             ),
         ],
+        approve_new_concepts: Annotated[
+            bool,
+            Field(description="Set true only after user approval of prepare_concept_plan."),
+        ] = False,
+        save_unresolved_as_draft: Annotated[
+            bool,
+            Field(description="Save unresolved proposals as draft questions and concept reviews."),
+        ] = False,
     ) -> dict[str, Any]:
         """Append generated questions to an existing quiz."""
         with _session_scope() as db:
+            options = await concept_approval.write_options_after_concept_approval(
+                ctx,
+                db,
+                concept_approval.ConceptApprovalRequest(
+                    subject_name=concept_approval.quiz_subject_name(db, quiz_id),
+                    questions=questions,
+                    approve_new_concepts=approve_new_concepts,
+                    save_unresolved_as_draft=save_unresolved_as_draft,
+                ),
+            )
             return generation_service.add_questions_to_quiz(
-                db, quiz_id=quiz_id, questions=questions
+                db,
+                generation_service.AddQuestionsToQuizInput(
+                    quiz_id=quiz_id,
+                    questions=questions,
+                    options=options,
+                ),
             )
 
     write = {"destructiveHint": False, "idempotentHint": False}
@@ -614,7 +710,8 @@ def _register_add_questions_tool(server: FastMCP) -> None:
 
 
 def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
-    def create_generated_quiz_with_questions(
+    async def create_generated_quiz_with_questions(
+        ctx: Context,
         title: Annotated[str, Field(description="Quiz title.")],
         subject_name: Annotated[str, Field(description="Subject namespace chosen by the agent.")],
         questions: Annotated[
@@ -622,7 +719,10 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
             Field(
                 description=(
                     "Questions generated by the agent. Distractors must be plausible common "
-                    "misconceptions about the same concept, not random false statements."
+                    "misconceptions about the same concept, not random false statements. Concepts "
+                    "must be structured concept proposals. Use difficulty values "
+                    "beginner/intermediate/advanced/mixed and source_document_id or "
+                    "source_reference for grounding."
                 )
             ),
         ],
@@ -635,9 +735,27 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
             QuizStatus,
             Field(description="Initial quiz status. Draft is the recommended default."),
         ] = QuizStatus.DRAFT,
+        approve_new_concepts: Annotated[
+            bool,
+            Field(description="Set true only after user approval of prepare_concept_plan."),
+        ] = False,
+        save_unresolved_as_draft: Annotated[
+            bool,
+            Field(description="Save unresolved proposals as draft questions and concept reviews."),
+        ] = False,
     ) -> dict[str, Any]:
         """Create a generated quiz and questions in one call."""
         with _session_scope() as db:
+            options = await concept_approval.write_options_after_concept_approval(
+                ctx,
+                db,
+                concept_approval.ConceptApprovalRequest(
+                    subject_name=subject_name,
+                    questions=questions,
+                    approve_new_concepts=approve_new_concepts,
+                    save_unresolved_as_draft=save_unresolved_as_draft,
+                ),
+            )
             return generation_service.create_generated_quiz_with_questions(
                 db,
                 GeneratedQuizCreateInput(
@@ -648,6 +766,7 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
                     status=status,
                 ),
                 questions=questions,
+                options=options,
             )
 
     write = {"destructiveHint": False, "idempotentHint": False}

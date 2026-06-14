@@ -3,10 +3,12 @@ from enum import StrEnum
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -42,6 +44,17 @@ class QuestionHealthState(StrEnum):
     NEEDS_REVIEW = "needs_review"
     SUSPECT = "suspect"
     ARCHIVED = "archived"
+
+
+class ConceptStatus(StrEnum):
+    ACTIVE = "active"
+    PROPOSED = "proposed"
+    ARCHIVED = "archived"
+
+
+class ConceptAssignmentRole(StrEnum):
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
 
 
 class Difficulty(StrEnum):
@@ -89,6 +102,14 @@ class Subject(TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     question_review_items: Mapped[list["QuestionReviewItem"]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+    )
+    concept_review_items: Mapped[list["ConceptReviewItem"]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+    )
+    concept_decision_events: Mapped[list["ConceptDecisionEvent"]] = relationship(
         back_populates="subject",
         cascade="all, delete-orphan",
     )
@@ -220,6 +241,7 @@ class Quiz(TimestampMixin, Base):
 
 class QuestionConcept(Base):
     __tablename__ = "question_concepts"
+    __table_args__ = (Index("ix_question_concepts_question_role", "question_id", "role"),)
 
     question_id: Mapped[int] = mapped_column(
         ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True
@@ -227,16 +249,47 @@ class QuestionConcept(Base):
     concept_id: Mapped[int] = mapped_column(
         ForeignKey("concepts.id", ondelete="CASCADE"), primary_key=True
     )
-    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    role: Mapped[ConceptAssignmentRole] = mapped_column(
+        Enum(
+            ConceptAssignmentRole,
+            name="concept_assignment_role",
+            values_callable=lambda enum_class: [member.value for member in enum_class],
+        ),
+        nullable=False,
+        default=ConceptAssignmentRole.SECONDARY,
+    )
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     question: Mapped["Question"] = relationship(back_populates="concept_links")
     concept: Mapped["Concept"] = relationship(back_populates="question_links")
 
+    @property
+    def is_primary(self) -> bool:
+        return self.role == ConceptAssignmentRole.PRIMARY
+
+    @is_primary.setter
+    def is_primary(self, value: bool) -> None:
+        self.role = ConceptAssignmentRole.PRIMARY if value else ConceptAssignmentRole.SECONDARY
+
 
 class Concept(TimestampMixin, Base):
     __tablename__ = "concepts"
-    __table_args__ = (UniqueConstraint("subject_id", "slug", name="uq_concepts_subject_slug"),)
+    __table_args__ = (
+        UniqueConstraint("subject_id", "slug", name="uq_concepts_subject_slug"),
+        UniqueConstraint(
+            "subject_id",
+            "normalized_name",
+            name="uq_concepts_subject_normalized_name",
+        ),
+        CheckConstraint(
+            "parent_concept_id IS NULL OR parent_concept_id != id",
+            name="ck_concepts_no_self_parent",
+        ),
+        Index("ix_concepts_subject_status", "subject_id", "status"),
+        Index("ix_concepts_subject_parent", "subject_id", "parent_concept_id"),
+        Index("ix_concepts_subject_normalized", "subject_id", "normalized_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int] = mapped_column(
@@ -244,9 +297,30 @@ class Concept(TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     slug: Mapped[str] = mapped_column(String(180), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(180), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[ConceptStatus] = mapped_column(
+        Enum(
+            ConceptStatus,
+            name="concept_status",
+            values_callable=lambda enum_class: [member.value for member in enum_class],
+        ),
+        nullable=False,
+        default=ConceptStatus.ACTIVE,
+    )
+    parent_concept_id: Mapped[int | None] = mapped_column(
+        ForeignKey("concepts.id", ondelete="SET NULL")
+    )
 
     subject: Mapped[Subject] = relationship(back_populates="concepts")
+    parent: Mapped["Concept | None"] = relationship(
+        back_populates="children",
+        remote_side="Concept.id",
+    )
+    children: Mapped[list["Concept"]] = relationship(
+        back_populates="parent",
+        order_by="Concept.name",
+    )
     question_links: Mapped[list[QuestionConcept]] = relationship(
         back_populates="concept",
         cascade="all, delete-orphan",
@@ -261,6 +335,79 @@ class Concept(TimestampMixin, Base):
     @property
     def topic(self) -> str:
         return self.subject.name
+
+
+class ConceptAlias(TimestampMixin, Base):
+    __tablename__ = "concept_aliases"
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_id",
+            "alias_normalized_name",
+            name="uq_concept_aliases_subject_alias",
+        ),
+        Index("ix_concept_aliases_subject_alias", "subject_id", "alias_normalized_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
+    )
+    alias_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    alias_normalized_name: Mapped[str] = mapped_column(String(180), nullable=False)
+    target_concept_id: Mapped[int] = mapped_column(
+        ForeignKey("concepts.id", ondelete="CASCADE"), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    source_decision_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("concept_decision_events.id", ondelete="SET NULL")
+    )
+
+    subject: Mapped[Subject] = relationship()
+    target_concept: Mapped[Concept] = relationship(foreign_keys=[target_concept_id])
+    source_decision_event: Mapped["ConceptDecisionEvent | None"] = relationship(
+        foreign_keys=[source_decision_event_id]
+    )
+
+
+class ConceptDecisionEvent(TimestampMixin, Base):
+    __tablename__ = "concept_decision_events"
+    __table_args__ = (Index("ix_concept_decision_events_subject_action", "subject_id", "action"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    affected_concept_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    affected_question_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    actor: Mapped[str] = mapped_column(String(80), nullable=False, default="app")
+    source: Mapped[str] = mapped_column(String(80), nullable=False, default="web")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+    subject: Mapped[Subject] = relationship(back_populates="concept_decision_events")
+
+
+class ConceptReviewItem(TimestampMixin, Base):
+    __tablename__ = "concept_review_items"
+    __table_args__ = (Index("ix_concept_review_items_subject_status", "subject_id", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
+    )
+    concept_id: Mapped[int | None] = mapped_column(ForeignKey("concepts.id", ondelete="SET NULL"))
+    question_id: Mapped[int | None] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"))
+    review_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    suggested_action: Mapped[str] = mapped_column(String(80), nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="open")
+    resolution_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    subject: Mapped[Subject] = relationship(back_populates="concept_review_items")
+    concept: Mapped[Concept | None] = relationship()
+    question: Mapped["Question | None"] = relationship()
 
 
 class Question(TimestampMixin, Base):

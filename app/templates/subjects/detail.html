@@ -17,6 +17,9 @@
         {% if question_review_items %}
           <span class="meta-chip">{{ question_review_items|length }} question reviews</span>
         {% endif %}
+        {% if concept_review_items %}
+          <span class="meta-chip">{{ concept_review_items|length }} concept reviews</span>
+        {% endif %}
         {% if mastery_group and mastery_group.total_attempts %}
           <span class="meta-chip">{{ "%.0f"|format(mastery_group.accuracy) }}% mastery</span>
         {% endif %}
@@ -43,7 +46,7 @@
     <section class="panel subject-mastery-panel mb-6">
       <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p class="eyebrow">Mastery</p>
+          <p class="eyebrow">Stewardship</p>
           <h2 class="section-title">Concept performance</h2>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -54,9 +57,23 @@
       </div>
       <div class="mastery-list subject-mastery-list">
         {% for row in mastery_group.mastery_rows %}
-          <article class="mastery-row">
+          {% set review_count = concept_review_count_by_concept_id.get(row.concept.id, 0) %}
+          <article class="mastery-row" style="margin-left: {{ (row.depth - 1) * 1.25 }}rem">
             <div class="mastery-row-main">
-              <div class="font-medium">{{ row.concept.name|display_label }}</div>
+              <div>
+                <div class="font-medium">{{ row.concept.name|display_label }}</div>
+                <div class="mt-1 flex flex-wrap gap-2">
+                  {% if row.concept.status.value != "active" %}
+                    <span class="meta-chip">{{ row.concept.status|display_label }}</span>
+                  {% endif %}
+                  {% if row.depth > 1 %}
+                    <span class="meta-chip">Level {{ row.depth }}</span>
+                  {% endif %}
+                  {% if review_count %}
+                    <span class="meta-chip">{{ review_count }} open review{{ "s" if review_count != 1 else "" }}</span>
+                  {% endif %}
+                </div>
+              </div>
               <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
             </div>
             <form class="mt-3" method="post" action="/concepts/{{ row.concept.id }}/practice">
@@ -64,16 +81,28 @@
             </form>
             <dl class="mastery-row-stats">
               <div>
-                <dt>Attempts</dt>
-                <dd>{{ row.total_attempts }}</dd>
+                <dt>Questions</dt>
+                <dd>{{ row.linked_question_count }}</dd>
               </div>
               <div>
-                <dt>Correct</dt>
-                <dd>{{ row.correct_attempts }}</dd>
+                <dt>Direct</dt>
+                <dd>{{ row.direct_question_count }}</dd>
+              </div>
+              <div>
+                <dt>Descendant</dt>
+                <dd>{{ row.descendant_question_count }}</dd>
               </div>
               <div>
                 <dt>Accuracy</dt>
                 <dd>{{ "%.0f"|format(row.accuracy) }}%</dd>
+              </div>
+              <div>
+                <dt>Primary evidence</dt>
+                <dd>{{ row.primary_attempts }}</dd>
+              </div>
+              <div>
+                <dt>Secondary evidence</dt>
+                <dd>{{ row.secondary_attempts }}</dd>
               </div>
               <div>
                 <dt>Last missed</dt>
@@ -86,6 +115,32 @@
                 </dd>
               </div>
             </dl>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if concept_review_items %}
+    <section class="panel mb-6">
+      <div class="mb-5">
+        <p class="eyebrow">Concept stewardship</p>
+        <h2 class="section-title">Open taxonomy review</h2>
+      </div>
+      <div class="grid gap-3">
+        {% for item in concept_review_items %}
+          <article class="answer-review">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <p class="font-medium">
+                {% if item.concept_name %}
+                  {{ item.concept_name|display_label }}
+                {% else %}
+                  Proposed concept
+                {% endif %}
+              </p>
+              <span class="meta-chip">{{ item.suggested_action|display_label }}</span>
+            </div>
+            <p class="mt-2 text-sm text-[var(--color-text-2)]">{{ item.reason }}</p>
           </article>
         {% endfor %}
       </div>

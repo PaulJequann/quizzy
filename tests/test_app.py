@@ -7,8 +7,11 @@ from app.models import (
     AttemptAnswer,
     Choice,
     Concept,
+    ConceptAssignmentRole,
+    ConceptStatus,
     Difficulty,
     Question,
+    QuestionConcept,
     QuestionHealthState,
     QuestionStatus,
     Quiz,
@@ -16,6 +19,8 @@ from app.models import (
     QuizType,
 )
 from app.routes import web as web_routes
+from app.services.concept_service import normalize_concept_name
+from app.services.grading_service import get_mastery_rows
 
 pytestmark = pytest.mark.api
 
@@ -144,6 +149,56 @@ def test_mastery_page_tracks_attempt_accuracy(client: TestClient, db_session: Se
     assert "Pytest Basics" in mastery_response.text
     assert "0%" in mastery_response.text
     assert "Weak" in mastery_response.text
+
+
+def test_mastery_rolls_child_evidence_into_parent_concept(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    quiz = db_session.get(Quiz, 1)
+    assert quiz is not None
+    assert quiz.primary_subject is not None
+    subject = quiz.primary_subject
+    parent = Concept(
+        subject=subject,
+        name="pytest workflows",
+        slug="pytest-workflows",
+        normalized_name=normalize_concept_name("pytest workflows", subject_name=subject.name),
+        status=ConceptStatus.ACTIVE,
+    )
+    child = Concept(
+        subject=subject,
+        parent=parent,
+        name="fixture workflows",
+        slug="fixture-workflows",
+        normalized_name=normalize_concept_name("fixture workflows", subject_name=subject.name),
+        status=ConceptStatus.ACTIVE,
+    )
+    question = Question(
+        subject=subject,
+        stem="What does a fixture workflow organize?",
+        status=QuestionStatus.ACTIVE,
+        difficulty=Difficulty.BEGINNER,
+        source_reference="testing/pytest.md#fixture-workflows",
+    )
+    question.choices = [
+        Choice(text="Reusable setup", is_correct=True, order_index=1),
+        Choice(text="A container image", is_correct=False, order_index=2),
+        Choice(text="A DNS record", is_correct=False, order_index=3),
+        Choice(text="A browser tab", is_correct=False, order_index=4),
+    ]
+    question.concept_links = [QuestionConcept(concept=child, role=ConceptAssignmentRole.PRIMARY)]
+    quiz.question_links.append(QuizQuestion(question=question, order_index=2))
+    db_session.commit()
+    wrong_choice = next(choice for choice in question.choices if not choice.is_correct)
+
+    client.post("/quizzes/1/submit", data={f"question_{question.id}": str(wrong_choice.id)})
+
+    rows = {row.concept.name: row for row in get_mastery_rows(db_session, subject_id=subject.id)}
+    assert rows["pytest workflows"].linked_question_count == 1
+    assert rows["pytest workflows"].descendant_question_count == 1
+    assert rows["pytest workflows"].total_attempts == 1
+    assert rows["fixture workflows"].direct_question_count == 1
 
 
 def test_results_page_falls_back_to_live_answer_and_shows_question_metadata(

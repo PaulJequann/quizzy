@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     Choice,
+    ConceptAssignmentRole,
     Question,
     QuestionConcept,
     QuestionGenerationBatch,
@@ -16,8 +17,8 @@ from app.models import (
     SourceDocument,
     Subject,
 )
-from app.services import question_health_service
-from app.services.quiz_service import get_or_create_concepts, get_or_create_subject, slugify
+from app.services import concept_service, question_health_service
+from app.services.quiz_service import get_or_create_subject
 from app.services.settings_service import get_default_difficulty
 
 MAX_CONCEPTS_PER_GENERATED_QUESTION = 2
@@ -37,6 +38,8 @@ class QuestionBankCreateInput:
     questions: list[Any]
     source_document_id: int | None = None
     batch_metadata: BatchMetadata | None = None
+    approve_new_concepts: bool = False
+    save_unresolved_as_draft: bool = False
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,8 @@ class QuestionBuildInput:
     question_input: Any
     batch: QuestionGenerationBatch
     fallback_source_document_id: int | None
+    approve_new_concepts: bool
+    save_unresolved_as_draft: bool
 
 
 def validate_question_batch(
@@ -84,6 +89,8 @@ def create_generated_questions(
                 question_input=question_input,
                 batch=batch,
                 fallback_source_document_id=data.source_document_id,
+                approve_new_concepts=data.approve_new_concepts,
+                save_unresolved_as_draft=data.save_unresolved_as_draft,
             ),
         )
         for question_input in data.questions
@@ -104,7 +111,7 @@ def list_question_bank(
         .options(
             selectinload(Question.subject),
             selectinload(Question.choices),
-            selectinload(Question.concepts),
+            selectinload(Question.concept_links).selectinload(QuestionConcept.concept),
             selectinload(Question.source_document),
         )
         .order_by(Question.created_at.desc(), Question.id.desc())
@@ -130,18 +137,24 @@ def _build_question(
     db: Session,
     data: QuestionBuildInput,
 ) -> Question:
+    question = _question_from_build_input(db, data)
+    db.add(question)
+    _attach_choices(question, data.question_input.choices)
+    db.flush()
+    assignments = _resolve_build_assignments(db, data, question)
+    concept_service.apply_question_assignments(question, assignments)
+    _record_build_assignments(db, data, question, assignments)
+    return question
+
+
+def _question_from_build_input(db: Session, data: QuestionBuildInput) -> Question:
     question_input = data.question_input
-    concepts = get_or_create_concepts(
-        db,
-        _normalized_concept_names(question_input),
-        data.subject,
-    )
-    question = Question(
+    return Question(
         subject=data.subject,
         stem=question_input.stem.strip(),
         explanation=(question_input.explanation or "").strip() or None,
         difficulty=question_input.difficulty or get_default_difficulty(db),
-        status=QuestionStatus.ACTIVE,
+        status=_question_status(data),
         source_reference=_source_reference(
             db,
             question_input,
@@ -154,20 +167,68 @@ def _build_question(
         source_excerpt=(question_input.source_excerpt or "").strip() or None,
         generation_batch=data.batch,
     )
-    db.add(question)
+
+
+def _question_status(data: QuestionBuildInput) -> QuestionStatus:
+    return QuestionStatus.DRAFT if data.save_unresolved_as_draft else QuestionStatus.ACTIVE
+
+
+def _attach_choices(question: Question, choices: list[Any]) -> None:
     question.choices = [
         Choice(
             text=choice_input.text.strip(),
             is_correct=choice_input.is_correct,
             order_index=index,
         )
-        for index, choice_input in enumerate(question_input.choices, start=1)
+        for index, choice_input in enumerate(choices, start=1)
     ]
-    question.concept_links = [
-        QuestionConcept(concept=concept, is_primary=index == 0)
-        for index, concept in enumerate(concepts)
-    ]
-    return question
+
+
+def _resolve_build_assignments(
+    db: Session,
+    data: QuestionBuildInput,
+    question: Question,
+) -> list[concept_service.ResolvedConceptAssignment]:
+    proposals = _concept_proposals(data.question_input)
+    if data.save_unresolved_as_draft:
+        return concept_service.create_proposed_assignments(
+            db,
+            concept_service.ProposedAssignmentRequest(
+                subject=data.subject,
+                proposals=proposals,
+                question=question,
+                actor="mcp_agent",
+                source="mcp",
+            ),
+        )
+    return concept_service.resolve_concept_assignments(
+        db,
+        concept_service.AssignmentResolutionRequest(
+            subject=data.subject,
+            proposals=proposals,
+            allow_new_active=data.approve_new_concepts,
+            actor="mcp_agent",
+            source="mcp",
+        ),
+    )
+
+
+def _record_build_assignments(
+    db: Session,
+    data: QuestionBuildInput,
+    question: Question,
+    assignments: list[concept_service.ResolvedConceptAssignment],
+) -> None:
+    concept_service.record_question_assignment_decision(
+        db,
+        concept_service.QuestionAssignmentDecision(
+            subject=data.subject,
+            question=question,
+            assignments=assignments,
+            actor="mcp_agent",
+            source="mcp",
+        ),
+    )
 
 
 def _validate_question(
@@ -193,11 +254,14 @@ def _validate_source(question_input: Any, *, fallback_source_document_id: int | 
 
 
 def _validate_concepts(question_input: Any) -> None:
-    concept_names = _normalized_concept_names(question_input)
-    if not concept_names:
+    proposals = _concept_proposals(question_input)
+    if not proposals:
         raise ValueError("Generated questions require at least one concept.")
-    if len(concept_names) > MAX_CONCEPTS_PER_GENERATED_QUESTION:
+    if len(proposals) > MAX_CONCEPTS_PER_GENERATED_QUESTION:
         raise ValueError("Generated questions can tag at most two concepts.")
+    primary_count = sum(proposal.role == ConceptAssignmentRole.PRIMARY for proposal in proposals)
+    if primary_count != 1:
+        raise ValueError("Generated questions require exactly one primary concept.")
 
 
 def _has_source(question_input: Any, *, fallback_source_document_id: int | None) -> bool:
@@ -215,16 +279,28 @@ def _question_source_document_id(
     return question_input.source_document_id or fallback_source_document_id
 
 
-def _normalized_concept_names(question_input: Any) -> list[str]:
-    names: list[str] = []
+def _concept_proposals(question_input: Any) -> list[concept_service.ConceptProposal]:
+    proposals: list[concept_service.ConceptProposal] = []
     seen: set[str] = set()
-    for raw_name in question_input.concept_names:
-        name = raw_name.strip()
-        slug = slugify(name)
-        if name and slug not in seen:
-            names.append(name)
-            seen.add(slug)
-    return names
+    for raw_proposal in question_input.concept_proposals:
+        proposal = _proposal_to_domain(raw_proposal)
+        key = concept_service.normalize_concept_name(proposal.name)
+        if proposal.name.strip() and key not in seen:
+            proposals.append(proposal)
+            seen.add(key)
+    return proposals
+
+
+def _proposal_to_domain(raw_proposal: Any) -> concept_service.ConceptProposal:
+    role = raw_proposal.role
+    if isinstance(role, str):
+        role = ConceptAssignmentRole(role)
+    return concept_service.ConceptProposal(
+        name=raw_proposal.name,
+        parent_name=raw_proposal.parent_name,
+        role=role,
+        rationale=raw_proposal.rationale,
+    )
 
 
 def _source_reference(
@@ -275,7 +351,18 @@ def _question_to_dict(question: Question) -> dict[str, Any]:
         "source_reference": question.source_reference,
         "source_excerpt": question.source_excerpt,
         "generation_batch_id": question.generation_batch_id,
-        "concepts": [concept.name for concept in question.concepts],
+        "concepts": [
+            {
+                "id": link.concept.id,
+                "name": link.concept.name,
+                "role": link.role.value,
+                "status": link.concept.status.value,
+            }
+            for link in sorted(
+                question.concept_links,
+                key=lambda link: (link.role.value, link.concept.name.casefold()),
+            )
+        ],
         "choices": [
             {"id": choice.id, "text": choice.text, "is_correct": choice.is_correct}
             for choice in question.choices
