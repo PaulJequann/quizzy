@@ -87,6 +87,14 @@ def api_update_concept(
     db: Annotated[Session, Depends(get_db)],
 ):
     concept = _require_concept(db, concept_id)
+    parent = None
+    if "parent_concept_id" in payload.model_fields_set:
+        parent = _run_concept_action(
+            lambda: _parent_concept(db, concept.subject_id, payload.parent_concept_id)
+        )
+        _run_concept_action(
+            lambda: concept_lifecycle_service._validate_parent_move(concept, parent)
+        )
     if payload.name is not None:
         name = payload.name
         concept = _run_concept_action(
@@ -102,7 +110,7 @@ def api_update_concept(
             lambda: concept_lifecycle_service.move_concept(
                 db,
                 concept,
-                parent=_parent_concept(db, concept.subject_id, payload.parent_concept_id),
+                parent=parent,
                 rationale=payload.rationale,
             )
         )

@@ -63,10 +63,12 @@ def test_concept_stewardship_migration_backfills_runtime_normalized_names(
         clear_database_caches()
         command.upgrade(config, "head")
 
-        assert _concept_normalized_names([901, 902, 903]) == {
+        assert _concept_normalized_names([901, 902, 903, 904, 905]) == {
             901: "s3",
             902: "pytest-basic",
             903: "fixture-scope",
+            904: "policy",
+            905: "policy-905",
         }
     finally:
         clear_database_caches()
@@ -155,7 +157,9 @@ def _seed_pre_concept_stewardship_concepts() -> None:
                 VALUES
                     (901, 901, 'AWS S3', 'aws-s3', '', now(), now()),
                     (902, 901, 'pytest basics', 'pytest-basics', '', now(), now()),
-                    (903, 901, 'fixture scopes', 'fixture-scopes', '', now(), now())
+                    (903, 901, 'fixture scopes', 'fixture-scopes', '', now(), now()),
+                    (904, 901, 'policy', 'aws-policy', '', now(), now()),
+                    (905, 901, 'policies', 'aws-policies', '', now(), now())
                 """
             )
         )

@@ -153,16 +153,7 @@ def test_concept_management_api_returns_422_for_cross_subject_parent(
     db_session: Session,
 ) -> None:
     source = _concept(db_session, "pytest basics")
-    other_subject = Subject(name="other", slug="other")
-    parent = Concept(
-        subject=other_subject,
-        name="foreign parent",
-        slug="foreign-parent",
-        normalized_name=normalize_concept_name("foreign parent", subject_name=other_subject.name),
-        status=ConceptStatus.ACTIVE,
-    )
-    db_session.add(parent)
-    db_session.commit()
+    parent = _add_foreign_parent(db_session)
 
     response = client.post(
         f"/api/subjects/{source.subject_id}/concepts",
@@ -175,6 +166,42 @@ def test_concept_management_api_returns_422_for_cross_subject_parent(
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Parent concept must belong to the same subject."
+
+
+def test_concept_management_api_does_not_rename_when_combined_parent_move_fails(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    source = _concept(db_session, "pytest basics")
+    parent = _add_foreign_parent(db_session)
+
+    response = client.patch(
+        f"/api/concepts/{source.id}",
+        json={
+            "name": "renamed despite failed parent",
+            "parent_concept_id": parent.id,
+            "rationale": "Should reject atomically.",
+        },
+    )
+
+    db_session.expire(source)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Parent concept must belong to the same subject."
+    assert source.name == "pytest basics"
+
+
+def _add_foreign_parent(db_session: Session) -> Concept:
+    other_subject = Subject(name="other", slug="other")
+    parent = Concept(
+        subject=other_subject,
+        name="foreign parent",
+        slug="foreign-parent",
+        normalized_name=normalize_concept_name("foreign parent", subject_name=other_subject.name),
+        status=ConceptStatus.ACTIVE,
+    )
+    db_session.add(parent)
+    db_session.commit()
+    return parent
 
 
 def _concept(db_session: Session, name: str) -> Concept:

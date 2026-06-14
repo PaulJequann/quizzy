@@ -57,6 +57,7 @@ def _upgrade_concepts(concept_status: sa.Enum) -> None:
     )
     op.add_column("concepts", sa.Column("parent_concept_id", sa.Integer(), nullable=True))
     _backfill_normalized_concept_names()
+    _deduplicate_normalized_concept_names()
     op.alter_column("concepts", "normalized_name", nullable=False)
     op.create_foreign_key(
         "fk_concepts_parent_concept_id_concepts",
@@ -258,6 +259,56 @@ def _backfill_normalized_concept_names() -> None:
                 ),
             },
         )
+
+
+def _deduplicate_normalized_concept_names() -> None:
+    bind = op.get_bind()
+    rows = bind.execute(
+        sa.text(
+            """
+            SELECT id, subject_id, normalized_name
+            FROM concepts
+            WHERE normalized_name IS NOT NULL
+            ORDER BY subject_id, normalized_name, id
+            """
+        )
+    ).mappings()
+    used_by_subject: dict[int, set[str]] = {}
+    for row in rows:
+        used_names = used_by_subject.setdefault(row["subject_id"], set())
+        normalized_name = row["normalized_name"]
+        if normalized_name not in used_names:
+            used_names.add(normalized_name)
+            continue
+        normalized_name = _disambiguated_normalized_name(
+            normalized_name,
+            row["id"],
+            used_names,
+        )
+        used_names.add(normalized_name)
+        bind.execute(
+            sa.text("UPDATE concepts SET normalized_name = :normalized_name WHERE id = :id"),
+            {"id": row["id"], "normalized_name": normalized_name},
+        )
+
+
+def _disambiguated_normalized_name(
+    normalized_name: str,
+    concept_id: int,
+    used_names: set[str],
+) -> str:
+    attempt = 1
+    while True:
+        suffix = f"-{concept_id}" if attempt == 1 else f"-{concept_id}-{attempt}"
+        candidate = _append_suffix(normalized_name, suffix)
+        if candidate not in used_names:
+            return candidate
+        attempt += 1
+
+
+def _append_suffix(normalized_name: str, suffix: str) -> str:
+    prefix = normalized_name[: 180 - len(suffix)].rstrip("-") or "concept"
+    return f"{prefix}{suffix}"
 
 
 def _normalize_legacy_concept_slug(slug: str, subject_slug: str) -> str:
