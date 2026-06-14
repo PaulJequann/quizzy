@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.models import SourceDocument, Subject
-from app.services.quiz_service import get_or_create_subject, slugify
+from app.services.quiz_service import get_or_create_subject
+from app.services.text_service import slugify
 
 
 @dataclass(frozen=True)

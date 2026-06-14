@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import cast
 
 from app.database import get_session_factory
@@ -12,6 +13,7 @@ from app.models import (
     QuizQuestion,
     QuizStatus,
 )
+from app.services.concept_service import normalize_concept_name
 from app.services.quiz_service import get_or_create_subject, slugify
 
 QUIZZES = [
@@ -167,6 +169,78 @@ QUIZZES = [
 ]
 
 
+type SeedQuestion = tuple[str, list[str], int, str, str]
+
+
+def _concept_from_source(source: str, subject) -> Concept:
+    concept_name = source.rsplit("#", maxsplit=1)[-1].replace("-", " ")
+    return Concept(
+        name=concept_name,
+        slug=slugify(concept_name),
+        normalized_name=normalize_concept_name(
+            concept_name,
+            subject_name=subject.name,
+        ),
+        subject=subject,
+    )
+
+
+def _question_from_seed(
+    seed_question: SeedQuestion,
+    *,
+    question_index: int,
+    subject,
+    difficulty: Difficulty,
+) -> tuple[Question, QuizQuestion]:
+    stem, choices, correct_index, explanation, source = seed_question
+    question = Question(
+        subject=subject,
+        stem=stem,
+        explanation=explanation,
+        difficulty=difficulty,
+        status=QuestionStatus.ACTIVE,
+        source_reference=source,
+    )
+    question.concept_links = [
+        QuestionConcept(
+            concept=_concept_from_source(source, subject),
+            is_primary=True,
+        )
+    ]
+    for choice_index, choice_text in enumerate(choices, start=1):
+        question.choices.append(
+            Choice(
+                text=choice_text,
+                is_correct=choice_index - 1 == correct_index,
+                order_index=choice_index,
+            )
+        )
+    return question, QuizQuestion(question=question, order_index=question_index)
+
+
+def _quiz_from_seed(quiz_data: Mapping[str, object], subject) -> Quiz:
+    title = cast(str, quiz_data["title"])
+    description = cast(str, quiz_data["description"])
+    difficulty = cast(Difficulty, quiz_data["difficulty"])
+    questions = cast(list[SeedQuestion], quiz_data["questions"])
+    quiz = Quiz(
+        title=title,
+        description=description,
+        primary_subject=subject,
+        difficulty=difficulty,
+        status=QuizStatus.PUBLISHED,
+    )
+    for question_index, seed_question in enumerate(questions, start=1):
+        _, quiz_question = _question_from_seed(
+            seed_question,
+            question_index=question_index,
+            subject=subject,
+            difficulty=difficulty,
+        )
+        quiz.question_links.append(quiz_question)
+    return quiz
+
+
 def main() -> None:
     session_factory = get_session_factory()
     with session_factory() as db:
@@ -174,53 +248,11 @@ def main() -> None:
         created = 0
         for quiz_data in QUIZZES:
             title = cast(str, quiz_data["title"])
-            description = cast(str, quiz_data["description"])
             topic = cast(str, quiz_data["topic"])
-            difficulty = cast(Difficulty, quiz_data["difficulty"])
-            questions = cast(list[tuple[str, list[str], int, str, str]], quiz_data["questions"])
             if title in existing_titles:
                 continue
             subject = get_or_create_subject(db, topic)
-            quiz = Quiz(
-                title=title,
-                description=description,
-                primary_subject=subject,
-                difficulty=difficulty,
-                status=QuizStatus.PUBLISHED,
-            )
-            for question_index, (stem, choices, correct_index, explanation, source) in enumerate(
-                questions, start=1
-            ):
-                question = Question(
-                    subject=subject,
-                    stem=stem,
-                    explanation=explanation,
-                    difficulty=difficulty,
-                    status=QuestionStatus.ACTIVE,
-                    source_reference=source,
-                )
-                concept_name = source.rsplit("#", maxsplit=1)[-1].replace("-", " ")
-                question.concept_links = [
-                    QuestionConcept(
-                        concept=Concept(
-                            name=concept_name,
-                            slug=slugify(concept_name),
-                            subject=subject,
-                        ),
-                        is_primary=True,
-                    )
-                ]
-                for choice_index, choice_text in enumerate(choices, start=1):
-                    question.choices.append(
-                        Choice(
-                            text=choice_text,
-                            is_correct=choice_index - 1 == correct_index,
-                            order_index=choice_index,
-                        )
-                    )
-                quiz.question_links.append(
-                    QuizQuestion(question=question, order_index=question_index)
-                )
+            quiz = _quiz_from_seed(quiz_data, subject)
             db.add(quiz)
             created += 1
         db.commit()

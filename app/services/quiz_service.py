@@ -1,4 +1,4 @@
-import re
+from dataclasses import dataclass
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import (
     Choice,
     Concept,
+    ConceptAssignmentRole,
     Difficulty,
     Question,
-    QuestionConcept,
     QuestionStatus,
     Quiz,
     QuizQuestion,
@@ -16,7 +16,19 @@ from app.models import (
     QuizType,
     Subject,
 )
-from app.schemas import ChoiceCreate, QuestionCreate, QuizCreate
+from app.schemas import ChoiceCreate, ConceptProposalInput, QuestionCreate, QuizCreate
+from app.services import concept_service
+from app.services.text_service import slugify
+
+
+@dataclass(frozen=True)
+class QuestionFormInput:
+    stem: str
+    choices: list[str]
+    correct_choice: int
+    explanation: str | None
+    source_reference: str | None
+    concepts: str | None = None
 
 
 def quiz_query() -> Select[tuple[Quiz]]:
@@ -74,11 +86,6 @@ def parse_concept_names(raw_concepts: str | None) -> list[str]:
     return names
 
 
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().casefold()).strip("-")
-    return slug or "untitled"
-
-
 def get_or_create_subject(db: Session, name: str) -> Subject:
     subject_name = name.strip() or "General"
     slug = slugify(subject_name)
@@ -91,60 +98,18 @@ def get_or_create_subject(db: Session, name: str) -> Subject:
     return subject
 
 
-def get_or_create_concepts(db: Session, names: list[str], subject: Subject) -> list[Concept]:
-    concepts: list[Concept] = []
-    seen: set[str] = set()
-    for raw_name in names:
-        name = raw_name.strip()
-        slug = slugify(name)
-        if not name or slug in seen:
-            continue
-        seen.add(slug)
-
-        existing = db.scalar(
-            select(Concept).where(Concept.subject == subject, Concept.slug == slug)
-        )
-        if existing is not None:
-            concepts.append(existing)
-            continue
-
-        concept = Concept(name=name, slug=slug, subject=subject)
-        db.add(concept)
-        db.flush()
-        concepts.append(concept)
-    return concepts
-
-
 def create_question(db: Session, quiz: Quiz, data: QuestionCreate) -> Question:
-    order_index = db.scalar(
-        select(func.coalesce(func.max(QuizQuestion.order_index), 0) + 1).where(
-            QuizQuestion.quiz_id == quiz.id
-        )
-    )
     subject = quiz.primary_subject or get_or_create_subject(db, "General")
-    concepts = get_or_create_concepts(db, data.concept_names, subject)
-    question = Question(
-        subject=subject,
-        stem=data.stem.strip(),
-        explanation=(data.explanation or "").strip() or None,
-        difficulty=quiz.difficulty,
-        status=QuestionStatus.ACTIVE,
-        source_reference=(data.source_reference or "").strip() or None,
-    )
+    assignments = _manual_assignments(db, subject, data)
+    question = _question_from_create_input(subject, quiz, data)
     db.add(question)
-    for index, choice_data in enumerate(data.choices, start=1):
-        question.choices.append(
-            Choice(
-                text=choice_data.text.strip(),
-                is_correct=choice_data.is_correct,
-                order_index=index,
-            )
-        )
-    question.concept_links = [
-        QuestionConcept(concept=concept, is_primary=index == 0)
-        for index, concept in enumerate(concepts)
-    ]
-    quiz.question_links.append(QuizQuestion(question=question, order_index=order_index or 1))
+    _attach_choices(question, data.choices)
+    concept_service.apply_question_assignments(question, assignments)
+    db.flush()
+    _record_manual_assignments(db, subject, question, assignments)
+    quiz.question_links.append(
+        QuizQuestion(question=question, order_index=_next_quiz_question_order(db, quiz))
+    )
     db.commit()
     db.refresh(question)
     return question
@@ -219,27 +184,112 @@ def form_quiz_create(title: str, description: str, topic: str, difficulty: str) 
 
 
 def form_question_create(
-    stem: str,
-    choices: list[str],
-    correct_choice: int,
-    explanation: str | None,
-    source_reference: str | None,
-    concepts: str | None = None,
+    data: QuestionFormInput,
 ) -> QuestionCreate:
-    if len(choices) != 4:
+    if len(data.choices) != 4:
         raise ValueError("Exactly four choices are required.")
-    if correct_choice not in range(4):
+    if data.correct_choice not in range(4):
         raise ValueError("Correct choice must be one of the four answer options.")
-    if any(not choice.strip() for choice in choices):
+    if any(not choice.strip() for choice in data.choices):
         raise ValueError("Every answer choice needs text.")
 
     return QuestionCreate(
-        stem=stem,
-        explanation=explanation,
-        source_reference=source_reference,
-        concept_names=parse_concept_names(concepts),
+        stem=data.stem,
+        explanation=data.explanation,
+        source_reference=data.source_reference,
+        concept_proposals=_form_concept_proposals(data.concepts),
         choices=[
-            ChoiceCreate(text=choice, is_correct=index == correct_choice)
-            for index, choice in enumerate(choices)
+            ChoiceCreate(text=choice, is_correct=index == data.correct_choice)
+            for index, choice in enumerate(data.choices)
         ],
+    )
+
+
+def _manual_assignments(
+    db: Session,
+    subject: Subject,
+    data: QuestionCreate,
+) -> list[concept_service.ResolvedConceptAssignment]:
+    return concept_service.resolve_concept_assignments(
+        db,
+        concept_service.AssignmentResolutionRequest(
+            subject=subject,
+            proposals=[_schema_proposal_to_domain(proposal) for proposal in data.concept_proposals],
+            allow_new_active=True,
+            actor="user",
+            source="web",
+        ),
+    )
+
+
+def _question_from_create_input(subject: Subject, quiz: Quiz, data: QuestionCreate) -> Question:
+    return Question(
+        subject=subject,
+        stem=data.stem.strip(),
+        explanation=(data.explanation or "").strip() or None,
+        difficulty=quiz.difficulty,
+        status=QuestionStatus.ACTIVE,
+        source_reference=(data.source_reference or "").strip() or None,
+    )
+
+
+def _attach_choices(question: Question, choices: list[ChoiceCreate]) -> None:
+    question.choices = [
+        Choice(
+            text=choice_data.text.strip(),
+            is_correct=choice_data.is_correct,
+            order_index=index,
+        )
+        for index, choice_data in enumerate(choices, start=1)
+    ]
+
+
+def _record_manual_assignments(
+    db: Session,
+    subject: Subject,
+    question: Question,
+    assignments: list[concept_service.ResolvedConceptAssignment],
+) -> None:
+    concept_service.record_question_assignment_decision(
+        db,
+        concept_service.QuestionAssignmentDecision(
+            subject=subject,
+            question=question,
+            assignments=assignments,
+            actor="user",
+            source="web",
+        ),
+    )
+
+
+def _next_quiz_question_order(db: Session, quiz: Quiz) -> int:
+    return (
+        db.scalar(
+            select(func.coalesce(func.max(QuizQuestion.order_index), 0) + 1).where(
+                QuizQuestion.quiz_id == quiz.id
+            )
+        )
+        or 1
+    )
+
+
+def _form_concept_proposals(concepts: str | None) -> list[ConceptProposalInput]:
+    return [
+        ConceptProposalInput(name=name, role=_form_concept_role(index))
+        for index, name in enumerate(parse_concept_names(concepts))
+    ]
+
+
+def _form_concept_role(index: int) -> ConceptAssignmentRole:
+    return ConceptAssignmentRole.PRIMARY if index == 0 else ConceptAssignmentRole.SECONDARY
+
+
+def _schema_proposal_to_domain(
+    proposal: ConceptProposalInput,
+) -> concept_service.ConceptProposal:
+    return concept_service.ConceptProposal(
+        name=proposal.name,
+        parent_name=proposal.parent_name,
+        role=proposal.role,
+        rationale=proposal.rationale,
     )

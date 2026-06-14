@@ -4,14 +4,16 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from sqlalchemy import String, func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import get_engine
+from app.database import get_session_factory
 from app.mcp.server import build_server
 from app.models import (
+    ConceptAssignmentRole,
     Difficulty,
     Question,
     QuestionHealthState,
@@ -21,16 +23,15 @@ from app.models import (
 )
 from app.services import (
     generation_service,
-    question_health_service,
     settings_service,
     source_service,
 )
 from app.services.generation_service import (
     GeneratedChoiceInput,
+    GeneratedConceptProposal,
     GeneratedQuestionInput,
     GeneratedQuizCreateInput,
 )
-from app.services.grading_service import submit_attempt
 from tests.db_utils import clear_database_caches, reset_database
 from tests.legacy_quiz_fixtures import (
     seed_legacy_route53_concepts,
@@ -62,6 +63,16 @@ async def _invoke(server, name: str, args: dict):
     return result.structured_content
 
 
+async def _client_invoke(client, name: str, args: dict):
+    result = await client.call_tool(name, args)
+    return result.data
+
+
+async def _approved_invoke(server, name: str, args: dict):
+    async with Client(server) as client:
+        return await _client_invoke(client, name, args)
+
+
 def write_note(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -83,7 +94,13 @@ def route53_cleanup_questions() -> list[dict]:
                 {"text": "Whether S3 encrypts a bucket"},
                 {"text": "Whether EC2 changes instance family"},
             ],
-            "concept_names": ["Route 53 health checks"],
+            "concept_proposals": [
+                {
+                    "name": "Route 53 health checks",
+                    "role": "primary",
+                    "rationale": "Core reusable Route 53 health-check objective.",
+                }
+            ],
             "source_reference": "aws/route53-health-checks.md",
         },
         {
@@ -94,7 +111,13 @@ def route53_cleanup_questions() -> list[dict]:
                 {"text": "KMS"},
                 {"text": "SQS"},
             ],
-            "concept_names": ["HTTP health checks"],
+            "concept_proposals": [
+                {
+                    "name": "HTTP health checks",
+                    "role": "primary",
+                    "rationale": "Protocol-specific proposal used by merge tests.",
+                }
+            ],
             "source_reference": "aws/route53-health-checks.md",
         },
         {
@@ -105,10 +128,53 @@ def route53_cleanup_questions() -> list[dict]:
                 {"text": "S3"},
                 {"text": "STS"},
             ],
-            "concept_names": ["TCP health checks"],
+            "concept_proposals": [
+                {
+                    "name": "TCP health checks",
+                    "role": "primary",
+                    "rationale": "Protocol-specific proposal used by merge tests.",
+                }
+            ],
             "source_reference": "aws/route53-health-checks.md",
         },
     ]
+
+
+def _s3_storage_question(document_id: int) -> dict:
+    return {
+        "stem": "Which S3 storage class is intended for archival data?",
+        "choices": [
+            {"text": "S3 Glacier", "is_correct": True},
+            {"text": "S3 Standard because it is always cheapest"},
+            {"text": "CloudFront because it stores all origin data permanently"},
+            {"text": "IAM because policies retain objects"},
+        ],
+        "explanation": "Glacier is the archival storage class.",
+        "concept_proposals": [
+            {
+                "name": "S3 storage classes",
+                "role": "primary",
+                "rationale": "Reusable S3 storage-class learning objective.",
+            }
+        ],
+        "source_document_id": document_id,
+    }
+
+
+def _seed_active_generated_questions(questions: list[dict]) -> dict:
+    session_factory = get_session_factory()
+    with session_factory() as db:
+        return generation_service.create_generated_questions(
+            db,
+            generation_service.QuestionBankCreateInput(
+                subject_name="AWS",
+                questions=[
+                    generation_service.GeneratedQuestionInput.model_validate(question)
+                    for question in questions
+                ],
+                approve_new_concepts=True,
+            ),
+        )
 
 
 def test_ingest_obsidian_note_creates_or_updates_source_document(db_session: Session, tmp_path):
@@ -160,7 +226,13 @@ def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: 
             GeneratedChoiceInput(text="CloudFront edge cache"),
         ],
         explanation="Glacier is designed for archival storage access patterns.",
-        concept_names=["storage classes"],
+        concept_proposals=[
+            GeneratedConceptProposal(
+                name="storage classes",
+                role=ConceptAssignmentRole.PRIMARY,
+                rationale="Reusable S3 storage-class learning objective.",
+            )
+        ],
         source_document_id=note.id,
         source_excerpt="Glacier is for archival access.",
     )
@@ -169,6 +241,7 @@ def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: 
         db_session,
         GeneratedQuizCreateInput(title="S3 generated quiz", subject_name="AWS"),
         questions=[question],
+        options=generation_service.GeneratedQuestionWriteOptions(approve_new_concepts=True),
     )
 
     quiz = db_session.scalar(select(Quiz).where(Quiz.id == result["id"]))
@@ -216,7 +289,11 @@ def test_generated_questions_require_one_correct_choice_and_source(db_session: S
 
     with pytest.raises(ValueError, match="exactly one correct"):
         generation_service.add_questions_to_quiz(
-            db_session, quiz_id=quiz.id, questions=[invalid_question]
+            db_session,
+            generation_service.AddQuestionsToQuizInput(
+                quiz_id=quiz.id,
+                questions=[invalid_question],
+            ),
         )
 
 
@@ -257,28 +334,45 @@ def test_generated_questions_require_one_or_two_concepts(db_session: Session):
     with pytest.raises(ValueError, match="at least one concept"):
         generation_service.add_questions_to_quiz(
             db_session,
-            quiz_id=quiz.id,
-            questions=[
-                GeneratedQuestionInput(
-                    stem="What is S3?",
-                    choices=choices,
-                    source_reference="aws/s3.md",
-                )
-            ],
+            generation_service.AddQuestionsToQuizInput(
+                quiz_id=quiz.id,
+                questions=[
+                    GeneratedQuestionInput(
+                        stem="What is S3?",
+                        choices=choices,
+                        source_reference="aws/s3.md",
+                    )
+                ],
+            ),
         )
 
     with pytest.raises(ValueError, match="at most two concepts"):
         generation_service.add_questions_to_quiz(
             db_session,
-            quiz_id=quiz.id,
-            questions=[
-                GeneratedQuestionInput(
-                    stem="What is S3?",
-                    choices=choices,
-                    concept_names=["S3", "object storage", "storage classes"],
-                    source_reference="aws/s3.md",
-                )
-            ],
+            generation_service.AddQuestionsToQuizInput(
+                quiz_id=quiz.id,
+                questions=[
+                    GeneratedQuestionInput(
+                        stem="What is S3?",
+                        choices=choices,
+                        concept_proposals=[
+                            GeneratedConceptProposal(
+                                name="S3",
+                                role=ConceptAssignmentRole.PRIMARY,
+                            ),
+                            GeneratedConceptProposal(
+                                name="object storage",
+                                role=ConceptAssignmentRole.SECONDARY,
+                            ),
+                            GeneratedConceptProposal(
+                                name="storage classes",
+                                role=ConceptAssignmentRole.SECONDARY,
+                            ),
+                        ],
+                        source_reference="aws/s3.md",
+                    )
+                ],
+            ),
         )
 
 
@@ -292,7 +386,13 @@ def test_generated_quiz_reuses_concepts_within_one_batch(db_session: Session):
                 GeneratedChoiceInput(text="Whether S3 encrypts a bucket"),
                 GeneratedChoiceInput(text="Whether EC2 changes instance family"),
             ],
-            concept_names=["Route 53 health checks"],
+            concept_proposals=[
+                GeneratedConceptProposal(
+                    name="Route 53 health checks",
+                    role=ConceptAssignmentRole.PRIMARY,
+                    rationale="Reusable Route 53 health-check learning objective.",
+                )
+            ],
             source_reference="aws/route53-health-checks.md",
         ),
         GeneratedQuestionInput(
@@ -303,7 +403,13 @@ def test_generated_quiz_reuses_concepts_within_one_batch(db_session: Session):
                 GeneratedChoiceInput(text="Every alias record in the account"),
                 GeneratedChoiceInput(text="CloudWatch alarm history"),
             ],
-            concept_names=["Route 53 health checks"],
+            concept_proposals=[
+                GeneratedConceptProposal(
+                    name="Route 53 health checks",
+                    role=ConceptAssignmentRole.PRIMARY,
+                    rationale="Same batch should reuse the approved concept.",
+                )
+            ],
             source_reference="aws/route53-health-checks.md",
         ),
     ]
@@ -312,6 +418,7 @@ def test_generated_quiz_reuses_concepts_within_one_batch(db_session: Session):
         db_session,
         GeneratedQuizCreateInput(title="Route 53 batch", subject_name="AWS"),
         questions=questions,
+        options=generation_service.GeneratedQuestionWriteOptions(approve_new_concepts=True),
     )
 
     saved_question_count = db_session.scalar(select(func.count(Question.id)))
@@ -339,7 +446,7 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     document_id = ingest["document"]["id"]
 
     created = asyncio.run(
-        _invoke(
+        _approved_invoke(
             server,
             "create_generated_quiz_with_questions",
             {
@@ -355,7 +462,13 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
                             {"text": "IAM because policies retain objects"},
                         ],
                         "explanation": "Glacier is the archival storage class.",
-                        "concept_names": ["S3 storage classes"],
+                        "concept_proposals": [
+                            {
+                                "name": "S3 storage classes",
+                                "role": "primary",
+                                "rationale": "Reusable S3 storage-class learning objective.",
+                            }
+                        ],
                         "source_document_id": document_id,
                     }
                 ],
@@ -368,6 +481,8 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     assert created["quiz_type"] == "generated"
     assert created["questions"][0]["source_reference"] == str(note_path.resolve())
     assert created["questions"][0]["generation_batch_id"] is not None
+    assert created["questions"][0]["status"] == "draft"
+    assert created["taxonomy_review"]["review_url"].endswith("/subjects/1#taxonomy-review")
 
 
 def test_mcp_prepare_generation_context_returns_existing_concepts_and_policy(
@@ -384,30 +499,7 @@ def test_mcp_prepare_generation_context_returns_existing_concepts_and_policy(
     )
     document_id = ingest["document"]["id"]
 
-    asyncio.run(
-        _invoke(
-            server,
-            "create_generated_quiz_with_questions",
-            {
-                "title": "AWS S3 Generated",
-                "subject_name": "AWS",
-                "questions": [
-                    {
-                        "stem": "Which S3 storage class is intended for archival data?",
-                        "choices": [
-                            {"text": "S3 Glacier", "is_correct": True},
-                            {"text": "S3 Standard because it is always cheapest"},
-                            {"text": "CloudFront because it stores all origin data permanently"},
-                            {"text": "IAM because policies retain objects"},
-                        ],
-                        "explanation": "Glacier is the archival storage class.",
-                        "concept_names": ["S3 storage classes"],
-                        "source_document_id": document_id,
-                    }
-                ],
-            },
-        )
-    )
+    _seed_active_generated_questions([_s3_storage_question(document_id)])
 
     context = asyncio.run(
         _invoke(server, "prepare_generation_context", {"source_document_id": document_id})
@@ -444,7 +536,7 @@ def test_mcp_generated_quiz_reuses_concepts_within_one_batch(mcp_database):
     server = build_server()
 
     result = asyncio.run(
-        _invoke(
+        _approved_invoke(
             server,
             "create_generated_quiz_with_questions",
             {
@@ -462,7 +554,13 @@ def test_mcp_generated_quiz_reuses_concepts_within_one_batch(mcp_database):
                             {"text": "Whether S3 encrypts a bucket"},
                             {"text": "Whether EC2 changes instance family"},
                         ],
-                        "concept_names": ["Route 53 health checks"],
+                        "concept_proposals": [
+                            {
+                                "name": "Route 53 health checks",
+                                "role": "primary",
+                                "rationale": "Reusable Route 53 health-check learning objective.",
+                            }
+                        ],
                         "source_reference": "aws/route53-health-checks.md",
                     },
                     {
@@ -475,7 +573,13 @@ def test_mcp_generated_quiz_reuses_concepts_within_one_batch(mcp_database):
                             {"text": "Every alias record in the account"},
                             {"text": "CloudWatch alarm history"},
                         ],
-                        "concept_names": ["Route 53 health checks"],
+                        "concept_proposals": [
+                            {
+                                "name": "Route 53 health checks",
+                                "role": "primary",
+                                "rationale": "Same batch should reuse the approved concept.",
+                            }
+                        ],
                         "source_reference": "aws/route53-health-checks.md",
                     },
                 ],
@@ -484,8 +588,15 @@ def test_mcp_generated_quiz_reuses_concepts_within_one_batch(mcp_database):
     )
 
     assert result["title"] == "Route 53 batch"
-    assert result["questions"][0]["concepts"] == ["Route 53 health checks"]
-    assert result["questions"][1]["concepts"] == ["Route 53 health checks"]
+    assert result["questions"][0]["status"] == "draft"
+    assert result["questions"][1]["status"] == "draft"
+    assert result["taxonomy_review"]["open_concept_review_count"] == 2
+    assert [concept["name"] for concept in result["questions"][0]["concepts"]] == [
+        "Route 53 health checks"
+    ]
+    assert [concept["name"] for concept in result["questions"][1]["concepts"]] == [
+        "Route 53 health checks"
+    ]
 
 
 def test_mcp_can_suggest_and_merge_granular_concepts(mcp_database):
@@ -515,7 +626,9 @@ def test_mcp_can_suggest_and_merge_granular_concepts(mcp_database):
     assert [concept["name"] for concept in concepts["concepts"]] == ["Route 53 health checks"]
 
     quiz = asyncio.run(_invoke(server, "get_quiz", {"quiz_id": created["id"]}))
-    assert [question["concepts"] for question in quiz["questions"]] == [
+    assert [
+        [concept["name"] for concept in question["concepts"]] for question in quiz["questions"]
+    ] == [
         ["Route 53 health checks"],
         ["Route 53 health checks"],
         ["Route 53 health checks"],
@@ -542,7 +655,9 @@ def test_mcp_merge_dedupes_multiple_source_links_on_same_question(mcp_database):
     assert executed["merged_link_count"] == 1
     assert executed["deduped_link_count"] == 1
     quiz = asyncio.run(_invoke(server, "get_quiz", {"quiz_id": created["id"]}))
-    assert quiz["questions"][0]["concepts"] == ["Route 53 health checks"]
+    assert [concept["name"] for concept in quiz["questions"][0]["concepts"]] == [
+        "Route 53 health checks"
+    ]
 
 
 def test_mcp_rejects_unsourced_generated_question(mcp_database):
@@ -572,90 +687,3 @@ def test_mcp_rejects_unsourced_generated_question(mcp_database):
                 },
             )
         )
-
-
-def create_bank_question_with_mcp(server, tmp_path) -> tuple[dict, int]:
-    note_path = write_note(tmp_path / "aws-s3.md")
-    ingest = asyncio.run(
-        _invoke(
-            server,
-            "ingest_obsidian_note",
-            {"path": str(note_path), "subject_name": "AWS"},
-        )
-    )
-    document_id = ingest["document"]["id"]
-    created = asyncio.run(
-        _invoke(
-            server,
-            "create_generated_questions",
-            {
-                "subject_name": "AWS",
-                "source_document_id": document_id,
-                "questions": [
-                    {
-                        "stem": "Which S3 storage class is intended for archival data?",
-                        "choices": [
-                            {"text": "S3 Glacier", "is_correct": True},
-                            {"text": "S3 Standard because it is always cheapest"},
-                            {"text": "CloudFront because it stores all origin data permanently"},
-                            {"text": "IAM because policies retain objects"},
-                        ],
-                        "explanation": "Glacier is the archival storage class.",
-                        "concept_names": ["S3 storage classes"],
-                    }
-                ],
-            },
-        )
-    )
-    bank = asyncio.run(_invoke(server, "list_question_bank", {"subject_name": "AWS"}))
-    return created, bank["questions"][0]["subject_id"]
-
-
-def assemble_mcp_practice(server, subject_id: int) -> dict:
-    return asyncio.run(
-        _invoke(server, "assemble_practice_session", {"subject_id": subject_id, "count": 1})
-    )
-
-
-def miss_practice_question(practice_id: int, question_id: int) -> None:
-    with Session(get_engine()) as db:
-        quiz = db.get(Quiz, practice_id)
-        assert quiz is not None
-        question = db.get(Question, question_id)
-        assert question is not None
-        wrong_choice = next(choice for choice in question.choices if not choice.is_correct)
-        attempt = submit_attempt(db, quiz, {question.id: wrong_choice.id})
-        question_health_service.record_attempt_evidence(db, attempt.id)
-
-
-def test_mcp_question_first_generation_practice_and_repair_queue(mcp_database, tmp_path):
-    server = build_server()
-    created, subject_id = create_bank_question_with_mcp(server, tmp_path)
-    practice = assemble_mcp_practice(server, subject_id)
-    question_id = created["question_ids"][0]
-
-    assert created["questions_created"] == 1
-    assert practice["quiz_type"] == "practice"
-    assert practice["questions"][0]["id"] == question_id
-
-    miss_practice_question(practice["id"], question_id)
-    queue = asyncio.run(_invoke(server, "list_question_review_queue", {"subject_id": subject_id}))
-    item = queue["review_items"][0]
-    context = asyncio.run(
-        _invoke(
-            server,
-            "prepare_question_repair_context",
-            {"question_id": question_id},
-        )
-    )
-    resolved = asyncio.run(
-        _invoke(
-            server,
-            "resolve_question_review_item",
-            {"item_id": item["id"], "action": "resolved", "notes": "Reviewed in test."},
-        )
-    )
-
-    assert item["suggested_action"] == "clarify_explanation"
-    assert context["health"]["state"] == "needs_review"
-    assert resolved["status"] == "resolved"

@@ -73,10 +73,10 @@ active taxonomy. The app should resolve only conservative deterministic matches:
 5. Return review candidates for fuzzy, token-overlap, or near-duplicate matches instead of silently
    merging them.
 
-MCP-driven creation of new active concepts or hierarchy placement requires tool-level user approval
-through FastMCP elicitation unless the proposal resolves to existing taxonomy memory. If elicitation
-is unavailable, active hierarchy creation should fail closed. Saving proposed concepts for later
-review is a separate intentional workflow, not a silent fallback.
+MCP-driven generation must not create new active concepts or active hierarchy placement. MCP agents
+may reuse exact active concept or alias matches, but new concepts are saved as proposed taxonomy and
+the affected questions remain draft until the user reviews them in the app-owned stewardship UI.
+This avoids treating agent-provided MCP elicitation responses as human approval.
 
 Unresolved proposed concept assignments should keep affected questions out of ordinary practice and
 mastery until resolved. Use broad question lifecycle state such as `draft` plus a specific review
@@ -92,10 +92,10 @@ The generation flow should be:
 3. Agent drafts questions and a structured concept plan.
 4. Agent calls `prepare_concept_plan` to resolve exact matches and surface new concepts, proposed
    hierarchy placements, conflicts, and near-duplicate warnings.
-5. Agent calls an eliciting creation tool that presents the concept plan and creates active
-   concepts/questions only after user approval.
-6. App records approved concept creation, placement, assignment, aliases, and rationale in the
-   concept decision ledger.
+5. Agent calls a creation tool that saves unresolved taxonomy as proposed concepts and draft
+   questions, then returns a direct subject review link for the user.
+6. User reviews proposed concepts, placement, assignment, aliases, and rationale in the app-owned
+   stewardship workflow. Approval records durable decisions in the concept decision ledger.
 
 Non-interactive generation should use a proposed-state workflow instead of silently creating active
 taxonomy.
@@ -378,10 +378,8 @@ Update practice selection:
 Update MCP surfaces:
 
 - `app.mcp.server.GENERATION_GUIDANCE`, `CONCEPT_POLICY`, `GeneratedQuestionInput`, and
-  `create_generated_questions` currently describe and accept flat concept names. Replace them with
-  structured concept proposals, `prepare_concept_plan`, and an eliciting creation tool.
-- FastMCP elicitation support is available through the project dependency (`fastmcp>=3.2,<4`, locked
-  to 3.4.x). Active hierarchy creation tools should fail closed when elicitation is unavailable.
+  `create_generated_questions` should use structured concept proposals, `prepare_concept_plan`, and
+  an MCP creation tool that leaves new taxonomy in proposed review state.
 
 Update UI surfaces:
 
@@ -400,8 +398,8 @@ Update tests intentionally:
 ## Acceptance Criteria
 
 - Generated question creation uses structured concept proposals, not flat `concept_names`.
-- MCP can prepare a concept plan and use FastMCP elicitation to approve new active concepts and
-  hierarchy placement.
+- MCP can prepare a concept plan and save proposed concepts plus draft generated questions,
+  returning a direct subject review link for user approval.
 - Concepts support active, proposed, and archived status.
 - Concepts support a one-parent hierarchy with soft three-level guidance.
 - Active questions have exactly one primary concept assignment.

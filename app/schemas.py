@@ -2,7 +2,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models import Difficulty, QuestionHealthState, QuestionStatus, QuizStatus, QuizType
+from app.models import (
+    ConceptAssignmentRole,
+    ConceptStatus,
+    Difficulty,
+    QuestionHealthState,
+    QuestionStatus,
+    QuizStatus,
+    QuizType,
+)
 
 
 class ChoiceCreate(BaseModel):
@@ -35,7 +43,10 @@ class ConceptRead(BaseModel):
     subject_id: int
     name: str
     slug: str
+    normalized_name: str
     description: str
+    status: ConceptStatus
+    parent_concept_id: int | None
     subject: SubjectRead
     created_at: datetime
     updated_at: datetime
@@ -43,12 +54,49 @@ class ConceptRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ConceptCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    parent_concept_id: int | None = None
+    status: ConceptStatus = ConceptStatus.ACTIVE
+    rationale: str = ""
+
+
+class ConceptUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    parent_concept_id: int | None = None
+    rationale: str = ""
+
+
+class ConceptArchiveRequest(BaseModel):
+    archive_children: bool = False
+    rationale: str = ""
+
+
+class ConceptSplitRequest(BaseModel):
+    child_names: list[str] = Field(min_length=1)
+    question_ids_by_child_name: dict[str, list[int]] = Field(default_factory=dict)
+    rationale: str = ""
+
+
+class ConceptMergeRequest(BaseModel):
+    target_concept_id: int
+    source_concept_ids: list[int] = Field(min_length=1)
+    dry_run: bool = True
+
+
+class ConceptProposalInput(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    parent_name: str | None = Field(default=None, max_length=160)
+    role: ConceptAssignmentRole = ConceptAssignmentRole.PRIMARY
+    rationale: str = ""
+
+
 class QuestionCreate(BaseModel):
     stem: str = Field(min_length=1)
     choices: list[ChoiceCreate] = Field(min_length=4, max_length=4)
     explanation: str | None = None
     source_reference: str | None = None
-    concept_names: list[str] = Field(default_factory=list)
+    concept_proposals: list[ConceptProposalInput] = Field(default_factory=list)
 
 
 class QuestionRead(BaseModel):

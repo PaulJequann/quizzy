@@ -9,10 +9,14 @@
     <span class="meta-chip">{{ question.health_state|display_label }}</span>
   {% endif %}
 </div>
-{% if question.concepts %}
+{% if question.concept_links %}
   <div class="mt-3 flex flex-wrap gap-2">
-    {% for concept in question.concepts %}
-      <span class="concept-chip {{ concept_chip_class|default('') }}">{{ concept.name|display_label }}</span>
+    {% for link in question.concept_links %}
+      <span class="concept-chip {{ concept_chip_class|default('') }}">
+        {{ link.concept.name|display_label }}
+        {% if link.role.value != "primary" %} · {{ link.role|display_label }}{% endif %}
+        {% if link.concept.status.value != "active" %} · {{ link.concept.status|display_label }}{% endif %}
+      </span>
     {% endfor %}
   </div>
 {% endif %}
