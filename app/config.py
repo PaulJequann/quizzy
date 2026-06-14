@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://quizzy:quizzy@localhost:5432/quizzy"
+    app_base_url: str = "http://127.0.0.1:8007"
     app_env: str = "development"
     secret_key: str = "change-me-in-production"
     default_difficulty: str = "intermediate"

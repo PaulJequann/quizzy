@@ -20,7 +20,7 @@ from app.models import (
     QuizType,
     Subject,
 )
-from app.services import concept_service, question_bank_service
+from app.services import concept_planning_service, concept_service, question_bank_service
 from app.services.question_bank_service import BatchMetadata, QuestionBankCreateInput
 from app.services.quiz_service import get_or_create_subject
 from app.services.settings_service import get_default_difficulty
@@ -78,6 +78,10 @@ class GeneratedQuizCreateInput:
 class GeneratedQuestionWriteOptions:
     approve_new_concepts: bool = False
     save_unresolved_as_draft: bool = False
+    draft_review_type: str = "unresolved_assignment"
+    draft_review_reason: str = ""
+    draft_suggested_action: str = "approve_or_reject_concept"
+    draft_review_evidence: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -227,6 +231,10 @@ def add_questions_to_quiz(
             ),
             approve_new_concepts=data.options.approve_new_concepts,
             save_unresolved_as_draft=data.options.save_unresolved_as_draft,
+            draft_review_type=data.options.draft_review_type,
+            draft_review_reason=data.options.draft_review_reason,
+            draft_suggested_action=data.options.draft_suggested_action,
+            draft_review_evidence=data.options.draft_review_evidence,
         ),
     )
     inserted = db.scalars(
@@ -283,6 +291,7 @@ def _generated_question_to_dict(question: Question) -> dict[str, Any]:
         "id": question.id,
         "stem": question.stem,
         "difficulty": question.difficulty.value,
+        "status": question.status.value,
         "source_reference": question.source_reference,
         "source_document_id": question.source_document_id,
         "source_excerpt": question.source_excerpt,
@@ -317,7 +326,7 @@ def prepare_concept_plan(
     subject_name: str,
     proposals: list[GeneratedConceptProposal],
 ) -> dict[str, Any]:
-    return concept_service.prepare_concept_plan(
+    return concept_planning_service.prepare_concept_plan(
         db,
         subject_name=subject_name,
         proposals=[_generated_proposal_to_domain(proposal) for proposal in proposals],

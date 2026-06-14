@@ -122,7 +122,7 @@
   {% endif %}
 
   {% if concept_review_items %}
-    <section class="panel mb-6">
+    <section id="taxonomy-review" class="panel mb-6">
       <div class="mb-5">
         <p class="eyebrow">Concept stewardship</p>
         <h2 class="section-title">Open taxonomy review</h2>
@@ -141,6 +141,42 @@
               <span class="meta-chip">{{ item.suggested_action|display_label }}</span>
             </div>
             <p class="mt-2 text-sm text-[var(--color-text-2)]">{{ item.reason }}</p>
+            {% if item.question_stem %}
+              <p class="mt-2 text-sm">
+                <span class="text-[var(--color-text-3)]">Question:</span>
+                {{ item.question_stem }}
+              </p>
+            {% endif %}
+            {% if item.concept_status == "proposed" %}
+              <div class="mt-3 flex flex-wrap gap-2">
+                <form method="post" action="/concept-reviews/{{ item.id }}/approve">
+                  <button class="btn-primary" type="submit">Approve concept</button>
+                </form>
+                <form method="post" action="/concept-reviews/{{ item.id }}/reject">
+                  <button class="btn-secondary" type="submit">Reject</button>
+                </form>
+              </div>
+            {% endif %}
+            {% if item.question_id and item.concept_id %}
+              <div class="mt-3 grid gap-3 md:grid-cols-[auto_1fr]">
+                <form method="post" action="/concept-reviews/{{ item.id }}/accept-assignment">
+                  <button class="btn-secondary" type="submit">Keep assignment</button>
+                </form>
+                {% if remediation_concepts %}
+                  <form class="flex flex-wrap gap-2" method="post" action="/concept-reviews/{{ item.id }}/remap">
+                    <label class="sr-only" for="target-concept-{{ item.id }}">Target concept</label>
+                    <select id="target-concept-{{ item.id }}" class="field min-w-56 flex-1" name="target_concept_id">
+                      {% for concept in remediation_concepts %}
+                        <option value="{{ concept.id }}" {% if concept.id == item.concept_id %}selected{% endif %}>
+                          {{ concept.name|display_label }}{% if concept.status.value != "active" %} · {{ concept.status.value|display_label }}{% endif %}
+                        </option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn-secondary" type="submit">Move question</button>
+                  </form>
+                {% endif %}
+              </div>
+            {% endif %}
           </article>
         {% endfor %}
       </div>

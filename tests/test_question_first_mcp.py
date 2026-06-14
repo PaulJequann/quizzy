@@ -3,15 +3,18 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_engine
 from app.mcp.server import build_server
-from app.models import Question, Quiz
+from app.models import Concept, ConceptStatus, Question, Quiz, Subject
 from app.services import question_health_service
+from app.services.concept_service import normalize_concept_name
 from app.services.grading_service import submit_attempt
+from app.services.quiz_service import get_or_create_subject
 from tests.db_utils import clear_database_caches, reset_database
-from tests.test_mcp_integration import _invoke, write_note
+from tests.test_mcp_integration import _approved_invoke, _invoke, write_note
 
 pytestmark = pytest.mark.mcp
 
@@ -69,20 +72,36 @@ def _create_bank_question_with_mcp(server, tmp_path) -> tuple[dict, int]:
             {"path": str(note_path), "subject_name": "AWS"},
         )
     )
+    _seed_active_concept("AWS", "S3 storage classes")
     created = asyncio.run(
-        _invoke(
+        _approved_invoke(
             server,
             "create_generated_questions",
             {
                 "subject_name": "AWS",
                 "source_document_id": ingest["document"]["id"],
                 "questions": [_bank_question_payload()],
-                "approve_new_concepts": True,
             },
         )
     )
     bank = asyncio.run(_invoke(server, "list_question_bank", {"subject_name": "AWS"}))
     return created, bank["questions"][0]["subject_id"]
+
+
+def _seed_active_concept(subject_name: str, concept_name: str) -> None:
+    with Session(get_engine()) as db:
+        subject = db.scalar(select(Subject).where(Subject.name == subject_name))
+        if subject is None:
+            subject = get_or_create_subject(db, subject_name)
+        concept = Concept(
+            subject=subject,
+            name=concept_name,
+            slug=concept_name.replace(" ", "-"),
+            normalized_name=normalize_concept_name(concept_name, subject_name=subject.name),
+            status=ConceptStatus.ACTIVE,
+        )
+        db.add(concept)
+        db.commit()
 
 
 def _bank_question_payload() -> dict:

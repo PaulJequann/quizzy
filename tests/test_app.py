@@ -8,6 +8,7 @@ from app.models import (
     Choice,
     Concept,
     ConceptAssignmentRole,
+    ConceptReviewItem,
     ConceptStatus,
     Difficulty,
     Question,
@@ -386,6 +387,67 @@ def test_subject_pages_show_namespace_workspace(client: TestClient) -> None:
     assert "Pytest Basics" in detail_response.text
     assert "What does pytest run?" in detail_response.text
     assert "Test quiz" in detail_response.text
+
+
+def test_subject_concept_review_approval_activates_draft_question(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    quiz = db_session.get(Quiz, 1)
+    assert quiz is not None
+    subject = quiz.primary_subject
+    assert subject is not None
+    concept = Concept(
+        subject=subject,
+        name="fixture scopes",
+        slug="fixture-scopes",
+        normalized_name=normalize_concept_name("fixture scopes", subject_name=subject.name),
+        status=ConceptStatus.PROPOSED,
+    )
+    question = Question(
+        subject=subject,
+        stem="Which pytest fixture scope reuses setup across all tests in a module?",
+        status=QuestionStatus.DRAFT,
+        difficulty=Difficulty.BEGINNER,
+        source_reference="testing/pytest.md#fixture-scopes",
+    )
+    question.choices = [
+        Choice(text="module", is_correct=True, order_index=1),
+        Choice(text="function only", is_correct=False, order_index=2),
+        Choice(text="never", is_correct=False, order_index=3),
+        Choice(text="container", is_correct=False, order_index=4),
+    ]
+    question.concept_links = [QuestionConcept(concept=concept, role=ConceptAssignmentRole.PRIMARY)]
+    review = ConceptReviewItem(
+        subject=subject,
+        concept=concept,
+        question=question,
+        review_type="unresolved_assignment",
+        reason="Question depends on unresolved proposed concept 'fixture scopes'.",
+        suggested_action="approve_or_reject_concept",
+        evidence_json="{}",
+    )
+    db_session.add(review)
+    db_session.commit()
+
+    detail_response = client.get(f"/subjects/{subject.id}")
+    assert detail_response.status_code == 200
+    assert "fixture scopes" in detail_response.text
+    assert "Approve concept" in detail_response.text
+
+    response = client.post(
+        f"/concept-reviews/{review.id}/approve",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/subjects/{subject.id}"
+    db_session.refresh(concept)
+    db_session.refresh(question)
+    db_session.refresh(review)
+    assert concept.status == ConceptStatus.ACTIVE
+    assert question.status == QuestionStatus.ACTIVE
+    assert review.status == "resolved"
 
 
 def test_subject_review_uses_subject_queue(client: TestClient, db_session: Session) -> None:

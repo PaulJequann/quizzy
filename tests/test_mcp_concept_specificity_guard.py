@@ -6,9 +6,10 @@ from typing import Any
 
 import pytest
 from fastmcp import Client
-from fastmcp.client.elicitation import ElicitResult
 
+from app.database import get_session_factory
 from app.mcp.server import build_server
+from app.services import generation_service
 from tests.db_utils import clear_database_caches, reset_database
 
 pytestmark = pytest.mark.mcp
@@ -58,17 +59,13 @@ def test_specificity_guard_allows_existing_concept_when_source_topic_is_covered(
     assert len(bank["questions"]) == 4
 
 
-def test_specificity_guard_allows_specific_new_concept_through_elicitation(
+def test_specificity_guard_saves_specific_new_concept_as_draft_review(
     mcp_database,
     tmp_path,
 ):
-    async def approve_concepts(message, response_type, params, context):
-        approval_messages.append(message)
-        return ElicitResult(action="accept", content=response_type(value=True))
-
     async def run_flow():
         server = build_server()
-        async with Client(server, elicitation_handler=approve_concepts) as client:
+        async with Client(server) as client:
             ingest = await _client_invoke(
                 client,
                 "ingest_obsidian_note",
@@ -89,14 +86,15 @@ def test_specificity_guard_allows_specific_new_concept_through_elicitation(
                 },
             )
             concepts = await _client_invoke(client, "list_concepts", {"subject_name": "AWS"})
-            return created, concepts
+            bank = await _client_invoke(client, "list_question_bank", {"subject_name": "AWS"})
+            return created, concepts, bank
 
-    approval_messages: list[str] = []
-    created, concepts = asyncio.run(run_flow())
+    created, concepts, bank = asyncio.run(run_flow())
 
     assert created["questions_created"] == 3
-    assert "Route 53 Health Checks" in approval_messages[0]
-    assert {concept["name"] for concept in concepts["concepts"]} >= {"Route 53 Health Checks"}
+    assert created["taxonomy_review"]["open_concept_review_count"] == 3
+    assert concepts["concepts"] == []
+    assert {question["status"] for question in bank["questions"]} == {"draft"}
 
 
 def test_mcp_rejects_malformed_fresh_agent_payloads(
@@ -145,19 +143,29 @@ def test_specificity_guard_rejects_obvious_bypass_attempt(
     )
     document_id = health_ingest["document"]["id"]
 
-    with pytest.raises(Exception, match="Route 53 Health Check"):
-        asyncio.run(
-            _invoke(
-                server,
-                "create_generated_questions",
-                {
-                    "subject_name": "AWS",
-                    "questions": [
-                        _health_check_question(document_id, i, specific=False) for i in range(3)
-                    ],
-                },
-            )
+    created = asyncio.run(
+        _invoke(
+            server,
+            "create_generated_questions",
+            {
+                "subject_name": "AWS",
+                "questions": [
+                    _health_check_question(document_id, i, specific=False) for i in range(3)
+                ],
+            },
         )
+    )
+    reviews = asyncio.run(
+        _invoke(
+            server,
+            "list_concept_review_queue",
+            {"subject_id": health_ingest["document"]["subject_id"]},
+        )
+    )
+
+    assert created["questions_created"] == 3
+    assert reviews["review_items"][0]["review_type"] == "specificity_mismatch"
+    assert "Route 53 Health Check" in reviews["review_items"][0]["reason"]
 
 
 def _seed_route53_records(server: Any, tmp_path: Path) -> int:
@@ -172,18 +180,24 @@ def _seed_route53_records(server: Any, tmp_path: Path) -> int:
         )
     )
     document_id = ingest["document"]["id"]
-    asyncio.run(
-        _invoke(
-            server,
-            "create_generated_questions",
-            {
-                "subject_name": "AWS",
-                "questions": [_route53_dns_record_question(document_id)],
-                "approve_new_concepts": True,
-            },
-        )
-    )
+    asyncio.run(_approved_create(server, [_route53_dns_record_question(document_id)]))
     return document_id
+
+
+async def _approved_create(server, questions: list[dict]) -> dict:
+    session_factory = get_session_factory()
+    with session_factory() as db:
+        return generation_service.create_generated_questions(
+            db,
+            generation_service.QuestionBankCreateInput(
+                subject_name="AWS",
+                questions=[
+                    generation_service.GeneratedQuestionInput.model_validate(question)
+                    for question in questions
+                ],
+                approve_new_concepts=True,
+            ),
+        )
 
 
 def _write_route53_records_note(path: Path) -> Path:

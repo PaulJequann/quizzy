@@ -17,7 +17,7 @@ from app.models import (
     SourceDocument,
     Subject,
 )
-from app.services import concept_service, question_health_service
+from app.services import concept_proposal_service, concept_service, question_health_service
 from app.services.quiz_service import get_or_create_subject
 from app.services.settings_service import get_default_difficulty
 
@@ -40,6 +40,10 @@ class QuestionBankCreateInput:
     batch_metadata: BatchMetadata | None = None
     approve_new_concepts: bool = False
     save_unresolved_as_draft: bool = False
+    draft_review_type: str = "unresolved_assignment"
+    draft_review_reason: str = ""
+    draft_suggested_action: str = "approve_or_reject_concept"
+    draft_review_evidence: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +54,10 @@ class QuestionBuildInput:
     fallback_source_document_id: int | None
     approve_new_concepts: bool
     save_unresolved_as_draft: bool
+    draft_review_type: str
+    draft_review_reason: str
+    draft_suggested_action: str
+    draft_review_evidence: dict[str, Any] | None
 
 
 def validate_question_batch(
@@ -91,6 +99,10 @@ def create_generated_questions(
                 fallback_source_document_id=data.source_document_id,
                 approve_new_concepts=data.approve_new_concepts,
                 save_unresolved_as_draft=data.save_unresolved_as_draft,
+                draft_review_type=data.draft_review_type,
+                draft_review_reason=data.draft_review_reason,
+                draft_suggested_action=data.draft_suggested_action,
+                draft_review_evidence=data.draft_review_evidence,
             ),
         )
         for question_input in data.questions
@@ -191,7 +203,7 @@ def _resolve_build_assignments(
 ) -> list[concept_service.ResolvedConceptAssignment]:
     proposals = _concept_proposals(data.question_input)
     if data.save_unresolved_as_draft:
-        return concept_service.create_proposed_assignments(
+        return concept_proposal_service.create_proposed_assignments(
             db,
             concept_service.ProposedAssignmentRequest(
                 subject=data.subject,
@@ -199,6 +211,10 @@ def _resolve_build_assignments(
                 question=question,
                 actor="mcp_agent",
                 source="mcp",
+                review_type=data.draft_review_type,
+                review_reason=data.draft_review_reason,
+                suggested_action=data.draft_suggested_action,
+                review_evidence=data.draft_review_evidence,
             ),
         )
     return concept_service.resolve_concept_assignments(

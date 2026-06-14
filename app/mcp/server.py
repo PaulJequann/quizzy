@@ -11,11 +11,13 @@ from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_session_factory
 from app.mcp import concept_approval, question_first_tools, read_tools
 from app.models import Difficulty, Question, Quiz, QuizStatus, SourceDocument, Subject
 from app.services import (
     concept_maintenance_service,
+    concept_service,
     generation_service,
     settings_service,
     source_service,
@@ -62,10 +64,12 @@ Concept granularity rules:
   taxonomy smell.
 - A question should normally tag exactly 1 primary concept and never more than 2 concepts.
 - Create a new concept only when it is likely to support at least 3 future questions or reviews.
-- Do not collapse source-specific objectives into a broad existing concept to avoid approval. If a
-  concept plan identifies new reusable concepts, preserve those proposals and let FastMCP
-  elicitation ask for approval, or use save_unresolved_as_draft=true when elicitation is
-  unavailable.
+- Do not collapse source-specific objectives into a broad existing concept to avoid review. If a
+  concept plan identifies new reusable concepts, preserve those proposals. MCP writes save new
+  concepts as proposed drafts; the user reviews and approves them in the Quizzy subject workspace.
+- New source-specific concepts should include parent_name when a durable parent exists. For
+  example, Route 53 routing-policy concepts should normally propose a Route 53 parent instead of
+  becoming independent top-level concepts. Missing parent placement is review-worthy.
 - Do not create separate concepts for protocol variants, threshold values, timing details,
   comparison phrasings, implementation patterns, or gotchas when they are examples of the same
   source-level learning objective.
@@ -81,9 +85,11 @@ Recommended workflow:
    source-level concepts.
 5. Write stems, correct answers, distractors, explanations, difficulty, and source references using
    only the planned concept names.
-6. Call prepare_concept_plan before persistence. New active concepts require approval.
-7. Write durable bank questions with create_generated_questions after approval, or save unresolved
-   taxonomy as draft/proposed review work.
+6. Call prepare_concept_plan before persistence. New concepts from MCP are saved as proposed
+   taxonomy and draft questions, not active taxonomy.
+7. Write durable bank questions with create_generated_questions. When review work is created, send
+   the returned review_url to the user so they can open the subject workspace and approve, reject,
+   place, or remap proposed taxonomy.
 8. Optionally assemble a disposable practice session from the bank.
 9. Resolve app-created question and concept review items when maintaining the bank.
 """.strip()
@@ -102,7 +108,8 @@ CONCEPT_POLICY = {
         "Choose the canonical concept set before writing questions.",
         "Reuse planned concept names verbatim across the batch.",
         "Review structured concept_proposals before persistence.",
-        "Call prepare_concept_plan and get user approval before creating active taxonomy.",
+        "Call prepare_concept_plan; MCP-created new taxonomy stays proposed until UI review.",
+        "Use parent_name for source-specific concepts when a durable parent exists.",
     ],
     "avoid": [
         "one-off facts",
@@ -619,10 +626,6 @@ def _register_question_bank_tools(server: FastMCP) -> None:
             Field(description="Optional source document shared by every question in the batch."),
         ] = None,
         notes: Annotated[str, Field(description="Optional batch notes.")] = "",
-        approve_new_concepts: Annotated[
-            bool,
-            Field(description="Set true only after user approval of prepare_concept_plan."),
-        ] = False,
         save_unresolved_as_draft: Annotated[
             bool,
             Field(description="Save unresolved proposals as draft questions and concept reviews."),
@@ -631,16 +634,14 @@ def _register_question_bank_tools(server: FastMCP) -> None:
         """Create durable generated questions without creating a quiz."""
         with _session_scope() as db:
             options = await concept_approval.write_options_after_concept_approval(
-                ctx,
                 db,
                 concept_approval.ConceptApprovalRequest(
                     subject_name=subject_name,
                     questions=questions,
-                    approve_new_concepts=approve_new_concepts,
                     save_unresolved_as_draft=save_unresolved_as_draft,
                 ),
             )
-            return generation_service.create_generated_questions(
+            result = generation_service.create_generated_questions(
                 db,
                 generation_service.QuestionBankCreateInput(
                     subject_name=subject_name,
@@ -649,8 +650,13 @@ def _register_question_bank_tools(server: FastMCP) -> None:
                     batch_metadata=generation_service.BatchMetadata(notes=notes),
                     approve_new_concepts=options.approve_new_concepts,
                     save_unresolved_as_draft=options.save_unresolved_as_draft,
+                    draft_review_type=options.draft_review_type,
+                    draft_review_reason=options.draft_review_reason,
+                    draft_suggested_action=options.draft_suggested_action,
+                    draft_review_evidence=options.draft_review_evidence,
                 ),
             )
+            return _with_taxonomy_review_link(db, result, subject_name=subject_name)
 
     write = {"destructiveHint": False, "idempotentHint": False}
     register_tool(
@@ -675,10 +681,6 @@ def _register_add_questions_tool(server: FastMCP) -> None:
                 )
             ),
         ],
-        approve_new_concepts: Annotated[
-            bool,
-            Field(description="Set true only after user approval of prepare_concept_plan."),
-        ] = False,
         save_unresolved_as_draft: Annotated[
             bool,
             Field(description="Save unresolved proposals as draft questions and concept reviews."),
@@ -686,17 +688,16 @@ def _register_add_questions_tool(server: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Append generated questions to an existing quiz."""
         with _session_scope() as db:
+            subject_name = concept_approval.quiz_subject_name(db, quiz_id)
             options = await concept_approval.write_options_after_concept_approval(
-                ctx,
                 db,
                 concept_approval.ConceptApprovalRequest(
-                    subject_name=concept_approval.quiz_subject_name(db, quiz_id),
+                    subject_name=subject_name,
                     questions=questions,
-                    approve_new_concepts=approve_new_concepts,
                     save_unresolved_as_draft=save_unresolved_as_draft,
                 ),
             )
-            return generation_service.add_questions_to_quiz(
+            result = generation_service.add_questions_to_quiz(
                 db,
                 generation_service.AddQuestionsToQuizInput(
                     quiz_id=quiz_id,
@@ -704,6 +705,7 @@ def _register_add_questions_tool(server: FastMCP) -> None:
                     options=options,
                 ),
             )
+            return _with_taxonomy_review_link(db, result, subject_name=subject_name)
 
     write = {"destructiveHint": False, "idempotentHint": False}
     register_tool(server, "add_questions_to_quiz", add_questions_to_quiz, annotations=write)
@@ -735,10 +737,6 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
             QuizStatus,
             Field(description="Initial quiz status. Draft is the recommended default."),
         ] = QuizStatus.DRAFT,
-        approve_new_concepts: Annotated[
-            bool,
-            Field(description="Set true only after user approval of prepare_concept_plan."),
-        ] = False,
         save_unresolved_as_draft: Annotated[
             bool,
             Field(description="Save unresolved proposals as draft questions and concept reviews."),
@@ -747,16 +745,14 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
         """Create a generated quiz and questions in one call."""
         with _session_scope() as db:
             options = await concept_approval.write_options_after_concept_approval(
-                ctx,
                 db,
                 concept_approval.ConceptApprovalRequest(
                     subject_name=subject_name,
                     questions=questions,
-                    approve_new_concepts=approve_new_concepts,
                     save_unresolved_as_draft=save_unresolved_as_draft,
                 ),
             )
-            return generation_service.create_generated_quiz_with_questions(
+            result = generation_service.create_generated_quiz_with_questions(
                 db,
                 GeneratedQuizCreateInput(
                     title=title,
@@ -768,6 +764,7 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
                 questions=questions,
                 options=options,
             )
+            return _with_taxonomy_review_link(db, result, subject_name=subject_name)
 
     write = {"destructiveHint": False, "idempotentHint": False}
     register_tool(
@@ -776,3 +773,28 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
         create_generated_quiz_with_questions,
         annotations=write,
     )
+
+
+def _with_taxonomy_review_link(
+    db: Session,
+    result: dict[str, Any],
+    *,
+    subject_name: str,
+) -> dict[str, Any]:
+    subject = _subject_for_context(db, subject_name)
+    if subject is None:
+        return result
+    review_path = f"/subjects/{subject.id}#taxonomy-review"
+    review_count = len(concept_service.list_open_concept_reviews(db, subject_id=subject.id))
+    return result | {
+        "taxonomy_review": {
+            "subject_id": subject.id,
+            "review_path": review_path,
+            "review_url": f"{get_settings().app_base_url.rstrip('/')}{review_path}",
+            "open_concept_review_count": review_count,
+            "next_action": (
+                "Open review_url to approve, reject, place, or remap proposed taxonomy before "
+                "draft questions enter ordinary practice."
+            ),
+        }
+    }

@@ -8,8 +8,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Attempt, AttemptAnswer, Concept, Difficulty, Question, Quiz, QuizStatus
-from app.services import concept_service, practice_service, question_health_service
+from app.models import (
+    Attempt,
+    AttemptAnswer,
+    Concept,
+    ConceptReviewItem,
+    ConceptStatus,
+    Difficulty,
+    Question,
+    QuestionConcept,
+    Quiz,
+    QuizStatus,
+)
+from app.services import (
+    concept_lifecycle_service,
+    concept_service,
+    practice_service,
+    question_health_service,
+)
 from app.services.grading_service import (
     build_concept_queue_items,
     get_mastery_rows,
@@ -177,6 +193,7 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
     mastery_groups = build_subject_mastery_groups(mastery_rows)
     mastery_group = mastery_groups[0] if mastery_groups else None
     concept_review_items = concept_service.list_open_concept_reviews(db, subject_id=subject.id)
+    remediation_concepts = _remediation_concepts(subject.concepts)
     return templates.TemplateResponse(
         request,
         "subjects/detail.html",
@@ -185,6 +202,7 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
             "mastery_group": mastery_group,
             "quizzes": quizzes_for_subject(subject),
             "concept_review_items": concept_review_items,
+            "remediation_concepts": remediation_concepts,
             "concept_review_count_by_concept_id": _concept_review_counts(concept_review_items),
             "question_review_items": question_health_service.list_question_review_queue(
                 db,
@@ -194,6 +212,14 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
     )
 
 
+def _remediation_concepts(concepts: list[Concept]) -> list[Concept]:
+    return [
+        concept
+        for concept in concepts
+        if concept.status in {ConceptStatus.ACTIVE, ConceptStatus.PROPOSED}
+    ]
+
+
 def _concept_review_counts(review_items: list[dict]) -> dict[int, int]:
     counts: dict[int, int] = {}
     for item in review_items:
@@ -201,6 +227,94 @@ def _concept_review_counts(review_items: list[dict]) -> dict[int, int]:
         if concept_id is not None:
             counts[concept_id] = counts.get(concept_id, 0) + 1
     return counts
+
+
+@router.post("/concept-reviews/{review_item_id}/approve")
+def approve_concept_review(
+    review_item_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = _concept_review_item(db, review_item_id)
+    if item.concept is None or item.concept.status != ConceptStatus.PROPOSED:
+        raise HTTPException(status_code=400, detail="Only proposed concepts can be approved.")
+    subject_id = item.subject_id
+    try:
+        concept_lifecycle_service.approve_proposed_concept(db, item.concept)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return redirect(f"/subjects/{subject_id}")
+
+
+@router.post("/concept-reviews/{review_item_id}/reject")
+def reject_concept_review(
+    review_item_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = _concept_review_item(db, review_item_id)
+    if item.concept is None or item.concept.status != ConceptStatus.PROPOSED:
+        raise HTTPException(status_code=400, detail="Only proposed concepts can be rejected.")
+    subject_id = item.subject_id
+    concept_lifecycle_service.reject_proposed_concept(db, item.concept)
+    return redirect(f"/subjects/{subject_id}")
+
+
+@router.post("/concept-reviews/{review_item_id}/accept-assignment")
+def accept_concept_review_assignment(
+    review_item_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = _concept_review_item(db, review_item_id)
+    subject_id = item.subject_id
+    try:
+        concept_lifecycle_service.accept_review_assignment(db, item)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return redirect(f"/subjects/{subject_id}")
+
+
+@router.post("/concept-reviews/{review_item_id}/remap")
+async def remap_concept_review_assignment(
+    request: Request,
+    review_item_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    item = _concept_review_item(db, review_item_id)
+    subject_id = item.subject_id
+    form = await request.form()
+    try:
+        target = _review_target_concept(db, form_int(form, "target_concept_id"), subject_id)
+        concept_lifecycle_service.remap_review_assignment(db, item, target=target)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return redirect(f"/subjects/{subject_id}")
+
+
+def _review_target_concept(db: Session, concept_id: int, subject_id: int) -> Concept:
+    concept = db.get(Concept, concept_id)
+    if concept is None:
+        raise ValueError("Choose a target concept.")
+    if concept.subject_id != subject_id:
+        raise ValueError("Target concept must belong to the same subject.")
+    if concept.status == ConceptStatus.ARCHIVED:
+        raise ValueError("Archived concepts cannot receive review assignments.")
+    return concept
+
+
+def _concept_review_item(db: Session, review_item_id: int) -> ConceptReviewItem:
+    item = db.scalar(
+        select(ConceptReviewItem)
+        .where(ConceptReviewItem.id == review_item_id)
+        .options(
+            selectinload(ConceptReviewItem.concept),
+            selectinload(ConceptReviewItem.subject),
+            selectinload(ConceptReviewItem.question)
+            .selectinload(Question.concept_links)
+            .selectinload(QuestionConcept.concept),
+        )
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Concept review item not found")
+    return item
 
 
 @router.post("/subjects/{subject_id}/practice")

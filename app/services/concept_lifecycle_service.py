@@ -11,9 +11,11 @@ from app.models import (
     ConceptAlias,
     ConceptAssignmentRole,
     ConceptDecisionEvent,
+    ConceptReviewItem,
     ConceptStatus,
     QuestionConcept,
     QuestionStatus,
+    Subject,
 )
 from app.services import concept_service
 from app.services.text_service import slugify
@@ -32,6 +34,45 @@ class ArchiveConceptRequest:
     concept: Concept
     archive_children: bool
     rationale: str = ""
+
+
+@dataclass(frozen=True)
+class CreateConceptRequest:
+    subject: Subject
+    name: str
+    parent: Concept | None = None
+    status: ConceptStatus = ConceptStatus.ACTIVE
+    rationale: str = ""
+
+
+def create_concept(db: Session, request: CreateConceptRequest) -> Concept:
+    if request.status == ConceptStatus.ARCHIVED:
+        raise ValueError("New concepts cannot be created as archived.")
+    _validate_new_parent(request.subject.id, request.parent)
+    if request.status == ConceptStatus.ACTIVE and _parent_is_not_active(request.parent):
+        raise ValueError("Active concepts require an active parent.")
+    concept = concept_service._create_concept(
+        db,
+        concept_service.ConceptCreateRequest(
+            subject=request.subject,
+            name=request.name,
+            parent=request.parent,
+            status=request.status,
+        ),
+    )
+    concept_service._record_decision(
+        db,
+        concept_service.DecisionRecord(
+            subject=request.subject,
+            action="concept_creation",
+            concept_ids=[concept.id],
+            rationale=request.rationale,
+            metadata={"parent_id": request.parent.id if request.parent else None},
+        ),
+    )
+    db.commit()
+    db.refresh(concept)
+    return concept
 
 
 def rename_concept(db: Session, concept: Concept, *, name: str, rationale: str = "") -> Concept:
@@ -106,6 +147,29 @@ def delete_empty_concept(db: Session, concept: Concept) -> None:
     db.commit()
 
 
+def approve_proposed_concept(db: Session, concept: Concept, *, rationale: str = "") -> Concept:
+    if concept.status != ConceptStatus.PROPOSED:
+        raise ValueError("Only proposed concepts can be approved.")
+    if concept.parent is not None and concept.parent.status != ConceptStatus.ACTIVE:
+        raise ValueError("Approve or move the parent concept before approving this concept.")
+    concept.status = ConceptStatus.ACTIVE
+    activated_question_ids = _activate_resolved_draft_questions(concept)
+    _close_concept_reviews(db, concept, resolution=rationale or "approved")
+    concept_service._record_decision(
+        db,
+        concept_service.DecisionRecord(
+            subject=concept.subject,
+            action="proposed_concept_approval",
+            concept_ids=[concept.id],
+            question_ids=activated_question_ids,
+            rationale=rationale,
+        ),
+    )
+    db.commit()
+    db.refresh(concept)
+    return concept
+
+
 def forget_alias(db: Session, alias: ConceptAlias, *, rationale: str = "") -> ConceptAlias:
     alias.is_active = False
     concept_service._record_decision(
@@ -130,6 +194,7 @@ def reject_proposed_concept(db: Session, concept: Concept, *, rationale: str = "
     concept.status = ConceptStatus.ARCHIVED
     for question in concept.questions:
         question.status = QuestionStatus.DRAFT
+    _close_concept_reviews(db, concept, resolution=rationale or "rejected")
     concept_service._record_decision(
         db,
         concept_service.DecisionRecord(
@@ -143,6 +208,153 @@ def reject_proposed_concept(db: Session, concept: Concept, *, rationale: str = "
     db.commit()
     db.refresh(concept)
     return concept
+
+
+def accept_review_assignment(
+    db: Session,
+    item: ConceptReviewItem,
+    *,
+    rationale: str = "",
+) -> ConceptReviewItem:
+    _validate_open_question_review(item)
+    activated_question_ids = _activate_question_if_resolved(item)
+    _resolve_review_item(item, rationale or "accepted current assignment")
+    concept_service._record_decision(
+        db,
+        concept_service.DecisionRecord(
+            subject=item.subject,
+            action="concept_review_assignment_acceptance",
+            concept_ids=[item.concept_id] if item.concept_id is not None else [],
+            question_ids=[item.question_id] if item.question_id is not None else [],
+            rationale=rationale,
+            metadata={"activated_question_ids": activated_question_ids},
+        ),
+    )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def remap_review_assignment(
+    db: Session,
+    item: ConceptReviewItem,
+    *,
+    target: Concept,
+    rationale: str = "",
+) -> ConceptReviewItem:
+    _validate_open_question_review(item)
+    question_id = _review_question_id(item)
+    source = _review_source_concept(item)
+    _validate_review_target(item, target)
+    _remap_question_link(db, question_id, source=source, target=target)
+    activated_question_ids = _activate_question_if_resolved(item)
+    _resolve_review_item(item, rationale or f"remapped to {target.name}")
+    concept_service._record_decision(
+        db,
+        concept_service.DecisionRecord(
+            subject=item.subject,
+            action="concept_review_assignment_remap",
+            concept_ids=[source.id, target.id],
+            question_ids=[question_id],
+            rationale=rationale,
+            metadata={
+                "target_concept_id": target.id,
+                "activated_question_ids": activated_question_ids,
+            },
+        ),
+    )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def _review_question_id(item: ConceptReviewItem) -> int:
+    if item.question_id is None:
+        raise ValueError("Review item has no question to remediate.")
+    return item.question_id
+
+
+def _review_source_concept(item: ConceptReviewItem) -> Concept:
+    if item.concept is None:
+        raise ValueError("Review item has no source concept.")
+    return item.concept
+
+
+def _validate_review_target(item: ConceptReviewItem, target: Concept) -> None:
+    if target.subject_id != item.subject_id:
+        raise ValueError("Target concept must belong to the same subject.")
+    if target.status == ConceptStatus.ARCHIVED:
+        raise ValueError("Archived concepts cannot receive review assignments.")
+
+
+def _validate_new_parent(subject_id: int, parent: Concept | None) -> None:
+    if parent is None:
+        return
+    if parent.subject_id != subject_id:
+        raise ValueError("Parent concept must belong to the same subject.")
+    if parent.status == ConceptStatus.ARCHIVED:
+        raise ValueError("Archived concepts cannot be used as parents.")
+
+
+def _parent_is_not_active(parent: Concept | None) -> bool:
+    return parent is not None and parent.status != ConceptStatus.ACTIVE
+
+
+def _remap_question_link(
+    db: Session,
+    question_id: int,
+    *,
+    source: Concept,
+    target: Concept,
+) -> None:
+    if target.id == source.id:
+        return
+    if not _reassign_question_to_concept(db, question_id, source=source, target=target):
+        raise ValueError("Review item source assignment is no longer linked to the question.")
+
+
+def _activate_resolved_draft_questions(concept: Concept) -> list[int]:
+    activated: list[int] = []
+    for question in concept.questions:
+        if question.status == QuestionStatus.DRAFT and _question_concepts_are_active(question):
+            question.status = QuestionStatus.ACTIVE
+            activated.append(question.id)
+    return activated
+
+
+def _activate_question_if_resolved(item: ConceptReviewItem) -> list[int]:
+    if item.question is None or item.question.status != QuestionStatus.DRAFT:
+        return []
+    if not _question_concepts_are_active(item.question):
+        return []
+    item.question.status = QuestionStatus.ACTIVE
+    return [item.question.id]
+
+
+def _question_concepts_are_active(question) -> bool:
+    return all(link.concept.status == ConceptStatus.ACTIVE for link in question.concept_links)
+
+
+def _validate_open_question_review(item: ConceptReviewItem) -> None:
+    if item.status != "open":
+        raise ValueError("Only open review items can be resolved.")
+    if item.question is None or item.question_id is None:
+        raise ValueError("Review item has no question to remediate.")
+
+
+def _resolve_review_item(item: ConceptReviewItem, resolution: str) -> None:
+    item.status = "resolved"
+    item.resolution_notes = resolution
+
+
+def _close_concept_reviews(db: Session, concept: Concept, *, resolution: str) -> None:
+    for item in db.scalars(
+        select(ConceptReviewItem).where(
+            ConceptReviewItem.concept_id == concept.id,
+            ConceptReviewItem.status == "open",
+        )
+    ):
+        _resolve_review_item(item, resolution)
 
 
 def _rename_decision(

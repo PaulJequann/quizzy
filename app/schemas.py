@@ -54,6 +54,36 @@ class ConceptRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ConceptCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    parent_concept_id: int | None = None
+    status: ConceptStatus = ConceptStatus.ACTIVE
+    rationale: str = ""
+
+
+class ConceptUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    parent_concept_id: int | None = None
+    rationale: str = ""
+
+
+class ConceptArchiveRequest(BaseModel):
+    archive_children: bool = False
+    rationale: str = ""
+
+
+class ConceptSplitRequest(BaseModel):
+    child_names: list[str] = Field(min_length=1)
+    question_ids_by_child_name: dict[str, list[int]] = Field(default_factory=dict)
+    rationale: str = ""
+
+
+class ConceptMergeRequest(BaseModel):
+    target_concept_id: int
+    source_concept_ids: list[int] = Field(min_length=1)
+    dry_run: bool = True
+
+
 class ConceptProposalInput(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     parent_name: str | None = Field(default=None, max_length=160)

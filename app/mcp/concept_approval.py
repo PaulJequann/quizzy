@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from fastmcp import Context
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,20 +16,13 @@ from app.services.generation_service import GeneratedQuestionInput
 class ConceptApprovalRequest:
     subject_name: str
     questions: list[GeneratedQuestionInput]
-    approve_new_concepts: bool
     save_unresolved_as_draft: bool
 
 
 async def write_options_after_concept_approval(
-    ctx: Context,
     db: Session,
     request: ConceptApprovalRequest,
 ) -> generation_service.GeneratedQuestionWriteOptions:
-    if request.approve_new_concepts or request.save_unresolved_as_draft:
-        return generation_service.GeneratedQuestionWriteOptions(
-            approve_new_concepts=request.approve_new_concepts,
-            save_unresolved_as_draft=request.save_unresolved_as_draft,
-        )
     plan = generation_service.prepare_concept_plan(
         db,
         subject_name=request.subject_name,
@@ -38,16 +30,58 @@ async def write_options_after_concept_approval(
             proposal for question in request.questions for proposal in question.concept_proposals
         ],
     )
+    if request.save_unresolved_as_draft:
+        return _draft_options("Agent requested draft/proposed taxonomy review.", plan=plan)
     if not plan["requires_approval"]:
-        concept_specificity_guard.assert_no_specificity_bypass(
+        topic = concept_specificity_guard.uncovered_source_topic(
             request.questions,
             plan=plan,
             subject_name=request.subject_name,
             source_titles=source_labels.for_questions(db, request.questions),
         )
+        if topic:
+            return _specificity_draft_options(topic, plan=plan)
         return generation_service.GeneratedQuestionWriteOptions()
-    approved = await _elicit_concept_approval(ctx, plan, question_count=len(request.questions))
-    return generation_service.GeneratedQuestionWriteOptions(approve_new_concepts=approved)
+    return _draft_options(
+        (
+            "New concepts need stewardship review before becoming active. Review parent "
+            "placement before approval; agents should propose parent_name for source-specific "
+            "concepts when a durable parent exists."
+        ),
+        plan=plan,
+        suggested_action="approve_place_or_reject_concept",
+    )
+
+
+def _draft_options(
+    reason: str,
+    *,
+    plan: dict[str, Any],
+    suggested_action: str = "approve_or_reject_concept",
+) -> generation_service.GeneratedQuestionWriteOptions:
+    return generation_service.GeneratedQuestionWriteOptions(
+        save_unresolved_as_draft=True,
+        draft_review_reason=reason,
+        draft_suggested_action=suggested_action,
+        draft_review_evidence={"concept_plan": plan},
+    )
+
+
+def _specificity_draft_options(
+    topic: str,
+    *,
+    plan: dict[str, Any],
+) -> generation_service.GeneratedQuestionWriteOptions:
+    return generation_service.GeneratedQuestionWriteOptions(
+        save_unresolved_as_draft=True,
+        draft_review_type="specificity_mismatch",
+        draft_review_reason=(
+            f"Question appears to need a more specific concept for '{topic}' before it can "
+            "become active."
+        ),
+        draft_suggested_action="approve_new_concept_or_map_existing",
+        draft_review_evidence={"candidate_topic": topic, "concept_plan": plan},
+    )
 
 
 def quiz_subject_name(db: Session, quiz_id: int) -> str:
@@ -57,52 +91,3 @@ def quiz_subject_name(db: Session, quiz_id: int) -> str:
     if quiz.primary_subject is None:
         raise ValueError("Generated questions require a quiz with a primary subject.")
     return quiz.primary_subject.name
-
-
-async def _elicit_concept_approval(
-    ctx: Context,
-    plan: dict[str, Any],
-    *,
-    question_count: int,
-) -> bool:
-    try:
-        result = await ctx.elicit(
-            _concept_approval_message(plan, question_count=question_count),
-            response_type=bool,
-            response_title="Approve concept creation",
-            response_description="Create these concepts as active taxonomy now.",
-        )
-    except Exception as exc:
-        raise ValueError(
-            "New active concepts require user approval through FastMCP elicitation. "
-            "Use a client that supports elicitation, pass approve_new_concepts=true only after "
-            "approval, or use save_unresolved_as_draft=true."
-        ) from exc
-    if result.action != "accept":
-        raise ValueError("Concept creation was not approved.")
-    if not result.data:
-        raise ValueError("Concept creation was declined.")
-    return True
-
-
-def _concept_approval_message(plan: dict[str, Any], *, question_count: int) -> str:
-    concept_lines = [
-        _concept_approval_entry(entry) for entry in plan["entries"] if entry["resolution"] == "new"
-    ]
-    return "\n".join(
-        [
-            "Approve new active Quizzy concepts for generated questions?",
-            f"Subject: {plan['subject']['name']}",
-            f"Questions: {question_count}",
-            "New concepts:",
-            *concept_lines,
-            "Accept to create these concepts as active and save active questions. "
-            "Decline or cancel to leave active taxonomy unchanged.",
-        ]
-    )
-
-
-def _concept_approval_entry(entry: dict[str, Any]) -> str:
-    parent_name = entry.get("parent_name") or "top level"
-    rationale = entry.get("rationale") or "No rationale provided."
-    return f"- {entry['name']} ({parent_name}): {rationale}"

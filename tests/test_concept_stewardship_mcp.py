@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 from fastmcp import Client
-from fastmcp.client.elicitation import ElicitResult
-from fastmcp.exceptions import ToolError
 
+from app.database import get_session_factory
 from app.mcp.server import build_server
+from app.services import generation_service
 from app.services.concept_service import normalize_concept_name
 from tests.db_utils import clear_database_caches, reset_database
 
@@ -71,24 +71,11 @@ def test_mcp_concept_plan_fails_closed_and_can_save_proposed_drafts(
     assert plan["requires_approval"] is True
     assert plan["entries"][0]["parent"]["resolution"] == "new"
 
-    with pytest.raises(ToolError, match="FastMCP elicitation"):
-        asyncio.run(
-            _invoke(
-                server,
-                "create_generated_questions",
-                {"subject_name": "AWS", "questions": [question]},
-            )
-        )
-
     proposed = asyncio.run(
         _invoke(
             server,
             "create_generated_questions",
-            {
-                "subject_name": "AWS",
-                "questions": [question],
-                "save_unresolved_as_draft": True,
-            },
+            {"subject_name": "AWS", "questions": [question]},
         )
     )
     bank = asyncio.run(_invoke(server, "list_question_bank", {"subject_name": "AWS"}))
@@ -109,24 +96,32 @@ def test_mcp_concept_plan_fails_closed_and_can_save_proposed_drafts(
     )
 
     assert proposed["questions_created"] == 1
+    assert proposed["taxonomy_review"]["review_url"].endswith("/subjects/1#taxonomy-review")
     assert bank["questions"][0]["status"] == "draft"
     assert bank["questions"][0]["concepts"][0]["status"] == "proposed"
     assert active_concepts["concepts"] == []
-    assert [concept["status"] for concept in review_concepts["concepts"]] == ["proposed"]
-    assert review_queue["review_items"][0]["suggested_action"] == "approve_or_reject_concept"
+    assert [concept["name"] for concept in review_concepts["concepts"]] == [
+        "S3 storage",
+        "S3 storage classes",
+    ]
+    assert {concept["status"] for concept in review_concepts["concepts"]} == {"proposed"}
+    parent, child = review_concepts["concepts"]
+    assert child["parent_concept_id"] == parent["id"]
+    assert {item["suggested_action"] for item in review_queue["review_items"]} == {
+        "approve_place_or_reject_concept"
+    }
 
 
-def test_mcp_elicitation_approval_creates_active_concepts(
+def test_mcp_elicitation_handler_cannot_create_active_concepts(
     mcp_database,
     tmp_path,
 ):
-    async def approve_concepts(message, response_type, params, context):
-        approval_messages.append(message)
-        return ElicitResult(action="accept", content=response_type(value=True))
+    async def fail_if_elicited(message, response_type, params, context):
+        raise AssertionError("MCP concept creation should not elicit approval.")
 
     async def run_flow():
         server = build_server()
-        async with Client(server, elicitation_handler=approve_concepts) as client:
+        async with Client(server, elicitation_handler=fail_if_elicited) as client:
             ingest = await _client_invoke(
                 client,
                 "ingest_obsidian_note",
@@ -153,49 +148,47 @@ def test_mcp_elicitation_approval_creates_active_concepts(
             bank = await _client_invoke(client, "list_question_bank", {"subject_name": "AWS"})
             return created, concepts, reviews, bank
 
-    approval_messages: list[str] = []
     created, concepts, reviews, bank = asyncio.run(run_flow())
 
     assert created["questions_created"] == 1
-    assert approval_messages
-    assert "Approve new active Quizzy concepts" in approval_messages[0]
-    assert concepts["concepts"][0]["status"] == "active"
-    assert reviews["review_items"] == []
-    assert bank["questions"][0]["status"] == "active"
+    assert created["taxonomy_review"]["open_concept_review_count"] == 2
+    assert created["taxonomy_review"]["review_path"].endswith("#taxonomy-review")
+    assert concepts["concepts"] == []
+    assert reviews["review_items"]
+    assert bank["questions"][0]["status"] == "draft"
 
 
-def test_mcp_elicitation_decline_does_not_create_questions(
+def test_mcp_without_elicitation_saves_new_concepts_as_draft_review(
     mcp_database,
     tmp_path,
 ):
-    async def decline_concepts(message, response_type, params, context):
-        return ElicitResult(action="decline")
-
     async def run_flow():
         server = build_server()
-        async with Client(server, elicitation_handler=decline_concepts) as client:
+        async with Client(server) as client:
             ingest = await _client_invoke(
                 client,
                 "ingest_obsidian_note",
                 {"path": str(_write_note(tmp_path / "aws-s3.md")), "subject_name": "AWS"},
             )
-            with pytest.raises(ToolError, match="Concept creation was not approved"):
-                await _client_invoke(
-                    client,
-                    "create_generated_questions",
-                    {
-                        "subject_name": "AWS",
-                        "questions": [_generated_question(ingest["document"]["id"])],
-                    },
-                )
-            return await _client_invoke(client, "get_status", {})
+            created = await _client_invoke(
+                client,
+                "create_generated_questions",
+                {
+                    "subject_name": "AWS",
+                    "questions": [_generated_question(ingest["document"]["id"])],
+                },
+            )
+            bank = await _client_invoke(client, "list_question_bank", {"subject_name": "AWS"})
+            return created, bank
 
-    status = asyncio.run(run_flow())
+    created, bank = asyncio.run(run_flow())
 
-    assert status["questions"] == 0
+    assert created["questions_created"] == 1
+    assert created["taxonomy_review"]["review_url"].endswith("/subjects/1#taxonomy-review")
+    assert bank["questions"][0]["status"] == "draft"
 
 
-def test_mcp_rejects_broad_concept_bypass_for_repeated_specific_topic(
+def test_mcp_routes_broad_concept_bypass_to_draft_review(
     mcp_database,
     tmp_path,
 ):
@@ -210,33 +203,79 @@ def test_mcp_rejects_broad_concept_bypass_for_repeated_specific_topic(
     )
     document_id = ingest["document"]["id"]
 
-    seeded = asyncio.run(
+    seeded = asyncio.run(_approved_create(server, [_route53_dns_record_question(document_id)]))
+    assert seeded["questions_created"] == 1
+
+    created = asyncio.run(
         _invoke(
             server,
             "create_generated_questions",
             {
                 "subject_name": "AWS",
-                "questions": [_route53_dns_record_question(document_id)],
-                "approve_new_concepts": True,
+                "questions": [_health_check_question(document_id, index) for index in range(3)],
             },
         )
     )
-    assert seeded["questions_created"] == 1
-
-    with pytest.raises(ToolError, match="more specific concept"):
-        asyncio.run(
-            _invoke(
-                server,
-                "create_generated_questions",
-                {
-                    "subject_name": "AWS",
-                    "questions": [_health_check_question(document_id, index) for index in range(3)],
-                },
-            )
-        )
 
     bank = asyncio.run(_invoke(server, "list_question_bank", {"subject_name": "AWS"}))
-    assert len(bank["questions"]) == 1
+    reviews = asyncio.run(
+        _invoke(
+            server,
+            "list_concept_review_queue",
+            {"subject_id": ingest["document"]["subject_id"]},
+        )
+    )
+    assert created["questions_created"] == 3
+    assert [question["status"] for question in bank["questions"]].count("draft") == 3
+    assert reviews["review_items"][0]["review_type"] == "specificity_mismatch"
+
+
+def test_mcp_parentless_new_concept_requires_placement_review(
+    mcp_database,
+    tmp_path,
+):
+    server = build_server()
+    note_path = _write_route53_routing_note(tmp_path / "routing-policies.md")
+    ingest = asyncio.run(
+        _invoke(
+            server,
+            "ingest_obsidian_note",
+            {"path": str(note_path), "subject_name": "AWS"},
+        )
+    )
+
+    created = asyncio.run(
+        _invoke(
+            server,
+            "create_generated_questions",
+            {
+                "subject_name": "AWS",
+                "questions": [_parentless_route53_question(ingest["document"]["id"])],
+            },
+        )
+    )
+    concepts = asyncio.run(
+        _invoke(
+            server,
+            "list_concepts",
+            {"subject_name": "AWS", "include_proposed": True},
+        )
+    )
+    reviews = asyncio.run(
+        _invoke(
+            server,
+            "list_concept_review_queue",
+            {"subject_id": ingest["document"]["subject_id"]},
+        )
+    )
+
+    assert created["questions_created"] == 1
+    assert created["taxonomy_review"]["review_url"].endswith("/subjects/1#taxonomy-review")
+    assert concepts["concepts"][0]["name"] == "Route 53 Routing Policy Selection"
+    assert concepts["concepts"][0]["status"] == "proposed"
+    assert concepts["concepts"][0]["parent_concept_id"] is None
+    assert reviews["review_items"][0]["review_type"] == "proposed_concept_placement"
+    assert reviews["review_items"][0]["suggested_action"] == "approve_place_or_reject_concept"
 
 
 def test_alias_normalization_preserves_alias_token():
@@ -267,6 +306,22 @@ def _generated_question(document_id: int) -> dict:
     }
 
 
+async def _approved_create(server, questions: list[dict]) -> dict:
+    session_factory = get_session_factory()
+    with session_factory() as db:
+        return generation_service.create_generated_questions(
+            db,
+            generation_service.QuestionBankCreateInput(
+                subject_name="AWS",
+                questions=[
+                    generation_service.GeneratedQuestionInput.model_validate(question)
+                    for question in questions
+                ],
+                approve_new_concepts=True,
+            ),
+        )
+
+
 def _write_route53_health_note(path: Path) -> Path:
     path.write_text(
         "---\ntitle: Route 53 Health Checks\nsubject: AWS\n---\n"
@@ -275,6 +330,38 @@ def _write_route53_health_note(path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _write_route53_routing_note(path: Path) -> Path:
+    path.write_text(
+        "---\ntitle: Route 53 Routing Policies\nsubject: AWS\n---\n"
+        "# Route 53 Routing Policies\n\n"
+        "Weighted, latency, failover, geolocation, and geoproximity policies choose DNS "
+        "answers for different traffic-management goals.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _parentless_route53_question(document_id: int) -> dict:
+    return {
+        "stem": "Which Route 53 policy best routes users to the Region with the lowest latency?",
+        "choices": [
+            {"text": "Latency routing policy", "is_correct": True},
+            {"text": "Weighted routing policy"},
+            {"text": "Simple routing policy"},
+            {"text": "Multivalue answer routing policy"},
+        ],
+        "explanation": "Latency routing selects the lowest-latency Region from Route 53 data.",
+        "concept_proposals": [
+            {
+                "name": "Route 53 Routing Policy Selection",
+                "role": "primary",
+                "rationale": "Choosing a Route 53 routing policy is a reusable objective.",
+            }
+        ],
+        "source_document_id": document_id,
+    }
 
 
 def _route53_dns_record_question(document_id: int | None, index: int = 0) -> dict:

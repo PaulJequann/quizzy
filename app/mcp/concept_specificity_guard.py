@@ -11,28 +11,20 @@ _MIN_TOPIC_TOKENS = 2
 _MAX_TOPIC_TOKENS = 5
 
 
-def assert_no_specificity_bypass(
+def uncovered_source_topic(
     questions: list[GeneratedQuestionInput],
     *,
     plan: dict[str, Any],
     subject_name: str,
     source_titles: list[str] | None = None,
-) -> None:
+) -> str | None:
     if len(questions) < _MIN_QUESTIONS:
-        return
-    candidate = _uncovered_source_topic(
+        return None
+    return _uncovered_source_topic(
         questions,
         proposed_names=[entry["name"] for entry in plan["entries"]],
         subject_name=subject_name,
         source_titles=source_titles or [],
-    )
-    if candidate is None:
-        return
-    raise ValueError(
-        "Generated question batch appears to need a more specific concept for "
-        f"'{candidate}'. Do not collapse source-specific objectives into a broad existing "
-        "concept to avoid approval. Restore the specific concept proposal and let FastMCP "
-        "elicitation ask for approval, or use save_unresolved_as_draft=true."
     )
 
 

@@ -53,6 +53,10 @@ class ProposedAssignmentRequest:
     question: Question
     actor: str = "mcp_agent"
     source: str = "mcp"
+    review_type: str = "unresolved_assignment"
+    review_reason: str = ""
+    suggested_action: str = "approve_or_reject_concept"
+    review_evidence: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -124,25 +128,6 @@ def concept_proposals_from_names(names: list[str]) -> list[ConceptProposal]:
     return proposals
 
 
-def prepare_concept_plan(
-    db: Session,
-    *,
-    subject_name: str,
-    proposals: list[ConceptProposal],
-) -> dict[str, Any]:
-    subject = _get_subject_by_name(db, subject_name)
-    entries = [
-        _proposal_plan_entry(db, subject, proposal)
-        for proposal in _dedupe_proposals(proposals, subject_name)
-    ]
-    return {
-        "subject": _subject_to_dict(subject, requested_name=subject_name),
-        "requires_approval": any(entry["resolution"] == "new" for entry in entries),
-        "entries": entries,
-        "warnings": _near_duplicate_warnings(subject, entries),
-    }
-
-
 def resolve_concept_assignments(
     db: Session,
     request: AssignmentResolutionRequest,
@@ -151,56 +136,6 @@ def resolve_concept_assignments(
     _validate_assignment_roles(normalized)
     assignments = [_resolve_one_assignment(db, request, proposal) for proposal in normalized]
     _ensure_assignable_concepts(assignments)
-    return assignments
-
-
-def create_proposed_assignments(
-    db: Session,
-    request: ProposedAssignmentRequest,
-) -> list[ResolvedConceptAssignment]:
-    assignments: list[ResolvedConceptAssignment] = []
-    for proposal in _dedupe_proposals(request.proposals, request.subject.name):
-        concept = _concept_by_normalized(db, request.subject, proposal.name)
-        if concept is None:
-            concept = _create_concept(
-                db,
-                ConceptCreateRequest(
-                    subject=request.subject,
-                    name=proposal.name,
-                    parent=None,
-                    status=ConceptStatus.PROPOSED,
-                ),
-            )
-            _record_decision(
-                db,
-                DecisionRecord(
-                    subject=request.subject,
-                    action="concept_proposed",
-                    concept_ids=[concept.id],
-                    rationale=proposal.rationale,
-                    actor=request.actor,
-                    source=request.source,
-                ),
-            )
-        assignments.append(
-            ResolvedConceptAssignment(
-                concept=concept,
-                role=proposal.role,
-                rationale=proposal.rationale,
-            )
-        )
-        _open_concept_review_item(
-            db,
-            ReviewItemRequest(
-                subject=request.subject,
-                concept=concept,
-                question=request.question,
-                review_type="unresolved_assignment",
-                reason=f"Question depends on unresolved proposed concept '{concept.name}'.",
-                suggested_action="approve_or_reject_concept",
-                evidence={"proposal": _proposal_to_dict(proposal)},
-            ),
-        )
     return assignments
 
 
@@ -281,75 +216,6 @@ def _validate_assignment_roles(proposals: list[ConceptProposal]) -> None:
         raise ValueError("Generated questions can tag at most two concepts.")
 
 
-def _proposal_plan_entry(
-    db: Session,
-    subject: Subject | None,
-    proposal: ConceptProposal,
-) -> dict[str, Any]:
-    if subject is None:
-        return _proposal_to_dict(proposal) | {
-            "resolution": "new",
-            "concept": None,
-            "parent": None,
-        }
-    concept = _concept_by_normalized(db, subject, proposal.name)
-    alias = _alias_by_normalized(db, subject, proposal.name)
-    parent = _parent_plan(db, subject, proposal)
-    if concept and concept.status == ConceptStatus.ACTIVE:
-        resolution = "existing"
-        resolved_concept = _concept_to_dict(concept)
-    elif alias and alias.target_concept.status == ConceptStatus.ACTIVE:
-        resolution = "alias"
-        resolved_concept = _concept_to_dict(alias.target_concept)
-    else:
-        resolution = "new"
-        resolved_concept = None
-    return _proposal_to_dict(proposal) | {
-        "resolution": resolution,
-        "concept": resolved_concept,
-        "parent": parent,
-    }
-
-
-def _parent_plan(
-    db: Session,
-    subject: Subject,
-    proposal: ConceptProposal,
-) -> dict[str, Any] | None:
-    if not proposal.parent_name:
-        return None
-    parent = _concept_by_normalized(db, subject, proposal.parent_name)
-    if parent and parent.status == ConceptStatus.ACTIVE:
-        return {"resolution": "existing", "concept": _concept_to_dict(parent)}
-    return {
-        "resolution": "new",
-        "name": proposal.parent_name,
-        "normalized_name": normalize_concept_name(proposal.parent_name, subject_name=subject.name),
-    }
-
-
-def _near_duplicate_warnings(
-    subject: Subject | None,
-    entries: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    if subject is None:
-        return []
-    active = [concept for concept in subject.concepts if concept.status == ConceptStatus.ACTIVE]
-    warnings: list[dict[str, Any]] = []
-    for entry in entries:
-        if entry["resolution"] != "new":
-            continue
-        proposal_tokens = set(entry["normalized_name"].split("-"))
-        matches = [
-            _concept_to_dict(concept)
-            for concept in active
-            if proposal_tokens and proposal_tokens & set(concept.normalized_name.split("-"))
-        ]
-        if matches:
-            warnings.append({"proposal": entry["name"], "near_matches": matches})
-    return warnings
-
-
 def _resolve_one_assignment(
     db: Session,
     request: AssignmentResolutionRequest,
@@ -428,8 +294,10 @@ def _resolve_parent(
     if not proposal.parent_name:
         return None
     parent = _concept_by_normalized(db, request.subject, proposal.parent_name)
-    if parent is not None and parent.status == ConceptStatus.ACTIVE:
-        return parent
+    if parent is not None:
+        if parent.status == ConceptStatus.ACTIVE:
+            return parent
+        raise ValueError(f"Parent concept '{parent.name}' is not active.")
     parent = _create_concept(
         db,
         ConceptCreateRequest(
@@ -665,6 +533,7 @@ def _review_item_to_dict(item: ConceptReviewItem) -> dict[str, Any]:
         "subject_name": item.subject.name,
         "concept_id": item.concept_id,
         "concept_name": item.concept.name if item.concept else None,
+        "concept_status": item.concept.status.value if item.concept else None,
         "question_id": item.question_id,
         "question_stem": item.question.stem if item.question else None,
         "review_type": item.review_type,
