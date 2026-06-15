@@ -51,6 +51,22 @@ def test_mastery_keeps_active_concepts_with_missing_parents(
     assert "orphaned active child" in [row.concept.name for row in mastery_group.root_rows]
 
 
+def test_subject_detail_shows_parent_child_status_distribution(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    parent = _concept(db_session, "pytest basics")
+    _add_child_concept(db_session, parent=parent, name="fixture workflows")
+
+    response = client.get(f"/subjects/{parent.subject_id}")
+
+    assert response.status_code == 200
+    assert "Child bucket:" in response.text
+    assert "1 weak children" in response.text
+    assert "0 improving children" in response.text
+    assert "0 strong children" in response.text
+
+
 def _concept(db_session: Session, name: str) -> Concept:
     concept = db_session.scalar(select(Concept).where(Concept.name == name))
     assert concept is not None

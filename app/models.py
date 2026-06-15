@@ -325,6 +325,11 @@ class Concept(TimestampMixin, Base):
         back_populates="concept",
         cascade="all, delete-orphan",
     )
+    review_state: Mapped["ConceptReviewState | None"] = relationship(
+        back_populates="concept",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     questions: Mapped[list["Question"]] = relationship(
         "Question",
         secondary="question_concepts",
@@ -335,6 +340,34 @@ class Concept(TimestampMixin, Base):
     @property
     def topic(self) -> str:
         return self.subject.name
+
+
+class ConceptReviewState(TimestampMixin, Base):
+    __tablename__ = "concept_review_states"
+    __table_args__ = (
+        UniqueConstraint("concept_id", name="uq_concept_review_states_concept_id"),
+        CheckConstraint("interval_days >= 0", name="ck_concept_review_states_interval_days"),
+        CheckConstraint("ease_factor >= 1.3", name="ck_concept_review_states_ease_factor"),
+        CheckConstraint(
+            "last_friction_rating IS NULL OR last_friction_rating IN (1, 2, 3)",
+            name="ck_concept_review_states_last_friction_rating",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    concept_id: Mapped[int] = mapped_column(
+        ForeignKey("concepts.id", ondelete="CASCADE"), nullable=False
+    )
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    ease_factor: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    successful_spaced_reviews: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consecutive_spaced_correct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lapse_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_friction_rating: Mapped[int | None] = mapped_column(Integer)
+
+    concept: Mapped[Concept] = relationship(back_populates="review_state")
 
 
 class ConceptAlias(TimestampMixin, Base):
@@ -559,6 +592,12 @@ class Attempt(Base):
 
 class AttemptAnswer(Base):
     __tablename__ = "attempt_answers"
+    __table_args__ = (
+        CheckConstraint(
+            "retrieval_friction_rating IS NULL OR retrieval_friction_rating IN (1, 2, 3)",
+            name="ck_attempt_answers_retrieval_friction_rating",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     attempt_id: Mapped[int] = mapped_column(
@@ -576,6 +615,9 @@ class AttemptAnswer(Base):
     correct_choice_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     explanation_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=utc_now)
+    retrieval_friction_rating: Mapped[int | None] = mapped_column(Integer)
+    response_time_ms: Mapped[int | None] = mapped_column(Integer)
+    hint_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     attempt: Mapped[Attempt] = relationship(back_populates="answers")
     question: Mapped[Question] = relationship(back_populates="attempt_answers")

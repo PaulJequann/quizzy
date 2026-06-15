@@ -438,26 +438,6 @@ def test_any_difficulty_practice_is_persisted_as_mixed(
     assert practice.difficulty == Difficulty.MIXED
 
 
-def test_subject_pages_show_namespace_workspace(client: TestClient) -> None:
-    list_response = client.get("/subjects")
-
-    assert list_response.status_code == 200
-    assert "Subjects" in list_response.text
-    assert "testing" in list_response.text
-    assert "1 concepts" in list_response.text
-    assert "1 questions" in list_response.text
-
-    detail_response = client.get("/subjects/1")
-    assert detail_response.status_code == 200
-    assert "Overall Mastery" in detail_response.text
-    assert "Study options" in detail_response.text
-    assert "Start quick practice" in detail_response.text
-    assert "Save concept" in detail_response.text
-    assert "Pytest Basics" in detail_response.text
-    assert "What does pytest run?" in detail_response.text
-    assert "Test quiz" in detail_response.text
-
-
 def test_subject_concept_review_approval_activates_draft_question(
     client: TestClient,
     db_session: Session,

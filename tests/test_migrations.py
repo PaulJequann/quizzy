@@ -31,6 +31,12 @@ def test_migrations_create_question_first_schema(test_database_url, monkeypatch)
         _column_names(inspector, "questions")
     )
     assert "session_type" in _column_names(inspector, "attempts")
+    assert {
+        "retrieval_friction_rating",
+        "response_time_ms",
+        "hint_used",
+    }.issubset(_column_names(inspector, "attempt_answers"))
+    assert "concept_review_states" in inspector.get_table_names()
 
 
 def test_question_first_migration_backfills_attempt_session_type(

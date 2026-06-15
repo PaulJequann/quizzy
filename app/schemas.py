@@ -169,6 +169,17 @@ class AttemptRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RetrievalFeedbackRequest(BaseModel):
+    retrieval_friction_rating: int = Field(ge=1, le=3)
+    response_time_ms: int | None = Field(default=None, ge=0)
+
+
+class QuestionIssueReportRequest(BaseModel):
+    category: str = Field(min_length=1, max_length=80)
+    note: str = Field(default="", max_length=2000)
+    attempt_answer_id: int | None = None
+
+
 class ConceptQueueItemRead(BaseModel):
     concept_id: int
     subject_id: int

@@ -5,6 +5,9 @@
   {% if question.difficulty %}
     <span class="meta-chip">{{ question.difficulty|display_label }}</span>
   {% endif %}
+  {% if question.status %}
+    <span class="meta-chip">{{ question.status|display_label }}</span>
+  {% endif %}
   {% if question.health_state %}
     <span class="meta-chip">{{ question.health_state|display_label }}</span>
   {% endif %}

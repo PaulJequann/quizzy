@@ -50,7 +50,13 @@
       {% set question_text = answer.question_stem_snapshot if answer and answer.question_stem_snapshot else question.stem %}
       {% set selected_text = answer.selected_choice_text_snapshot if answer and answer.selected_choice_text_snapshot else answer.selected_choice.text if answer and answer.selected_choice else "No answer" %}
       {% set correct_text = answer.correct_choice_text_snapshot if answer and answer.correct_choice_text_snapshot else correct_choice.text if correct_choice else "Missing correct answer" %}
-      <li id="q-{{ loop.index }}" class="panel">
+      <li
+        id="q-{{ loop.index }}"
+        class="panel"
+        data-result-card
+        {% if answer %}data-answer-id="{{ answer.id }}" data-is-correct="{{ 'true' if answer.is_correct else 'false' }}" data-has-feedback="{{ 'true' if answer.retrieval_friction_rating else 'false' }}"{% endif %}
+      >
+        {% if answer %}<span id="answer-{{ answer.id }}" class="sr-only">Answer {{ loop.index }}</span>{% endif %}
         <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
           <div>
             <p class="text-sm font-medium text-[var(--color-text-3)]">Question {{ loop.index }}</p>
@@ -78,8 +84,189 @@
         {% if explanation %}
           <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-4 py-3 text-sm leading-6 text-[var(--color-text-2)]">{{ explanation }}</p>
         {% endif %}
+        {% if answer %}
+          <section class="mt-4 border-t border-[var(--color-border)] pt-4" aria-label="Retrieval feedback for question {{ loop.index }}">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p class="eyebrow">Retrieval feel</p>
+                {% if answer.retrieval_friction_rating %}
+                  {% set feedback_label = "Shaky" if answer.retrieval_friction_rating == 1 else "Effortful" if answer.retrieval_friction_rating == 2 else "Fluent" %}
+                  <p class="mt-1 text-sm text-[var(--color-text-2)]" data-feedback-status aria-live="polite">Recorded: <span data-feedback-label>{{ feedback_label }}</span></p>
+                {% else %}
+                  <p class="mt-1 text-sm text-[var(--color-text-2)]" data-feedback-status aria-live="polite">How did recall feel after seeing the answer?</p>
+                {% endif %}
+              </div>
+              <div class="flex flex-wrap gap-2" data-feedback-buttons>
+                {% for rating, label in [(1, "Shaky"), (2, "Effortful"), (3, "Fluent")] %}
+                  {% set disabled = rating == 3 and not answer.is_correct %}
+                  {% set selected = answer.retrieval_friction_rating == rating %}
+                  <form method="post" action="/attempt-answers/{{ answer.id }}/retrieval-feedback" data-retrieval-feedback-form>
+                    <input type="hidden" name="retrieval_friction_rating" value="{{ rating }}">
+                    <button
+                      class="min-h-10 rounded-md border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45 {% if selected %}is-selected border-[var(--color-accent)] bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)] shadow-[0_0_0_1px_var(--color-accent)]{% else %}border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-2)] hover:not-disabled:border-[var(--color-border-strong)] hover:not-disabled:text-[var(--color-text)]{% endif %}"
+                      type="submit"
+                      data-friction-button="{{ rating }}"
+                      data-feedback-label="{{ label }}"
+                      aria-pressed="{{ 'true' if selected else 'false' }}"
+                      {% if disabled %}disabled aria-disabled="true" title="Fluent feedback requires a correct answer"{% endif %}
+                    ><span data-feedback-check {% if not selected %}hidden{% endif %}>✓ </span>{{ rating }} {{ label }}</button>
+                  </form>
+                {% endfor %}
+              </div>
+            </div>
+            <details class="mt-3">
+              <summary class="cursor-pointer text-sm font-semibold text-[var(--color-text-3)] transition-colors hover:text-[var(--color-text)]">Report issue</summary>
+              <form class="mt-3 grid gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3" method="post" action="/questions/{{ question.id }}/report-issue">
+                <input type="hidden" name="attempt_answer_id" value="{{ answer.id }}">
+                <label class="grid gap-1 text-sm font-medium">
+                  <span>Category</span>
+                  <select class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm" name="category" required>
+                    <option value="incorrect_answer">Incorrect answer</option>
+                    <option value="unclear_wording">Unclear wording</option>
+                    <option value="bad_distractors">Bad distractors</option>
+                    <option value="explanation_issue">Explanation issue</option>
+                    <option value="source_mismatch">Source mismatch</option>
+                    <option value="typo_formatting">Typo or formatting</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label class="grid gap-1 text-sm font-medium">
+                  <span>Note</span>
+                  <textarea class="min-h-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm" name="note"></textarea>
+                </label>
+                <button class="min-h-10 justify-self-start rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm font-semibold text-[var(--color-text-2)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-text)]" type="submit">Submit issue</button>
+              </form>
+            </details>
+          </section>
+        {% endif %}
         {% include "questions/_details.html" %}
       </li>
     {% endfor %}
   </ol>
+{% endblock %}
+{% block scripts %}
+  <script>
+    (() => {
+      const cards = Array.from(document.querySelectorAll("[data-result-card][data-answer-id]"));
+      if (!cards.length) return;
+
+      const typingSelector = "input:not([type='radio']), textarea, select, [contenteditable]";
+      const selectedClasses = [
+        "border-[var(--color-accent)]",
+        "bg-[var(--color-accent-subtle)]",
+        "text-[var(--color-accent-text)]",
+        "shadow-[0_0_0_1px_var(--color-accent)]",
+      ];
+      const unselectedClasses = [
+        "border-[var(--color-border)]",
+        "bg-[var(--color-surface)]",
+        "text-[var(--color-text-2)]",
+        "hover:not-disabled:border-[var(--color-border-strong)]",
+        "hover:not-disabled:text-[var(--color-text)]",
+      ];
+
+      const setSelectedFeedback = (card, rating, label) => {
+        card.dataset.hasFeedback = "true";
+        const status = card.querySelector("[data-feedback-status]");
+        if (status) {
+          status.textContent = `Recorded: ${label}`;
+        }
+        card.querySelectorAll("[data-friction-button]").forEach((button) => {
+          const isSelected = button.dataset.frictionButton === String(rating);
+          button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+          button.classList.toggle("is-selected", isSelected);
+          button.classList.toggle("opacity-70", !isSelected);
+          button.classList.remove(...(isSelected ? unselectedClasses : selectedClasses));
+          button.classList.add(...(isSelected ? selectedClasses : unselectedClasses));
+          const check = button.querySelector("[data-feedback-check]");
+          if (check) {
+            check.hidden = !isSelected;
+          }
+        });
+      };
+
+      const setFeedbackSaving = (card, saving) => {
+        card.querySelectorAll("[data-friction-button]").forEach((button) => {
+          if (!button.disabled) {
+            button.toggleAttribute("data-saving", saving);
+            button.setAttribute("aria-busy", saving ? "true" : "false");
+          }
+        });
+      };
+
+      const recordFeedback = async (form, button) => {
+        const card = form.closest("[data-result-card]");
+        if (!card || !button) return;
+        if (button.disabled || button.hasAttribute("data-saving")) return;
+        const rating = Number(button.dataset.frictionButton);
+        const label = button.dataset.feedbackLabel || button.textContent.trim();
+        const scrollTop = window.scrollY;
+        if (button.getAttribute("aria-pressed") === "true") {
+          setSelectedFeedback(card, rating, label);
+          window.scrollTo({ top: scrollTop });
+          return;
+        }
+
+        const status = card.querySelector("[data-feedback-status]");
+        if (status) {
+          status.textContent = `Saving ${label}...`;
+        }
+        setFeedbackSaving(card, true);
+        try {
+          const response = await fetch(`/api/attempt-answers/${card.dataset.answerId}/retrieval-feedback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ retrieval_friction_rating: rating }),
+          });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.detail || "Could not save retrieval feedback.");
+          }
+          setSelectedFeedback(card, rating, label);
+          window.scrollTo({ top: scrollTop });
+        } catch (error) {
+          if (status) {
+            status.textContent = error.message;
+          }
+        } finally {
+          setFeedbackSaving(card, false);
+        }
+      };
+
+      const activeCard = () => {
+        const focusedCard = document.activeElement && document.activeElement.closest("[data-result-card]");
+        if (focusedCard) return focusedCard;
+        return cards.find((card) => card.dataset.hasFeedback !== "true") || cards[0];
+      };
+
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-friction-button]");
+        const form = button && button.closest("[data-retrieval-feedback-form]");
+        if (!form || !window.fetch) return;
+        event.preventDefault();
+        recordFeedback(form, button);
+      });
+
+      document.addEventListener("submit", (event) => {
+        const form = event.target.closest("[data-retrieval-feedback-form]");
+        if (!form || !window.fetch) return;
+        const button = event.submitter || form.querySelector("[data-friction-button]");
+        event.preventDefault();
+        recordFeedback(form, button);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.target.matches(typingSelector)) return;
+        if (!/^[1-3]$/.test(event.key)) return;
+
+        const card = activeCard();
+        const button = card.querySelector(`[data-friction-button="${event.key}"]:not(:disabled)`);
+        if (!button) return;
+
+        event.preventDefault();
+        button.click();
+      });
+    })();
+  </script>
 {% endblock %}
