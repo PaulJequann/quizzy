@@ -33,6 +33,12 @@ assigning a question to multiple concepts, not by giving a concept multiple pare
 depth is no more than three concept levels, with deeper structures treated as unusual.
 _Avoid_: Concept graph, multiple-parent hierarchy
 
+**Concept tree view**:
+The subject-scoped UI presentation of the concept tree. It emphasizes parent-child structure,
+coverage, mastery, review signals, and concept stewardship actions rather than a flat performance
+table.
+_Avoid_: Global mastery ledger, flat concept table
+
 **Mastery**:
 The learner's performance signal for a concept based on question attempts. Parent concept mastery
 rolls up attempts from questions directly assigned to the parent and from descendant concepts.
@@ -134,6 +140,48 @@ _Avoid_: Random practice
 **Mastery review**:
 Practice weighted toward weak or recently missed concepts based on mastery evidence.
 _Avoid_: Remediation quiz
+
+**Stewardship review**:
+Subject-scoped review work that fixes taxonomy, concept placement, concept assignment, or question
+quality issues. Stewardship review is cleanup and maintenance, not the same as mastery review.
+_Avoid_: Weak-concept practice queue
+
+**Mastery command center**:
+The cross-subject view for deciding what to practice next based on mastery evidence. It surfaces
+review queues, search, filters, and compact concept status across subjects, while deeper diagnosis
+and stewardship stay in subject-scoped workspaces.
+_Avoid_: Subject dashboard, taxonomy workspace
+
+**Global mastery row**:
+A compact cross-subject concept row used for triage in the mastery command center. It helps compare
+review priority across subjects but does not expose concept stewardship editing.
+_Avoid_: Concept tree row, taxonomy editor
+
+**Subject stewardship workspace**:
+The subject-scoped place to diagnose and maintain one subject's concept tree, question coverage, and
+review work. It supports direct concept stewardship actions, but advanced editing controls should be
+progressively disclosed so the subject overview stays readable.
+_Avoid_: Global mastery triage, always-visible admin console
+
+**Subject health strip**:
+A compact subject-scoped summary of learning and stewardship state, such as concept count, question
+count, quiz count, mastery, weak concepts, and open review work. It orients the subject workspace
+without replacing the concept tree view.
+_Avoid_: Full mastery table, global queue
+
+**Concept row summary**:
+The default subject-scoped presentation of a concept's actionable learning state: concept name,
+hierarchy position, mastery status, question coverage, accuracy, last missed date, review signals,
+and focused actions. Internal evidence accounting such as direct versus descendant questions or
+primary versus secondary attempts belongs in advanced details, not the default row.
+_Avoid_: Evidence ledger row, full diagnostics table
+
+**Concept edit modal**:
+A progressively disclosed subject-scoped editing surface for common concept stewardship actions:
+renaming a concept, changing its parent placement, creating a child concept, and intentionally
+archiving a concept. Merge, split, alias, and bulk reassignment workflows are separate guided
+stewardship work.
+_Avoid_: Always-visible row controls, full taxonomy admin screen
 
 **Random practice**:
 Intentionally random practice within a selected subject or concept tree, with only light guardrails

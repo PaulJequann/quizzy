@@ -47,7 +47,8 @@
       <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p class="eyebrow">Stewardship</p>
-          <h2 class="section-title">Concept performance</h2>
+          <h2 class="section-title">Concept tree</h2>
+          <p class="mt-2 text-sm text-[var(--color-text-2)]">Coverage, mastery, and stewardship for this subject.</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <span class="mastery-status mastery-weak">{{ mastery_group.weak_count }} Weak</span>
@@ -69,9 +70,6 @@
                   {% if row.concept.status.value != "active" %}
                     <span class="meta-chip">{{ row.concept.status|display_label }}</span>
                   {% endif %}
-                  {% if row.depth > 1 %}
-                    <span class="meta-chip">Level {{ row.depth }}</span>
-                  {% endif %}
                   {% if review_count %}
                     <span class="meta-chip">{{ review_count }} open review{{ "s" if review_count != 1 else "" }}</span>
                   {% endif %}
@@ -79,33 +77,20 @@
               </div>
               <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
             </div>
-            <form method="post" action="/concepts/{{ row.concept.id }}/practice">
-              <button class="btn-secondary" type="submit">Drill concept</button>
-            </form>
-            <dl class="col-span-full grid grid-cols-2 gap-[0.65rem] min-[560px]:grid-cols-4 lg:grid-cols-7">
+            <div class="flex flex-wrap gap-2 md:justify-end">
+              <form method="post" action="/concepts/{{ row.concept.id }}/practice">
+                <button class="btn-secondary" type="submit">Drill</button>
+              </form>
+              <button class="btn-secondary" type="button" data-concept-dialog-open="concept-edit-{{ row.concept.id }}">Edit</button>
+            </div>
+            <dl class="col-span-full grid grid-cols-3 gap-[0.65rem]">
               <div class="min-w-0">
                 <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Questions</dt>
                 <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.linked_question_count }}</dd>
               </div>
               <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Direct</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.direct_question_count }}</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Descendant</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.descendant_question_count }}</dd>
-              </div>
-              <div class="min-w-0">
                 <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Accuracy</dt>
                 <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ "%.0f"|format(row.accuracy) }}%</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Primary evidence</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.primary_attempts }}</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Secondary evidence</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.secondary_attempts }}</dd>
               </div>
               <div class="min-w-0">
                 <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Last missed</dt>
@@ -119,6 +104,35 @@
               </div>
             </dl>
           </article>
+          <dialog id="concept-edit-{{ row.concept.id }}" class="w-[min(92vw,34rem)] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-0 text-[var(--color-text)] shadow-2xl backdrop:bg-black/20">
+            <form class="grid gap-4 p-5" method="post" action="/concepts/{{ row.concept.id }}/update">
+              <div>
+                <p class="eyebrow">Edit concept</p>
+                <h3 class="font-display mt-1 text-2xl leading-tight">{{ row.concept.name|display_label }}</h3>
+              </div>
+              <label class="field-label">
+                Name
+                <input class="field" name="name" value="{{ row.concept.name }}" required>
+              </label>
+              <label class="field-label">
+                Parent placement
+                <select class="field" name="parent_concept_id">
+                  <option value="">No parent / root concept</option>
+                  {% for option in concept_parent_options_by_concept_id.get(row.concept.id, []) %}
+                    <option value="{{ option.id }}" {% if row.concept.parent_concept_id == option.id %}selected{% endif %}>{{ option.name|display_label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="field-label">
+                Rationale
+                <textarea class="field min-h-24" name="rationale" placeholder="Why is this change correct?"></textarea>
+              </label>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button class="btn-secondary" type="button" data-concept-dialog-close>Cancel</button>
+                <button class="btn-primary" type="submit">Save concept</button>
+              </div>
+            </form>
+          </dialog>
         {% endfor %}
       </div>
     </section>
@@ -127,8 +141,8 @@
   {% if concept_review_items %}
     <section id="taxonomy-review" class="panel mb-6">
       <div class="mb-5">
-        <p class="eyebrow">Concept stewardship</p>
-        <h2 class="section-title">Open taxonomy review</h2>
+        <p class="eyebrow">Stewardship review</p>
+        <h2 class="section-title">Open taxonomy work</h2>
       </div>
       <div class="grid gap-3">
         {% for item in concept_review_items %}
@@ -189,8 +203,8 @@
   {% if question_review_items %}
     <section class="panel mb-6">
       <div class="mb-5">
-        <p class="eyebrow">Question health</p>
-        <h2 class="section-title">Review queue</h2>
+        <p class="eyebrow">Stewardship review</p>
+        <h2 class="section-title">Question review</h2>
       </div>
       <div class="grid gap-3">
         {% for item in question_review_items %}
@@ -251,4 +265,23 @@
       {% endif %}
     </section>
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      document.querySelectorAll("[data-concept-dialog-open]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const dialog = document.getElementById(button.dataset.conceptDialogOpen);
+          if (dialog?.showModal) dialog.showModal();
+        });
+      });
+
+      document.querySelectorAll("[data-concept-dialog-close]").forEach((button) => {
+        button.addEventListener("click", () => {
+          button.closest("dialog")?.close();
+        });
+      });
+    })();
+  </script>
 {% endblock %}

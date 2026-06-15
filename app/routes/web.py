@@ -126,6 +126,18 @@ def form_int(form, key: str, default: int = 0) -> int:
         raise ValueError(f"Invalid {key.replace('_', ' ')}.") from exc
 
 
+def form_optional_int(form, key: str) -> int | None:
+    value = form.get(key, "")
+    if value == "" or value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Invalid {key.replace('_', ' ')}.")
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid {key.replace('_', ' ')}.") from exc
+
+
 def form_int_list(form, key: str) -> list[int]:
     values: list[int] = []
     for value in form.getlist(key):
@@ -208,8 +220,36 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
                 db,
                 subject_id=subject.id,
             ),
+            "concept_parent_options_by_concept_id": _concept_parent_options_by_concept_id(
+                subject.concepts
+            ),
         },
     )
+
+
+def _concept_parent_options_by_concept_id(concepts: list[Concept]) -> dict[int, list[Concept]]:
+    active_concepts = [
+        concept
+        for concept in concepts
+        if concept.status in {ConceptStatus.ACTIVE, ConceptStatus.PROPOSED}
+    ]
+    return {
+        concept.id: [
+            option
+            for option in active_concepts
+            if option.id != concept.id and not _is_descendant(option, concept)
+        ]
+        for concept in active_concepts
+    }
+
+
+def _is_descendant(candidate: Concept, ancestor: Concept) -> bool:
+    parent = candidate.parent
+    while parent is not None:
+        if parent.id == ancestor.id:
+            return True
+        parent = parent.parent
+    return False
 
 
 def _remediation_concepts(concepts: list[Concept]) -> list[Concept]:
@@ -300,6 +340,37 @@ def _review_target_concept(db: Session, concept_id: int, subject_id: int) -> Con
     return concept
 
 
+def _subject_concept(db: Session, concept_id: int) -> Concept:
+    concept = db.scalar(
+        select(Concept)
+        .where(Concept.id == concept_id)
+        .options(selectinload(Concept.subject), selectinload(Concept.parent))
+    )
+    if concept is None:
+        raise HTTPException(status_code=404, detail="Concept not found")
+    return concept
+
+
+def _parent_concept(db: Session, subject_id: int, parent_id: int | None) -> Concept | None:
+    if parent_id is None:
+        return None
+    parent = db.get(Concept, parent_id)
+    if parent is None:
+        raise ValueError("Choose a parent concept from this subject.")
+    if parent.subject_id != subject_id:
+        raise ValueError("Parent concept must belong to the same subject.")
+    if parent.status == ConceptStatus.ARCHIVED:
+        raise ValueError("Archived concepts cannot be used as parents.")
+    return parent
+
+
+def _run_web_concept_action[T](action: Callable[[], T]) -> T:
+    try:
+        return action()
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 def _concept_review_item(db: Session, review_item_id: int) -> ConceptReviewItem:
     item = db.scalar(
         select(ConceptReviewItem)
@@ -315,6 +386,48 @@ def _concept_review_item(db: Session, review_item_id: int) -> ConceptReviewItem:
     if item is None:
         raise HTTPException(status_code=404, detail="Concept review item not found")
     return item
+
+
+@router.post("/concepts/{concept_id}/update")
+async def update_concept_from_subject(
+    request: Request,
+    concept_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    concept = _subject_concept(db, concept_id)
+    subject_id = concept.subject_id
+    form = await request.form()
+    name = form_text(form, "name").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Concept name is required.")
+    rationale = form_text(form, "rationale")
+    parent = _run_web_concept_action(
+        lambda: _parent_concept(db, subject_id, form_optional_int(form, "parent_concept_id"))
+    )
+    old_parent_id = concept.parent_concept_id
+    new_parent_id = parent.id if parent else None
+    _run_web_concept_action(
+        lambda: concept_lifecycle_service._validate_parent_move(concept, parent)
+    )
+    if name != concept.name:
+        concept = _run_web_concept_action(
+            lambda: concept_lifecycle_service.rename_concept(
+                db,
+                concept,
+                name=name,
+                rationale=rationale,
+            )
+        )
+    if new_parent_id != old_parent_id:
+        _run_web_concept_action(
+            lambda: concept_lifecycle_service.move_concept(
+                db,
+                concept,
+                parent=parent,
+                rationale=rationale,
+            )
+        )
+    return redirect(f"/subjects/{subject_id}")
 
 
 @router.post("/subjects/{subject_id}/practice")

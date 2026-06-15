@@ -53,10 +53,7 @@ def build_subject_mastery_groups(
         groups.append(
             SubjectMasteryGroup(
                 subject=subjects_by_id[subject_id],
-                mastery_rows=sorted(
-                    subject_rows,
-                    key=lambda row: (row.status, row.accuracy, row.concept.name.casefold()),
-                ),
+                mastery_rows=_hierarchical_mastery_rows(subject_rows),
                 queue_items=queue_items,
                 total_attempts=total_attempts,
                 correct_attempts=correct_attempts,
@@ -68,6 +65,31 @@ def build_subject_mastery_groups(
         )
 
     return sorted(groups, key=lambda group: group.subject.name.casefold())
+
+
+def _hierarchical_mastery_rows(rows: list[ConceptMastery]) -> list[ConceptMastery]:
+    rows_by_parent_id: dict[int | None, list[ConceptMastery]] = {}
+    for row in rows:
+        rows_by_parent_id.setdefault(row.concept.parent_concept_id, []).append(row)
+
+    ordered_rows: list[ConceptMastery] = []
+
+    def append_subtree(row: ConceptMastery) -> None:
+        ordered_rows.append(row)
+        children = sorted(
+            rows_by_parent_id.get(row.concept.id, []),
+            key=lambda child: child.concept.name.casefold(),
+        )
+        for child in children:
+            append_subtree(child)
+
+    roots = sorted(
+        rows_by_parent_id.get(None, []),
+        key=lambda row: row.concept.name.casefold(),
+    )
+    for root in roots:
+        append_subtree(root)
+    return ordered_rows
 
 
 def get_subjects(db: Session) -> list[Subject]:

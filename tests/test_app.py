@@ -23,6 +23,7 @@ from app.routes import web as web_routes
 from app.services import concept_service
 from app.services.concept_service import normalize_concept_name
 from app.services.grading_service import get_mastery_rows
+from app.services.subject_service import build_subject_mastery_groups
 
 pytestmark = pytest.mark.api
 
@@ -213,6 +214,14 @@ def test_mastery_rolls_child_evidence_into_parent_concept(
     assert rows["pytest workflows"].total_attempts == 1
     assert rows["fixture workflows"].direct_question_count == 1
     assert rows["assertion workflows"].direct_question_count == 1
+
+    mastery_group = build_subject_mastery_groups(list(rows.values()))[0]
+    assert [row.concept.name for row in mastery_group.mastery_rows] == [
+        "pytest basics",
+        "pytest workflows",
+        "assertion workflows",
+        "fixture workflows",
+    ]
 
 
 def test_assignment_role_validation_uses_shared_question_wording(db_session: Session) -> None:
@@ -440,8 +449,9 @@ def test_subject_pages_show_namespace_workspace(client: TestClient) -> None:
 
     detail_response = client.get("/subjects/1")
     assert detail_response.status_code == 200
-    assert "Concept performance" in detail_response.text
+    assert "Concept tree" in detail_response.text
     assert "Start quick practice" in detail_response.text
+    assert "Save concept" in detail_response.text
     assert "Pytest Basics" in detail_response.text
     assert "What does pytest run?" in detail_response.text
     assert "Test quiz" in detail_response.text
