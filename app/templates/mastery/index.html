@@ -69,14 +69,31 @@
 
           <div class="max-h-[min(56vh,34rem)] overflow-y-auto border-t border-[var(--color-border)] bg-[rgba(245,241,234,0.28)]" data-mastery-list>
             {% for row in group.mastery_rows %}
+              {% set is_parent = row.concept.id in group.parent_concept_ids %}
               <article
                 class="grid min-h-[4.25rem] grid-cols-1 items-start gap-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-[clamp(1rem,3vw,1.75rem)] py-[0.85rem] last:border-b-0 min-[821px]:grid-cols-[minmax(12rem,1.4fr)_minmax(22rem,2fr)] min-[821px]:items-center"
                 data-mastery-row
+                data-depth="{{ row.depth }}"
                 data-status="{{ row.status }}"
                 data-concept="{{ row.concept.name|display_label|lower }}"
               >
                 <div class="flex min-w-0 items-center justify-between gap-3">
-                  <div class="min-w-0 font-medium leading-[1.3] [overflow-wrap:anywhere]">{{ row.concept.name|display_label }}</div>
+                  <div
+                    class="relative min-w-0"
+                    {% if row.depth > 1 %}style="padding-left: {{ (row.depth - 1) * 1.65 }}rem"{% endif %}
+                  >
+                    {% if row.depth > 1 %}
+                      <span class="absolute left-0 top-1/2 h-px w-5 -translate-y-1/2 bg-[var(--color-border-strong)]" aria-hidden="true"></span>
+                    {% endif %}
+                    <div class="flex min-w-0 flex-wrap items-center gap-2">
+                      <span class="font-medium leading-[1.3] [overflow-wrap:anywhere]">{{ row.concept.name|display_label }}</span>
+                      {% if is_parent %}
+                        <span class="meta-chip">Parent concept</span>
+                      {% elif row.depth > 1 %}
+                        <span class="meta-chip">Sub-concept</span>
+                      {% endif %}
+                    </div>
+                  </div>
                   <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
                 </div>
                 <dl class="grid grid-cols-2 gap-[0.65rem] min-[821px]:grid-cols-4">

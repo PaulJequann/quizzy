@@ -16,6 +16,7 @@ class SubjectMasteryGroup:
     subject: Subject
     mastery_rows: list[ConceptMastery]
     queue_items: list[ConceptQueueItem]
+    parent_concept_ids: set[int]
     total_attempts: int
     correct_attempts: int
     accuracy: float
@@ -55,6 +56,7 @@ def build_subject_mastery_groups(
                 subject=subjects_by_id[subject_id],
                 mastery_rows=_hierarchical_mastery_rows(subject_rows),
                 queue_items=queue_items,
+                parent_concept_ids=_parent_concept_ids(subject_rows),
                 total_attempts=total_attempts,
                 correct_attempts=correct_attempts,
                 accuracy=accuracy,
@@ -65,6 +67,14 @@ def build_subject_mastery_groups(
         )
 
     return sorted(groups, key=lambda group: group.subject.name.casefold())
+
+
+def _parent_concept_ids(rows: list[ConceptMastery]) -> set[int]:
+    parent_ids: set[int] = set()
+    for row in rows:
+        if row.concept.parent_concept_id is not None:
+            parent_ids.add(row.concept.parent_concept_id)
+    return parent_ids
 
 
 def _hierarchical_mastery_rows(rows: list[ConceptMastery]) -> list[ConceptMastery]:
