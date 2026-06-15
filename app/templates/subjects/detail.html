@@ -56,7 +56,7 @@
                 <span>·</span>
                 <span>{{ "%.0f"|format(child.accuracy) }}%</span>
                 <span class="h-1.5 w-10 rounded-full bg-[var(--color-surface-2)]">
-                  <span class="block h-full rounded-full {% if child.status == 'weak' %}bg-red-500{% elif child.status == 'improving' %}bg-amber-400{% else %}bg-emerald-500{% endif %}" style="width: {{ child.accuracy if child.accuracy else 5 }}%"></span>
+                  <span class="block h-full rounded-full {% if child.status == 'weak' %}bg-red-500{% elif child.status == 'improving' %}bg-amber-400{% else %}bg-emerald-500{% endif %}" style="width: {{ child.accuracy }}%"></span>
                 </span>
                 {% if child_review_count %}
                   <span>· {{ child_review_count }} review{{ "s" if child_review_count != 1 else "" }}</span>
@@ -106,7 +106,7 @@
               <span class="grid grid-cols-[2.25rem_4rem] items-center justify-center gap-2">
                 <span class="text-center tabular-nums">{{ "%.0f"|format(child.accuracy) }}%</span>
                 <span class="h-1.5 rounded-full bg-[var(--color-surface-2)]">
-                  <span class="block h-full rounded-full {% if child.status == 'weak' %}bg-red-500{% elif child.status == 'improving' %}bg-amber-400{% else %}bg-emerald-500{% endif %}" style="width: {{ child.accuracy if child.accuracy else 3 }}%"></span>
+                  <span class="block h-full rounded-full {% if child.status == 'weak' %}bg-red-500{% elif child.status == 'improving' %}bg-amber-400{% else %}bg-emerald-500{% endif %}" style="width: {{ child.accuracy }}%"></span>
                 </span>
               </span>
               <span class="text-center tabular-nums">
@@ -183,9 +183,8 @@
         </div>
       </section>
 
-      {% set mastery_root_rows = mastery_group.mastery_rows|selectattr("concept.parent_concept_id", "none")|list %}
       <div class="grid gap-4">
-        {% for row in mastery_root_rows %}
+        {% for row in mastery_group.root_rows %}
           {% set children = mastery_group.mastery_rows|selectattr("concept.parent_concept_id", "equalto", row.concept.id)|list %}
           {% set weak_children = children|selectattr("status", "equalto", "weak")|list %}
           {% set improving_children = children|selectattr("status", "equalto", "improving")|list %}

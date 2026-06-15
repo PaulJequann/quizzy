@@ -519,9 +519,31 @@ def _cannot_delete(concept: Concept) -> bool:
 
 
 def _validate_parent_move(concept: Concept, parent: Concept | None) -> None:
-    if parent is not None and parent.subject_id != concept.subject_id:
+    _validate_parent_subject(concept, parent)
+    _validate_parent_status(concept, parent)
+    _validate_parent_cycle(concept, parent)
+
+
+def _validate_parent_subject(concept: Concept, parent: Concept | None) -> None:
+    if parent is None:
+        return
+    if parent.subject_id != concept.subject_id:
         raise ValueError("A concept parent must belong to the same subject.")
-    if parent is not None and _would_create_cycle(concept, parent):
+
+
+def _validate_parent_status(concept: Concept, parent: Concept | None) -> None:
+    if parent is None:
+        return
+    if parent.status == ConceptStatus.ARCHIVED:
+        raise ValueError("Archived concepts cannot be used as parents.")
+    if concept.status == ConceptStatus.ACTIVE and _parent_is_not_active(parent):
+        raise ValueError("Active concepts require an active parent.")
+
+
+def _validate_parent_cycle(concept: Concept, parent: Concept | None) -> None:
+    if parent is None:
+        return
+    if _would_create_cycle(concept, parent):
         raise ValueError("Concept hierarchy cannot contain cycles.")
 
 

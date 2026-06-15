@@ -33,20 +33,52 @@ def test_subject_concept_edit_form_renames_and_moves(
     assert concept.parent_concept_id == parent.id
 
 
+def test_subject_concept_edit_rejects_proposed_parent(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    concept = _concept(db_session, "pytest basics")
+    proposed_parent = _add_concept(
+        db_session, "proposed pytest parent", status=ConceptStatus.PROPOSED
+    )
+
+    detail_response = client.get(f"/subjects/{concept.subject_id}")
+    response = client.post(
+        f"/concepts/{concept.id}/update",
+        data={
+            "name": concept.name,
+            "parent_concept_id": str(proposed_parent.id),
+            "rationale": "Try unresolved parent.",
+        },
+        follow_redirects=False,
+    )
+
+    assert detail_response.status_code == 200
+    assert f'value="{proposed_parent.id}"' not in detail_response.text
+    assert response.status_code == 422
+    db_session.refresh(concept)
+    assert concept.parent_concept_id is None
+
+
 def _concept(db_session: Session, name: str) -> Concept:
     concept = db_session.scalar(select(Concept).where(Concept.name == name))
     assert concept is not None
     return concept
 
 
-def _add_concept(db_session: Session, name: str) -> Concept:
+def _add_concept(
+    db_session: Session,
+    name: str,
+    *,
+    status: ConceptStatus = ConceptStatus.ACTIVE,
+) -> Concept:
     source = _concept(db_session, "pytest basics")
     concept = Concept(
         subject=source.subject,
         name=name,
         slug=name.replace(" ", "-"),
         normalized_name=normalize_concept_name(name, subject_name=source.subject.name),
-        status=ConceptStatus.ACTIVE,
+        status=status,
     )
     db_session.add(concept)
     db_session.commit()

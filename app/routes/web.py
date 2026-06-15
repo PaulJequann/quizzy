@@ -228,27 +228,29 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
 
 
 def _concept_parent_options_by_concept_id(concepts: list[Concept]) -> dict[int, list[Concept]]:
-    active_concepts = [
-        concept
-        for concept in concepts
-        if concept.status in {ConceptStatus.ACTIVE, ConceptStatus.PROPOSED}
-    ]
+    active_concepts = [concept for concept in concepts if concept.status == ConceptStatus.ACTIVE]
+    parent_id_by_id = {concept.id: concept.parent_concept_id for concept in active_concepts}
     return {
         concept.id: [
             option
             for option in active_concepts
-            if option.id != concept.id and not _is_descendant(option, concept)
+            if option.id != concept.id
+            and not _is_descendant(option.id, concept.id, parent_id_by_id)
         ]
         for concept in active_concepts
     }
 
 
-def _is_descendant(candidate: Concept, ancestor: Concept) -> bool:
-    parent = candidate.parent
-    while parent is not None:
-        if parent.id == ancestor.id:
+def _is_descendant(
+    candidate_id: int,
+    ancestor_id: int,
+    parent_id_by_id: dict[int, int | None],
+) -> bool:
+    parent_id = parent_id_by_id.get(candidate_id)
+    while parent_id is not None:
+        if parent_id == ancestor_id:
             return True
-        parent = parent.parent
+        parent_id = parent_id_by_id.get(parent_id)
     return False
 
 
