@@ -206,6 +206,19 @@ def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Dep
     mastery_group = mastery_groups[0] if mastery_groups else None
     concept_review_items = concept_service.list_open_concept_reviews(db, subject_id=subject.id)
     remediation_concepts = _remediation_concepts(subject.concepts)
+    if request.query_params.get("prototype") == "command-center":
+        variant = request.query_params.get("variant", "A").upper()
+        if variant not in {"A", "B", "C"}:
+            variant = "A"
+        return templates.TemplateResponse(
+            request,
+            "subjects/detail_command_center_prototype.html",
+            {
+                "subject": subject,
+                "variant": variant,
+                "mastery_group": mastery_group,
+            },
+        )
     return templates.TemplateResponse(
         request,
         "subjects/detail.html",

@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block title %}{{ subject.name }} Command Center Prototype · Quizzy{% endblock %}
+{% block content %}
+  <!-- PROTOTYPE: Three subject command-center variants, switchable via ?prototype=command-center&variant=, on the existing /subjects/{id} route. Delete after deciding the direction. -->
+  {% set concepts = [
+    {"name": "Route 53", "kind": "parent", "status": "weak", "questions": 3, "attempts": 3, "mastery": 33, "last": "Jun 14, 2026", "children": [
+      {"name": "Route 53 Health Aware Routing", "status": "weak", "questions": 1, "attempts": 1, "mastery": 0, "last": "Jun 14"},
+      {"name": "Route 53 Location Based Routing", "status": "weak", "questions": 1, "attempts": 1, "mastery": 0, "last": "Jun 14"},
+      {"name": "Route 53 Routing Policy Selection", "status": "strong", "questions": 1, "attempts": 1, "mastery": 100, "last": "-"}
+    ]},
+    {"name": "IAM", "kind": "parent", "status": "improving", "questions": 8, "attempts": 11, "mastery": 72, "last": "Jun 11, 2026", "children": [
+      {"name": "Policy Evaluation", "status": "improving", "questions": 4, "attempts": 6, "mastery": 67, "last": "Jun 11"},
+      {"name": "Role Trust", "status": "strong", "questions": 4, "attempts": 5, "mastery": 80, "last": "-"}
+    ]},
+    {"name": "CloudFront", "kind": "parent", "status": "strong", "questions": 5, "attempts": 7, "mastery": 86, "last": "-", "children": [
+      {"name": "Cache Behaviors", "status": "strong", "questions": 3, "attempts": 4, "mastery": 100, "last": "-"},
+      {"name": "Origin Failover", "status": "improving", "questions": 2, "attempts": 3, "mastery": 67, "last": "Jun 8"}
+    ]}
+  ] %}
+  {% set review_items = [
+    "Route 53 Health Aware Routing needs clearer explanation coverage.",
+    "Route 53 Location Based Routing has one missed advanced question.",
+    "Route 53 may need child concept cleanup before adding more questions."
+  ] %}
+
+  <section class="mb-5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+    Prototype only. Normal subject detail is unchanged unless the URL includes <span class="font-mono">prototype=command-center</span>.
+  </section>
+
+  {% if variant == "A" %}
+    <section class="mb-8 grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
+      <div>
+        <p class="eyebrow">{{ subject.slug }} command center</p>
+        <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">{{ subject.name }} mastery</h1>
+        <p class="mt-3 max-w-3xl text-[var(--color-text-2)]">Focused performance, weak-child review, and concept stewardship for this subject.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn-primary" type="button">Review weak concepts</button>
+        <button class="btn-secondary" type="button">Manage subject</button>
+      </div>
+    </section>
+
+    <section class="mb-6 grid gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] sm:grid-cols-2 lg:grid-cols-6">
+      <div class="lg:col-span-2">
+        <p class="eyebrow">Overall mastery</p>
+        <div class="mt-2 flex items-baseline gap-3">
+          <span class="font-display text-4xl leading-none">33%</span>
+          <span class="mastery-status mastery-weak">Needs work</span>
+        </div>
+      </div>
+      <div><p class="eyebrow">Concepts</p><p class="mt-2 text-2xl font-semibold">10</p></div>
+      <div><p class="eyebrow">Attempts</p><p class="mt-2 text-2xl font-semibold">28</p></div>
+      <div><p class="eyebrow">Weak</p><p class="mt-2 text-2xl font-semibold text-[var(--color-error-text)]">3</p></div>
+      <div><p class="eyebrow">Reviews</p><p class="mt-2 text-2xl font-semibold">5</p></div>
+    </section>
+
+    <div class="grid gap-4">
+      {% for concept in concepts %}
+        <details class="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]" {% if concept.status == "weak" %}open{% endif %}>
+          <summary class="grid cursor-pointer list-none gap-3 px-4 py-4 [&::-webkit-details-marker]:hidden">
+            <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h2 class="font-display text-xl leading-tight">{{ concept.name }}</h2>
+                  <span class="mastery-status mastery-{{ concept.status }}">{{ concept.status|display_label }}</span>
+                </div>
+                <p class="mt-1 text-sm text-[var(--color-text-2)]">{{ concept.questions }} questions · {{ concept.attempts }} attempts · {{ concept.children|length }} sub-concepts</p>
+              </div>
+              <div class="grid grid-cols-3 gap-3 sm:min-w-80 sm:text-right">
+                <div>
+                  <p class="eyebrow">Mastery</p>
+                  <p class="mt-0.5 text-lg font-semibold tabular-nums">{{ concept.mastery }}%</p>
+                </div>
+                <div>
+                  <p class="eyebrow">Last missed</p>
+                  <p class="mt-0.5 text-lg font-semibold tabular-nums">{{ concept.last }}</p>
+                </div>
+                <div>
+                  <p class="eyebrow">Children</p>
+                  <p class="mt-0.5 text-lg font-semibold tabular-nums">{{ concept.children|length }}</p>
+                </div>
+              </div>
+            </div>
+          </summary>
+          <div class="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
+            <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+              <div>
+                <p class="text-[0.95rem] font-semibold">Weak concepts to review ({{ concept.children|selectattr("status", "equalto", "weak")|list|length }})</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn-secondary min-h-8 px-3 py-1 text-xs" type="button">Manage parent</button>
+              </div>
+            </div>
+            <div class="overflow-x-auto border-y border-[var(--color-border)] bg-[var(--color-surface)]">
+              <div class="min-w-[46rem]">
+                <div class="grid grid-cols-[1.25rem_minmax(14rem,1.5fr)_0.55fr_0.55fr_0.9fr_1fr_0.75fr] gap-3 px-4 py-2 text-[0.64rem] font-medium uppercase tracking-[0.08em] text-[var(--color-text-3)]">
+                  <span></span>
+                  <span>Concept</span>
+                  <span class="text-center">Questions</span>
+                  <span class="text-center">Attempts</span>
+                  <span class="text-center">Mastery</span>
+                  <span class="text-center">Last practiced</span>
+                  <span class="text-center">Status</span>
+                </div>
+                {% for child in concept.children if child.status == "weak" %}
+                  <article class="grid grid-cols-[1.25rem_minmax(14rem,1.5fr)_0.55fr_0.55fr_0.9fr_1fr_0.75fr] items-center gap-3 border-t border-[var(--color-border)] px-4 py-3">
+                    <span class="text-base leading-none text-[var(--color-error-text)]">›</span>
+                    <span class="min-w-0 font-medium leading-tight">{{ child.name }}</span>
+                    <span class="text-center tabular-nums">{{ child.questions }}</span>
+                    <span class="text-center tabular-nums">{{ child.attempts }}</span>
+                    <span class="grid grid-cols-[2.25rem_4rem] items-center justify-center gap-2">
+                      <span class="text-center tabular-nums">{{ child.mastery }}%</span>
+                      <span class="h-1.5 rounded-full bg-[var(--color-surface-2)]">
+                        <span class="block h-full rounded-full bg-red-500" style="width: {{ child.mastery if child.mastery else 3 }}%"></span>
+                      </span>
+                    </span>
+                    <span class="text-center tabular-nums">{{ child.last }}, 2026</span>
+                    <span class="mastery-status mastery-{{ child.status }} justify-self-center whitespace-nowrap text-center font-medium">{{ child.status|display_label }}</span>
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+            <details class="group bg-[var(--color-surface)]">
+              <summary class="grid cursor-pointer list-none grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                <span class="text-base leading-none text-[var(--color-success-text)]">›</span>
+                <span>Collapsed concepts ({{ concept.children|rejectattr("status", "equalto", "weak")|list|length }})</span>
+                <span class="text-xs font-medium text-[var(--color-text-2)]">
+                  {{ concept.children|rejectattr("status", "equalto", "weak")|list|length }} concept{{ "s" if concept.children|rejectattr("status", "equalto", "weak")|list|length != 1 else "" }} · compact by default
+                </span>
+              </summary>
+              <div class="grid gap-2 border-t border-[var(--color-border)] bg-[rgba(245,241,234,0.28)] p-3">
+                {% for child in concept.children if child.status != "weak" %}
+                  <article class="grid gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                    <p class="min-w-0 text-sm font-medium">{{ child.name }}</p>
+                    <span class="font-medium tabular-nums">{{ child.mastery }}%</span>
+                    <span class="mastery-status mastery-{{ child.status }} justify-self-start whitespace-nowrap sm:justify-self-center">{{ child.status|display_label }}</span>
+                  </article>
+                {% endfor %}
+              </div>
+            </details>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  {% elif variant == "B" %}
+    <section class="mb-6 grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <aside class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] lg:sticky lg:top-6 lg:self-start">
+        <p class="eyebrow">Subject workspace</p>
+        <h1 class="font-display mt-1 text-3xl leading-tight">{{ subject.name }}</h1>
+        <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+          <div class="rounded-md bg-[var(--color-surface-2)] p-2"><strong>33%</strong><span class="block text-xs text-[var(--color-text-2)]">mastery</span></div>
+          <div class="rounded-md bg-red-50 p-2 text-red-900"><strong>3</strong><span class="block text-xs">weak</span></div>
+          <div class="rounded-md bg-[var(--color-surface-2)] p-2"><strong>5</strong><span class="block text-xs text-[var(--color-text-2)]">reviews</span></div>
+        </div>
+        <div class="mt-5 grid gap-2">
+          {% for concept in concepts %}
+            <button class="grid rounded-md border px-3 py-2 text-left {% if loop.first %}border-[var(--color-accent)] bg-[var(--color-accent-subtle)]{% else %}border-[var(--color-border)] bg-[var(--color-surface)]{% endif %}" type="button">
+              <span class="font-semibold">{{ concept.name }}</span>
+              <span class="text-xs text-[var(--color-text-2)]">{{ concept.children|length }} children · {{ concept.mastery }}%</span>
+            </button>
+          {% endfor %}
+        </div>
+        <button class="btn-primary mt-5 w-full" type="button">Start AWS review</button>
+      </aside>
+
+      <div class="grid gap-5">
+        <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
+          <div class="grid gap-4 border-b border-[var(--color-border)] p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+            <div>
+              <p class="eyebrow">Selected parent concept</p>
+              <h2 class="font-display mt-1 text-3xl leading-tight">Route 53</h2>
+              <p class="mt-2 max-w-2xl text-[var(--color-text-2)]">Parent-level mastery stays prominent, with child status visible but subordinate.</p>
+            </div>
+            <div class="flex flex-wrap gap-2 md:justify-end">
+              <button class="btn-secondary" type="button">Rename</button>
+              <button class="btn-secondary" type="button">Assign parent</button>
+              <button class="btn-secondary" type="button">Merge</button>
+            </div>
+          </div>
+          <div class="grid gap-4 p-4 md:grid-cols-[0.75fr_1fr]">
+            <div class="rounded-md bg-[var(--color-surface-2)] p-4">
+              <p class="eyebrow">Parent health</p>
+              <div class="mt-3 flex items-end gap-3">
+                <span class="font-display text-5xl leading-none">33%</span>
+                <span class="mastery-status mastery-weak">Weak</span>
+              </div>
+              <div class="mt-4 grid grid-cols-3 gap-2 text-sm">
+                <span><strong>3</strong><br>Questions</span>
+                <span><strong>3</strong><br>Attempts</span>
+                <span><strong>Jun 14</strong><br>Last missed</span>
+              </div>
+            </div>
+            <div>
+              <p class="eyebrow">Child health strip</p>
+              <div class="mt-3 grid grid-cols-3 gap-2">
+                {% for child in concepts[0].children %}
+                  <article class="rounded-md border p-3 {% if child.status == 'weak' %}border-red-200 bg-red-50{% else %}border-emerald-200 bg-emerald-50{% endif %}">
+                    <p class="text-sm font-semibold leading-tight">{{ child.name }}</p>
+                    <p class="mt-2 text-xs text-[var(--color-text-2)]">{{ child.questions }}q · {{ child.mastery }}%</p>
+                    <span class="mt-3 block h-1.5 rounded-full {% if child.status == 'weak' %}bg-red-500{% else %}bg-emerald-500{% endif %}"></span>
+                  </article>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="grid gap-4 md:grid-cols-2">
+          <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)]">
+            <p class="eyebrow">Stewardship queue</p>
+            <h3 class="section-title mt-1">Needs decisions</h3>
+            <div class="mt-4 grid gap-2">
+              {% for item in review_items %}
+                <article class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+                  <p class="text-sm font-semibold">{{ item }}</p>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <button class="btn-secondary min-h-8 px-3 py-1 text-xs" type="button">Open review</button>
+                    <button class="btn-secondary min-h-8 px-3 py-1 text-xs" type="button">Dismiss</button>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)]">
+            <p class="eyebrow">Question bank sample</p>
+            <h3 class="section-title mt-1">Attached questions</h3>
+            <div class="mt-4 grid gap-2 text-sm">
+              <p class="rounded-md bg-[var(--color-surface-2)] p-3">Route 53 weighted records fail health checks. What happens next?</p>
+              <p class="rounded-md bg-[var(--color-surface-2)] p-3">Which policy returns the lowest latency healthy endpoint?</p>
+              <p class="rounded-md bg-[var(--color-surface-2)] p-3">How does geolocation routing handle unknown locations?</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  {% else %}
+    <section class="mb-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div>
+        <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p class="eyebrow">{{ subject.slug }} review console</p>
+            <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">{{ subject.name }}</h1>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn-primary" type="button">Practice weakest</button>
+            <button class="btn-secondary" type="button">New concept</button>
+          </div>
+        </div>
+        <section class="mb-4 grid gap-3 sm:grid-cols-3">
+          <article class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)]"><p class="eyebrow">Mastery</p><p class="mt-2 font-display text-4xl">33%</p></article>
+          <article class="rounded-lg border border-red-200 bg-red-50 p-4"><p class="eyebrow text-red-700">Weak concepts</p><p class="mt-2 font-display text-4xl text-red-900">3</p></article>
+          <article class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)]"><p class="eyebrow">Reviews</p><p class="mt-2 font-display text-4xl">5</p></article>
+        </section>
+        <div class="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
+          {% for concept in concepts %}
+            <details class="border-b border-[var(--color-border)] last:border-b-0" {% if concept.status == "weak" %}open{% endif %}>
+              <summary class="grid cursor-pointer list-none gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center [&::-webkit-details-marker]:hidden">
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h2 class="font-semibold leading-tight">{{ concept.name }}</h2>
+                    <span class="mastery-status mastery-{{ concept.status }}">{{ concept.status|display_label }}</span>
+                  </div>
+                  <p class="mt-1 text-xs font-semibold text-[var(--color-text-3)]">{{ concept.questions }} questions · {{ concept.mastery }}% · {{ concept.children|length }} children</p>
+                </div>
+                <div class="flex min-w-56 overflow-hidden rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)]">
+                  {% for child in concept.children %}
+                    <span class="h-3 flex-1 {% if child.status == 'weak' %}bg-red-500{% elif child.status == 'improving' %}bg-amber-400{% else %}bg-emerald-500{% endif %}"></span>
+                  {% endfor %}
+                </div>
+              </summary>
+              <div class="grid gap-2 bg-[rgba(245,241,234,0.45)] px-4 pb-4">
+                {% for child in concept.children %}
+                  <article class="grid gap-2 rounded-md bg-[var(--color-surface)] p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                    <p class="min-w-0 text-sm font-semibold">{{ child.name }}</p>
+                    <span class="text-sm font-semibold tabular-nums">{{ child.mastery }}%</span>
+                    <button class="btn-secondary min-h-8 px-3 py-1 text-xs" type="button">Manage</button>
+                  </article>
+                {% endfor %}
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+      </div>
+      <aside class="grid gap-4 xl:sticky xl:top-6 xl:self-start">
+        <section class="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p class="eyebrow text-red-700">Weak to review</p>
+          <h2 class="section-title mt-1 text-red-950">3 priority items</h2>
+          <div class="mt-4 grid gap-2">
+            {% for child in concepts[0].children if child.status == "weak" %}
+              <article class="rounded-md border border-red-200 bg-white/70 p-3">
+                <p class="font-semibold">{{ child.name }}</p>
+                <p class="mt-1 text-sm text-red-900">{{ child.questions }} question · {{ child.mastery }}% mastery</p>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+        <section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)]">
+          <p class="eyebrow">Edit drawer preview</p>
+          <h2 class="section-title mt-1">Concept tools</h2>
+          <div class="mt-4 grid gap-2">
+            <button class="btn-secondary justify-start" type="button">Rename selected concept</button>
+            <button class="btn-secondary justify-start" type="button">Move under parent</button>
+            <button class="btn-secondary justify-start" type="button">Review attached questions</button>
+            <button class="btn-secondary justify-start" type="button">Merge duplicate concept</button>
+          </div>
+        </section>
+      </aside>
+    </section>
+  {% endif %}
+
+  <nav class="fixed inset-x-0 bottom-4 z-50 mx-auto flex w-[min(92vw,34rem)] items-center justify-between rounded-full border border-[var(--color-border-strong)] bg-[var(--color-text)] p-1.5 text-white shadow-2xl" aria-label="Prototype variant switcher" data-prototype-switcher>
+    <a class="grid size-10 place-items-center rounded-full bg-white/10 text-xl font-bold hover:bg-white/20" href="/subjects/{{ subject.id }}?prototype=command-center&variant={% if variant == 'A' %}C{% elif variant == 'B' %}A{% else %}B{% endif %}" aria-label="Previous variant">‹</a>
+    <div class="px-3 text-center text-sm font-semibold">
+      <span class="block">Variant {{ variant }}</span>
+      <span class="block text-xs font-medium text-white/70">
+        {% if variant == "A" %}Health strip cards{% elif variant == "B" %}Split workbench{% else %}Review console{% endif %}
+      </span>
+    </div>
+    <a class="grid size-10 place-items-center rounded-full bg-white/10 text-xl font-bold hover:bg-white/20" href="/subjects/{{ subject.id }}?prototype=command-center&variant={% if variant == 'A' %}B{% elif variant == 'B' %}C{% else %}A{% endif %}" aria-label="Next variant">›</a>
+  </nav>
+{% endblock %}
+{% block scripts %}
+  <script>
+    (() => {
+      const order = ["A", "B", "C"];
+      const current = "{{ variant }}";
+      const subjectId = "{{ subject.id }}";
+      const navigate = (direction) => {
+        const index = order.indexOf(current);
+        const next = order[(index + direction + order.length) % order.length];
+        window.location.href = `/subjects/${subjectId}?prototype=command-center&variant=${next}`;
+      };
+      window.addEventListener("keydown", (event) => {
+        const target = event.target;
+        const tag = target?.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+        if (event.key === "ArrowLeft") navigate(-1);
+        if (event.key === "ArrowRight") navigate(1);
+      });
+    })();
+  </script>
+{% endblock %}
