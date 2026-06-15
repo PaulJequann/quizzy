@@ -88,8 +88,8 @@ def capped_family_evidence(
     effective_failure = 0.0
     family_keys = set(family_success_weight) | set(family_failure_weight)
     for family_key in family_keys:
-        success = family_success_weight[family_key]
-        failure = family_failure_weight[family_key]
+        success = family_success_weight.get(family_key, 0.0)
+        failure = family_failure_weight.get(family_key, 0.0)
         scale = _family_scale(success + failure)
         effective_success += success * scale
         effective_failure += failure * scale

@@ -317,32 +317,17 @@ Do not bake singleton assumptions into service names or dataclasses.
 
 ### Future `question_family_id`
 
-Do not block v1 on question families. For v1, treat each `question.id` as its own family.
+Track the standalone question-family idea in
+`docs/future-ideas/question-families.md`. Do not block v1 on question families.
 
-Later add:
-
-- `questions.question_family_id nullable`
-
-This will cap repeated evidence from near-duplicate variants.
-
-Even before `question_family_id` exists, the implementation must consistently use a v1 family key:
-
-```python
-family_key = question.question_family_id or question.id
-```
-
-Until `question_family_id` exists, this is effectively:
+For v1, treat each `question.id` as its own family key:
 
 ```python
 family_key = question.id
 ```
 
-Use that family key for:
-
-- performance evidence caps;
-- recent-repeat spacing eligibility checks;
-- practice selection reasons;
-- future migration to real question families.
+Use that v1 family key for performance evidence caps, recent-repeat spacing eligibility checks, and
+practice selection reasons so the future migration to real question families stays localized.
 
 ## Service Design
 

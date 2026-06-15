@@ -244,6 +244,8 @@ def _apply_schedule_update(
     reason_codes: list[str],
     now: datetime,
 ) -> None:
+    if _has_schedule_mutation_blocker(reason_codes):
+        return
     current = state.interval_days
     state.last_friction_rating = event.friction_rating
     if not event.is_correct:
@@ -272,6 +274,10 @@ def _apply_schedule_update(
     state.consecutive_spaced_correct += 1
     state.due_at = _due_at(now, state.interval_days)
     state.last_review_at = now
+
+
+def _has_schedule_mutation_blocker(reason_codes: list[str]) -> bool:
+    return any(reason_code != "incorrect_answer_not_advanced" for reason_code in reason_codes)
 
 
 def _apply_lapse(

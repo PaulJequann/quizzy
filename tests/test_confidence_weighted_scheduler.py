@@ -12,6 +12,7 @@ from app.models import (
     QuestionReviewItem,
 )
 from app.services.grading_service import get_mastery_rows
+from app.services.mastery_evidence_service import capped_family_evidence
 
 pytestmark = pytest.mark.api
 
@@ -167,25 +168,64 @@ def test_fluent_repeat_in_same_session_does_not_advance_interval_twice(
     assert state.consecutive_spaced_correct == 1
 
 
-def test_suspect_question_does_not_advance_concept_interval(
+@pytest.mark.parametrize(
+    "case",
+    [
+        (True, 3, "suspect_question_evidence_ignored", False),
+        (False, 1, "suspect_question_evidence_ignored", True),
+    ],
+)
+def test_suspect_question_feedback_does_not_mutate_concept_schedule(
     client: TestClient,
     db_session: Session,
+    case: tuple[bool, int, str, bool],
 ) -> None:
-    answer = _submit_seeded_answer(client, db_session, correct=True)
+    correct, rating, blocked_reason, blocked_lapse = case
+    answer = _submit_seeded_answer(client, db_session, correct=correct)
     question = answer.question
     question.health_state = QuestionHealthState.SUSPECT
     db_session.commit()
 
-    response = _post_feedback(client, answer, rating=3)
+    response = _post_feedback(client, answer, rating=rating)
 
     assert response.status_code == 200
     update = response.json()["updates"][0]
     assert update["interval_days"] == 1
-    assert "suspect_question_evidence_ignored" in update["reason_codes"]
+    assert blocked_reason in update["reason_codes"]
+    if blocked_lapse:
+        assert "retrieval_lapse" not in update["reason_codes"]
     db_session.expire_all()
     state = _review_state(db_session)
+    assert state.lapse_count == 0
     assert state.consecutive_spaced_correct == 0
+    assert state.last_review_at is None
     assert state.due_at is None
+
+
+@pytest.mark.parametrize(
+    ("referer", "expected_location"),
+    [
+        ("https://attacker.example/phish", "/quizzes"),
+        ("http://testserver/questions", "http://testserver/questions"),
+    ],
+)
+def test_web_issue_report_sanitizes_referer_redirect(
+    client: TestClient,
+    db_session: Session,
+    referer: str,
+    expected_location: str,
+) -> None:
+    question = _seeded_question(db_session)
+
+    response = client.post(
+        f"/questions/{question.id}/report-issue",
+        data={"category": "other", "note": "Looks odd."},
+        headers={"referer": referer},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == expected_location
 
 
 def test_repeated_exact_question_evidence_is_capped_in_mastery(
@@ -203,6 +243,13 @@ def test_repeated_exact_question_evidence_is_capped_in_mastery(
     assert row.accuracy == 100
     assert row.conservative_performance < 70
     assert "low_confidence" in row.reason_codes
+
+
+def test_capped_family_evidence_accepts_plain_partial_dicts() -> None:
+    effective_success, effective_failure = capped_family_evidence({1: 1.0}, {2: 1.0})
+
+    assert effective_success == 1.0
+    assert effective_failure == 1.0
 
 
 def _seeded_question(db_session: Session) -> Question:

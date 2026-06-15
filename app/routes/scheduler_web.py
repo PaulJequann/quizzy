@@ -1,4 +1,5 @@
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -98,6 +99,13 @@ def _issue_report_redirect(
         if answer is not None:
             return f"/attempts/{answer.attempt_id}/results#answer-{attempt_answer_id}"
     referer = request.headers.get("referer")
-    if referer:
+    if referer and _is_same_origin_redirect(referer, request):
         return referer
     return "/quizzes"
+
+
+def _is_same_origin_redirect(target: str, request: Request) -> bool:
+    parsed = urlsplit(target)
+    if not parsed.netloc:
+        return target.startswith("/")
+    return parsed.scheme == request.url.scheme and parsed.netloc == request.url.netloc
