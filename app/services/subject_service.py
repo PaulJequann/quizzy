@@ -15,7 +15,9 @@ from app.services.grading_service import (
 class SubjectMasteryGroup:
     subject: Subject
     mastery_rows: list[ConceptMastery]
+    root_rows: list[ConceptMastery]
     queue_items: list[ConceptQueueItem]
+    parent_concept_ids: set[int]
     total_attempts: int
     correct_attempts: int
     accuracy: float
@@ -50,14 +52,14 @@ def build_subject_mastery_groups(
         correct_attempts = sum(row.correct_attempts for row in subject_rows)
         accuracy = round((correct_attempts / total_attempts) * 100, 2) if total_attempts else 0
         queue_items = build_concept_queue_items(subject_rows)
+        mastery_rows = _hierarchical_mastery_rows(subject_rows)
         groups.append(
             SubjectMasteryGroup(
                 subject=subjects_by_id[subject_id],
-                mastery_rows=sorted(
-                    subject_rows,
-                    key=lambda row: (row.status, row.accuracy, row.concept.name.casefold()),
-                ),
+                mastery_rows=mastery_rows,
+                root_rows=_root_mastery_rows(subject_rows),
                 queue_items=queue_items,
+                parent_concept_ids=_parent_concept_ids(subject_rows),
                 total_attempts=total_attempts,
                 correct_attempts=correct_attempts,
                 accuracy=accuracy,
@@ -68,6 +70,49 @@ def build_subject_mastery_groups(
         )
 
     return sorted(groups, key=lambda group: group.subject.name.casefold())
+
+
+def _parent_concept_ids(rows: list[ConceptMastery]) -> set[int]:
+    parent_ids: set[int] = set()
+    for row in rows:
+        if row.concept.parent_concept_id is not None:
+            parent_ids.add(row.concept.parent_concept_id)
+    return parent_ids
+
+
+def _root_mastery_rows(rows: list[ConceptMastery]) -> list[ConceptMastery]:
+    concept_ids = {row.concept.id for row in rows}
+    return sorted(
+        [
+            row
+            for row in rows
+            if row.concept.parent_concept_id is None
+            or row.concept.parent_concept_id not in concept_ids
+        ],
+        key=lambda row: row.concept.name.casefold(),
+    )
+
+
+def _hierarchical_mastery_rows(rows: list[ConceptMastery]) -> list[ConceptMastery]:
+    rows_by_parent_id: dict[int | None, list[ConceptMastery]] = {}
+    for row in rows:
+        rows_by_parent_id.setdefault(row.concept.parent_concept_id, []).append(row)
+
+    ordered_rows: list[ConceptMastery] = []
+
+    def append_subtree(row: ConceptMastery) -> None:
+        ordered_rows.append(row)
+        children = sorted(
+            rows_by_parent_id.get(row.concept.id, []),
+            key=lambda child: child.concept.name.casefold(),
+        )
+        for child in children:
+            append_subtree(child)
+
+    roots = _root_mastery_rows(rows)
+    for root in roots:
+        append_subtree(root)
+    return ordered_rows
 
 
 def get_subjects(db: Session) -> list[Subject]:

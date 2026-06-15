@@ -1,134 +1,321 @@
 {% extends "base.html" %}
 {% block title %}{{ subject.name }} · Quizzy{% endblock %}
 {% block content %}
-  <section class="mb-8 grid gap-6 lg:grid-cols-[1fr_0.7fr] lg:items-start">
+  <section class="mb-8 grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
     <div>
-      <p class="eyebrow">{{ subject.slug }}</p>
-      <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">{{ subject.name }}</h1>
-      {% if subject.description %}
-        <p class="mt-3 max-w-3xl leading-7 text-[var(--color-text-2)]">{{ subject.description }}</p>
-      {% else %}
-        <p class="mt-3 max-w-3xl leading-7 text-[var(--color-text-2)]">Concepts, questions, quizzes, and mastery scoped to this subject.</p>
-      {% endif %}
-      <div class="mt-5 flex flex-wrap gap-2">
-        <span class="meta-chip">{{ subject.concepts|length }} concepts</span>
-        <span class="meta-chip">{{ subject.questions|length }} questions</span>
-        <span class="meta-chip">{{ quizzes|length }} quizzes</span>
-        {% if question_review_items %}
-          <span class="meta-chip">{{ question_review_items|length }} question reviews</span>
-        {% endif %}
-        {% if concept_review_items %}
-          <span class="meta-chip">{{ concept_review_items|length }} concept reviews</span>
-        {% endif %}
-        {% if mastery_group and mastery_group.total_attempts %}
-          <span class="meta-chip">{{ "%.0f"|format(mastery_group.accuracy) }}% mastery</span>
-        {% endif %}
-      </div>
+      <p class="eyebrow">{{ subject.slug }} command center</p>
+      <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">{{ subject.name }} mastery</h1>
+      <p class="mt-3 max-w-3xl leading-7 text-[var(--color-text-2)]">Focused performance, weak-child review, and concept stewardship for this subject.</p>
     </div>
-    <div class="panel">
-      <p class="eyebrow">Actions</p>
-      <div class="mt-4 grid gap-3">
-        <form method="post" action="/subjects/{{ subject.id }}/practice">
-          <button class="btn-primary w-full" type="submit">Start quick practice</button>
-        </form>
-        {% if mastery_group and mastery_group.queue_items %}
-          <form method="post" action="/subjects/{{ subject.id }}/review">
-            <button class="btn-secondary w-full" type="submit">Practice weak concepts</button>
+    <div class="flex flex-wrap gap-2 lg:justify-end">
+      <details class="group relative w-full sm:w-auto">
+        <summary class="btn-primary flex w-full cursor-pointer list-none items-center justify-center gap-2 sm:w-auto [&::-webkit-details-marker]:hidden">
+          <span>Study options</span>
+          <svg class="size-4 text-white/80 group-open:rotate-180" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </summary>
+        <div class="z-20 mt-2 grid min-w-56 gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-2xl sm:absolute sm:right-0">
+          {% if mastery_group and mastery_group.queue_items %}
+            <form method="post" action="/subjects/{{ subject.id }}/review">
+              <button class="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-2)]" type="submit">Review weak concepts</button>
+            </form>
+          {% endif %}
+          <form method="post" action="/subjects/{{ subject.id }}/practice">
+            <button class="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-2)]" type="submit">Start quick practice</button>
           </form>
-        {% endif %}
-        <a class="btn-secondary text-center" href="/quizzes/new">Build practice</a>
-        <a class="btn-secondary text-center" href="/subjects">All subjects</a>
-      </div>
+          <a class="rounded-md px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-2)]" href="/quizzes/new">Build practice</a>
+          <a class="rounded-md px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-2)]" href="/subjects">All subjects</a>
+        </div>
+      </details>
+      <a class="btn-secondary w-full text-center sm:w-auto" href="#concept-tree">Manage subject</a>
     </div>
   </section>
 
-  {% if mastery_group %}
-    <section class="panel mb-6 overflow-clip">
-      <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p class="eyebrow">Stewardship</p>
-          <h2 class="section-title">Concept performance</h2>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <span class="mastery-status mastery-weak">{{ mastery_group.weak_count }} Weak</span>
-          <span class="mastery-status mastery-improving">{{ mastery_group.improving_count }} Improving</span>
-          <span class="mastery-status mastery-strong">{{ mastery_group.strong_count }} Strong</span>
-        </div>
-      </div>
-      <div class="-mx-[clamp(1.25rem,3vw,1.75rem)] -mb-[clamp(1.25rem,3vw,1.75rem)] border-t border-[var(--color-border)] bg-[rgba(245,241,234,0.28)]">
-        {% for row in mastery_group.mastery_rows %}
-          {% set review_count = concept_review_count_by_concept_id.get(row.concept.id, 0) %}
-          <article
-            class="grid min-h-[4.25rem] grid-cols-1 items-start gap-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-[clamp(1rem,3vw,1.75rem)] py-[0.85rem] last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto]"
-            style="margin-left: {{ (row.depth - 1) * 1.25 }}rem"
-          >
-            <div class="flex min-w-0 items-center justify-between gap-3">
-              <div class="min-w-0">
-                <div class="font-medium leading-[1.3] [overflow-wrap:anywhere]">{{ row.concept.name|display_label }}</div>
-                <div class="mt-1 flex flex-wrap gap-2">
-                  {% if row.concept.status.value != "active" %}
-                    <span class="meta-chip">{{ row.concept.status|display_label }}</span>
-                  {% endif %}
-                  {% if row.depth > 1 %}
-                    <span class="meta-chip">Level {{ row.depth }}</span>
-                  {% endif %}
-                  {% if review_count %}
-                    <span class="meta-chip">{{ review_count }} open review{{ "s" if review_count != 1 else "" }}</span>
-                  {% endif %}
-                </div>
+  {% macro child_concept_group(label, child_rows, tone, open_by_default=False) %}
+    <details class="group/child overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]" {% if open_by_default and child_rows %}open{% endif %}>
+      <summary class="grid cursor-pointer list-none grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <span class="{% if tone == 'weak' %}text-[var(--color-error-text)]{% elif tone == 'improving' %}text-[var(--color-warning-text)]{% else %}text-[var(--color-success-text)]{% endif %}" aria-hidden="true">
+          <svg class="size-4 group-open/child:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9 18 6-6-6-6"></path>
+          </svg>
+        </span>
+        <span class="text-[0.95rem] font-semibold">{{ label }} ({{ child_rows|length }})</span>
+        <span class="text-xs font-medium text-[var(--color-text-2)]">{{ child_rows|length }} concept{{ "s" if child_rows|length != 1 else "" }}</span>
+      </summary>
+      <div class="grid gap-2 border-t border-[var(--color-border)] p-3 min-[821px]:hidden {% if tone == 'weak' %}bg-red-50/35{% elif tone == 'improving' %}bg-amber-50/35{% else %}bg-emerald-50/30{% endif %}">
+        {% for child in child_rows %}
+          {% set child_review_count = concept_review_count_by_concept_id.get(child.concept.id, 0) %}
+          <article class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border bg-[var(--color-surface)] p-3 {% if child.status == 'weak' %}border-red-200{% elif child.status == 'improving' %}border-amber-200{% else %}border-emerald-200{% endif %}">
+            <div class="min-w-0">
+              <p class="font-medium leading-tight">{{ child.concept.name|display_label }}</p>
+              <div class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--color-text-2)]">
+                <span>{{ child.linked_question_count }}q</span>
+                <span>·</span>
+                <span>{{ child.total_attempts }}a</span>
+                <span>·</span>
+                <span>{{ "%.0f"|format(child.accuracy) }}%</span>
+                <span class="h-1.5 w-10 rounded-full bg-[var(--color-surface-2)]">
+                  <span class="block h-full rounded-full {% if child.status == 'weak' %}bg-red-500{% elif child.status == 'improving' %}bg-amber-400{% else %}bg-emerald-500{% endif %}" style="width: {{ child.accuracy }}%"></span>
+                </span>
+                {% if child_review_count %}
+                  <span>· {{ child_review_count }} review{{ "s" if child_review_count != 1 else "" }}</span>
+                {% endif %}
               </div>
-              <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
             </div>
-            <form method="post" action="/concepts/{{ row.concept.id }}/practice">
-              <button class="btn-secondary" type="submit">Drill concept</button>
-            </form>
-            <dl class="col-span-full grid grid-cols-2 gap-[0.65rem] min-[560px]:grid-cols-4 lg:grid-cols-7">
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Questions</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.linked_question_count }}</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Direct</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.direct_question_count }}</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Descendant</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.descendant_question_count }}</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Accuracy</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ "%.0f"|format(row.accuracy) }}%</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Primary evidence</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.primary_attempts }}</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Secondary evidence</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.secondary_attempts }}</dd>
-              </div>
-              <div class="min-w-0">
-                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Last missed</dt>
-                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">
-                  {% if row.last_missed_at %}
-                    {{ row.last_missed_at.strftime("%b %-d, %Y") }}
-                  {% else %}
-                    -
-                  {% endif %}
-                </dd>
-              </div>
-            </dl>
+            <div class="flex items-center gap-2">
+              <span class="mastery-status mastery-{{ child.status }} whitespace-nowrap font-medium">{{ child.status|display_label }}</span>
+              <button class="grid size-8 place-items-center rounded-md border border-transparent text-[var(--color-text-3)] hover:border-[var(--color-border)] hover:text-[var(--color-accent-text)] focus-visible:border-[var(--color-accent)] focus-visible:text-[var(--color-accent-text)]" type="button" data-concept-dialog-open="concept-edit-{{ child.concept.id }}" aria-label="Edit {{ child.concept.name|display_label }}" title="Edit concept">
+                <svg class="size-4" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                </svg>
+              </button>
+            </div>
           </article>
         {% endfor %}
       </div>
+      <div class="hidden overflow-x-auto border-t border-[var(--color-border)] bg-[var(--color-surface)] min-[821px]:block">
+        <div class="min-w-[52rem]">
+          <div class="grid grid-cols-[1.25rem_minmax(14rem,1.45fr)_0.55fr_0.55fr_0.9fr_1fr_0.75fr_0.65fr] gap-3 px-4 py-2 text-[0.64rem] font-medium uppercase tracking-[0.08em] text-[var(--color-text-3)]">
+            <span></span>
+            <span>Concept</span>
+            <span class="text-center">Questions</span>
+            <span class="text-center">Attempts</span>
+            <span class="text-center">Mastery</span>
+            <span class="text-center">Last missed</span>
+            <span class="text-center">Status</span>
+            <span class="text-center">Actions</span>
+          </div>
+          {% for child in child_rows %}
+            {% set child_review_count = concept_review_count_by_concept_id.get(child.concept.id, 0) %}
+            <article class="grid grid-cols-[1.25rem_minmax(14rem,1.45fr)_0.55fr_0.55fr_0.9fr_1fr_0.75fr_0.65fr] items-center gap-3 border-t border-[var(--color-border)] px-4 py-3">
+              <span class="{% if child.status == 'weak' %}text-[var(--color-error-text)]{% elif child.status == 'improving' %}text-[var(--color-warning-text)]{% else %}text-[var(--color-success-text)]{% endif %}" aria-hidden="true">
+                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m9 18 6-6-6-6"></path>
+                </svg>
+              </span>
+              <span class="min-w-0 font-medium leading-tight">
+                {{ child.concept.name|display_label }}
+                {% if child_review_count %}
+                  <span class="ml-2 text-xs font-medium text-[var(--color-text-3)]">{{ child_review_count }} review{{ "s" if child_review_count != 1 else "" }}</span>
+                {% endif %}
+              </span>
+              <span class="text-center tabular-nums">{{ child.linked_question_count }}</span>
+              <span class="text-center tabular-nums">{{ child.total_attempts }}</span>
+              <span class="grid grid-cols-[2.25rem_4rem] items-center justify-center gap-2">
+                <span class="text-center tabular-nums">{{ "%.0f"|format(child.accuracy) }}%</span>
+                <span class="h-1.5 rounded-full bg-[var(--color-surface-2)]">
+                  <span class="block h-full rounded-full {% if child.status == 'weak' %}bg-red-500{% elif child.status == 'improving' %}bg-amber-400{% else %}bg-emerald-500{% endif %}" style="width: {{ child.accuracy }}%"></span>
+                </span>
+              </span>
+              <span class="text-center tabular-nums">
+                {% if child.last_missed_at %}
+                  {{ child.last_missed_at.strftime("%b %-d, %Y") }}
+                {% else %}
+                  -
+                {% endif %}
+              </span>
+              <span class="mastery-status mastery-{{ child.status }} justify-self-center whitespace-nowrap text-center font-medium">{{ child.status|display_label }}</span>
+              <button class="grid size-8 place-items-center justify-self-center rounded-md border border-transparent text-[var(--color-text-3)] hover:border-[var(--color-border)] hover:text-[var(--color-accent-text)] focus-visible:border-[var(--color-accent)] focus-visible:text-[var(--color-accent-text)]" type="button" data-concept-dialog-open="concept-edit-{{ child.concept.id }}" aria-label="Edit {{ child.concept.name|display_label }}" title="Edit concept">
+                <svg class="size-4" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                </svg>
+              </button>
+            </article>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
+  {% endmacro %}
+
+  {% if mastery_group %}
+    <section id="concept-tree" class="mb-6">
+      <section class="mb-6 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] min-[821px]:hidden">
+        <div class="grid grid-cols-[minmax(0,1fr)_0.9fr] gap-4">
+          <div class="grid content-center text-center">
+            <p class="font-display text-3xl leading-none">{{ "%.0f"|format(mastery_group.accuracy) }}%</p>
+            <p class="mt-1 text-sm text-[var(--color-text-2)]">Overall Mastery</p>
+          </div>
+          <div class="grid gap-1 border-l border-[var(--color-border)] pl-4 text-sm">
+            <div class="grid grid-cols-[auto_1fr] gap-3">
+              <strong class="text-right tabular-nums">{{ mastery_group.mastery_rows|length }}</strong>
+              <span class="text-[var(--color-text-2)]">Concepts</span>
+            </div>
+            <div class="grid grid-cols-[auto_1fr] gap-3">
+              <strong class="text-right tabular-nums">{{ mastery_group.total_attempts }}</strong>
+              <span class="text-[var(--color-text-2)]">Attempts</span>
+            </div>
+            <div class="mt-2 border-t border-[var(--color-border)] pt-2">
+              <div class="grid grid-cols-[1fr_auto] gap-3 text-[var(--color-error-text)]"><span>Weak</span><strong class="tabular-nums">{{ mastery_group.weak_count }}</strong></div>
+              <div class="grid grid-cols-[1fr_auto] gap-3 text-[var(--color-warning-text)]"><span>Improving</span><strong class="tabular-nums">{{ mastery_group.improving_count }}</strong></div>
+              <div class="grid grid-cols-[1fr_auto] gap-3 text-[var(--color-success-text)]"><span>Strong</span><strong class="tabular-nums">{{ mastery_group.strong_count }}</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mb-6 hidden gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] min-[821px]:grid min-[821px]:grid-cols-[minmax(14rem,1.35fr)_repeat(5,minmax(6.25rem,0.72fr))] min-[821px]:items-center">
+        <div class="text-center">
+          <p class="font-display text-3xl leading-none">{{ "%.0f"|format(mastery_group.accuracy) }}%</p>
+          <p class="mt-1 text-sm text-[var(--color-text-2)]">Overall Mastery</p>
+        </div>
+        <div class="border-l border-[var(--color-border)] text-center">
+          <p class="text-lg font-semibold tabular-nums">{{ mastery_group.mastery_rows|length }}</p>
+          <p class="text-sm text-[var(--color-text-2)]">Concepts</p>
+        </div>
+        <div class="border-l border-[var(--color-border)] text-center">
+          <p class="text-lg font-semibold tabular-nums">{{ mastery_group.total_attempts }}</p>
+          <p class="text-sm text-[var(--color-text-2)]">Attempts</p>
+        </div>
+        <div class="border-l border-[var(--color-border)] text-center">
+          <p class="font-semibold text-[var(--color-error-text)]">Weak</p>
+          <p class="mt-0.5 text-lg font-semibold tabular-nums">{{ mastery_group.weak_count }}</p>
+        </div>
+        <div class="border-l border-[var(--color-border)] text-center">
+          <p class="font-semibold text-[var(--color-warning-text)]">Improving</p>
+          <p class="mt-0.5 text-lg font-semibold tabular-nums">{{ mastery_group.improving_count }}</p>
+        </div>
+        <div class="border-l border-[var(--color-border)] text-center">
+          <p class="font-semibold text-[var(--color-success-text)]">Strong</p>
+          <p class="mt-0.5 text-lg font-semibold tabular-nums">{{ mastery_group.strong_count }}</p>
+        </div>
+      </section>
+
+      <div class="grid gap-4">
+        {% for row in mastery_group.root_rows %}
+          {% set children = mastery_group.mastery_rows|selectattr("concept.parent_concept_id", "equalto", row.concept.id)|list %}
+          {% set weak_children = children|selectattr("status", "equalto", "weak")|list %}
+          {% set improving_children = children|selectattr("status", "equalto", "improving")|list %}
+          {% set strong_children = children|selectattr("status", "equalto", "strong")|list %}
+          {% set review_count = concept_review_count_by_concept_id.get(row.concept.id, 0) %}
+          <details class="group overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]" {% if row.status == "weak" or weak_children %}open{% endif %}>
+            <summary class="grid cursor-pointer list-none gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden">
+              <div class="min-[821px]:hidden">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h3 class="font-display text-xl leading-tight">{{ row.concept.name|display_label }}</h3>
+                      <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
+                    </div>
+                    <p class="mt-1 text-xs font-medium text-[var(--color-text-2)]">
+                      {{ row.linked_question_count }}q · {{ row.total_attempts }}a · {{ children|length }} sub-concepts · Last missed
+                      {% if row.last_missed_at %}{{ row.last_missed_at.strftime("%b %-d, %Y") }}{% else %}-{% endif %}
+                    </p>
+                  </div>
+                  <div class="flex shrink-0 items-start gap-3">
+                    <span class="text-lg font-semibold tabular-nums">{{ "%.0f"|format(row.accuracy) }}%</span>
+                    <svg class="mt-1 size-5 text-[var(--color-text-3)] group-open:hidden" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="m6 9 6 6 6-6"></path>
+                    </svg>
+                    <svg class="mt-1 hidden size-5 text-[var(--color-text-3)] group-open:block" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="m18 15-6-6-6 6"></path>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div class="hidden gap-4 min-[821px]:grid min-[821px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[821px]:items-center min-[821px]:gap-x-8">
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="font-display text-xl leading-tight">{{ row.concept.name|display_label }}</h3>
+                    <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
+                    {% if review_count %}
+                      <span class="meta-chip">{{ review_count }} open review{{ "s" if review_count != 1 else "" }}</span>
+                    {% endif %}
+                  </div>
+                  <p class="mt-1 text-sm text-[var(--color-text-2)]">{{ row.linked_question_count }} questions · {{ row.total_attempts }} attempts · {{ children|length }} sub-concepts</p>
+                </div>
+                <div class="grid grid-cols-2 gap-8 sm:min-w-64 sm:text-right">
+                  <div>
+                    <p class="eyebrow">Mastery</p>
+                    <p class="mt-0.5 text-lg font-semibold tabular-nums">{{ "%.0f"|format(row.accuracy) }}%</p>
+                  </div>
+                  <div>
+                    <p class="eyebrow">Last missed</p>
+                    <p class="mt-0.5 text-lg font-semibold tabular-nums">
+                      {% if row.last_missed_at %}
+                        {{ row.last_missed_at.strftime("%b %-d, %Y") }}
+                      {% else %}
+                        -
+                      {% endif %}
+                    </p>
+                  </div>
+                </div>
+                <svg class="size-5 justify-self-end text-[var(--color-text-3)] group-open:hidden" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+                <svg class="hidden size-5 justify-self-end text-[var(--color-text-3)] group-open:block" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m18 15-6-6-6 6"></path>
+                </svg>
+              </div>
+            </summary>
+            <div class="grid gap-3 border-t border-[var(--color-border)] bg-[rgba(245,241,234,0.24)] p-3 min-[821px]:p-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="text-sm font-medium text-[var(--color-text-2)]">Child concepts are grouped by review priority.</p>
+                <div class="flex flex-wrap gap-2">
+                  <form method="post" action="/concepts/{{ row.concept.id }}/practice">
+                    <button class="btn-secondary min-h-8 px-3 py-1 text-xs" type="submit">Drill parent</button>
+                  </form>
+                  <button class="btn-secondary min-h-8 px-3 py-1 text-xs" type="button" data-concept-dialog-open="concept-edit-{{ row.concept.id }}">Manage parent</button>
+                </div>
+              </div>
+              {% if weak_children %}
+                {{ child_concept_group("Weak concepts to review", weak_children, "weak", True) }}
+              {% endif %}
+              {% if improving_children %}
+                {{ child_concept_group("Improving concepts", improving_children, "improving") }}
+              {% endif %}
+              {% if strong_children %}
+                {{ child_concept_group("Strong concepts", strong_children, "strong") }}
+              {% endif %}
+              {% if not children %}
+                <div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-sm text-[var(--color-text-2)]">No child concepts yet.</div>
+              {% endif %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+
+      {% for row in mastery_group.mastery_rows %}
+        <dialog id="concept-edit-{{ row.concept.id }}" class="fixed inset-0 m-auto max-h-[90vh] w-[min(92vw,34rem)] overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-0 text-[var(--color-text)] shadow-2xl backdrop:bg-black/20">
+          <form class="grid gap-4 p-5" method="post" action="/concepts/{{ row.concept.id }}/update">
+            <div>
+              <p class="eyebrow">Edit concept</p>
+              <h3 class="font-display mt-1 text-2xl leading-tight">{{ row.concept.name|display_label }}</h3>
+            </div>
+            <label class="field-label">
+              Name
+              <input class="field" name="name" value="{{ row.concept.name }}" required>
+            </label>
+            <label class="field-label">
+              Parent placement
+              <select class="field" name="parent_concept_id">
+                <option value="">No parent / root concept</option>
+                {% for option in concept_parent_options_by_concept_id.get(row.concept.id, []) %}
+                  <option value="{{ option.id }}" {% if row.concept.parent_concept_id == option.id %}selected{% endif %}>{{ option.name|display_label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="field-label">
+              Rationale
+              <textarea class="field min-h-24" name="rationale" placeholder="Why is this change correct?"></textarea>
+            </label>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button class="btn-secondary" type="button" data-concept-dialog-close>Cancel</button>
+              <button class="btn-primary" type="submit">Save concept</button>
+            </div>
+          </form>
+        </dialog>
+      {% endfor %}
     </section>
   {% endif %}
 
   {% if concept_review_items %}
     <section id="taxonomy-review" class="panel mb-6">
       <div class="mb-5">
-        <p class="eyebrow">Concept stewardship</p>
-        <h2 class="section-title">Open taxonomy review</h2>
+        <p class="eyebrow">Stewardship review</p>
+        <h2 class="section-title">Open taxonomy work</h2>
       </div>
       <div class="grid gap-3">
         {% for item in concept_review_items %}
@@ -187,10 +374,10 @@
   {% endif %}
 
   {% if question_review_items %}
-    <section class="panel mb-6">
+    <section class="panel mb-6" aria-label="question reviews">
       <div class="mb-5">
-        <p class="eyebrow">Question health</p>
-        <h2 class="section-title">Review queue</h2>
+        <p class="eyebrow">Stewardship review</p>
+        <h2 class="section-title">Question reviews</h2>
       </div>
       <div class="grid gap-3">
         {% for item in question_review_items %}
@@ -251,4 +438,34 @@
       {% endif %}
     </section>
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      document.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const button = target?.closest("[data-concept-dialog-open]");
+        if (button) {
+          const dialog = document.getElementById(button.dataset.conceptDialogOpen);
+          if (dialog?.showModal) {
+            dialog.showModal();
+          } else if (dialog) {
+            dialog.setAttribute("open", "");
+          }
+          return;
+        }
+
+        const closeButton = target?.closest("[data-concept-dialog-close]");
+        if (closeButton) {
+          const dialog = closeButton.closest("dialog");
+          if (dialog?.close) {
+            dialog.close();
+          } else {
+            dialog?.removeAttribute("open");
+          }
+        }
+      });
+    })();
+  </script>
 {% endblock %}
