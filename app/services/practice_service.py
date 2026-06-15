@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -41,6 +42,7 @@ class PracticeAssemblyInput:
     count: int = DEFAULT_PRACTICE_COUNT
     strategy: str = "random_subject"
     concept_ids: list[int] | None = None
+    due_concept_ids: list[int] | None = None
     difficulty: Difficulty | None = None
     source_document_id: int | None = None
 
@@ -69,16 +71,7 @@ def assemble_practice_session(
         quiz_type=QuizType.PRACTICE,
         status=QuizStatus.PUBLISHED,
         assembly_strategy=data.strategy,
-        assembly_params_json=json.dumps(
-            {
-                "subject_id": subject.id,
-                "count": data.count,
-                "concept_ids": data.concept_ids or [],
-                "difficulty": data.difficulty.value if data.difficulty else None,
-                "source_document_id": data.source_document_id,
-            },
-            sort_keys=True,
-        ),
+        assembly_params_json=_assembly_params_json(subject, data),
         is_disposable=True,
     )
     for order_index, selection in enumerate(selections, start=1):
@@ -102,13 +95,14 @@ def assemble_mastery_review(
     subject_id: int | None = None,
     count: int = DEFAULT_PRACTICE_COUNT,
 ) -> Quiz:
-    concept_ids = [
-        item.concept_id
+    queue_items = [
+        item
         for item in get_concept_queue_items(db)
         if subject_id is None or item.subject_id == subject_id
     ]
+    concept_ids = [item.concept_id for item in queue_items]
     if not concept_ids:
-        raise ValueError("No weak or improving concepts are ready for practice.")
+        raise ValueError("No concepts are ready for practice.")
     resolved_subject_id = subject_id or _subject_id_for_concepts(db, concept_ids)
     return assemble_practice_session(
         db,
@@ -117,7 +111,24 @@ def assemble_mastery_review(
             count=count,
             strategy="mastery_review",
             concept_ids=concept_ids,
+            due_concept_ids=[
+                item.concept_id for item in queue_items if item.mastery_state == "review_due"
+            ],
         ),
+    )
+
+
+def _assembly_params_json(subject: Subject, data: PracticeAssemblyInput) -> str:
+    return json.dumps(
+        {
+            "subject_id": subject.id,
+            "count": data.count,
+            "concept_ids": data.concept_ids or [],
+            "due_concept_ids": data.due_concept_ids or [],
+            "difficulty": data.difficulty.value if data.difficulty else None,
+            "source_document_id": data.source_document_id,
+        },
+        sort_keys=True,
     )
 
 
@@ -188,7 +199,7 @@ def _selection_for_question(
     score = health_score + _strategy_score(question, data)
     return PracticeSelection(
         question=question,
-        reason=_selection_reason(question, data.strategy),
+        reason=_selection_reason(question, data),
         score=score,
     )
 
@@ -259,7 +270,7 @@ def _health_selection_score(question: Question) -> float:
 
 def _strategy_score(question: Question, data: PracticeAssemblyInput) -> float:
     if data.strategy == "mastery_review" and _has_priority_concept(question, data.concept_ids):
-        return 50 + _recency_score(question)
+        return _mastery_review_score(question, data) + _recency_score(question)
     if data.strategy == "concept_drill":
         return _concept_drill_score(question, data.concept_ids) + _recency_score(question)
     if data.strategy == "spaced_review":
@@ -325,7 +336,53 @@ def _spaced_review_score(question: Question) -> float:
     return 10 + missed_count
 
 
-def _selection_reason(question: Question, strategy: str) -> str:
+def _mastery_review_score(question: Question, data: PracticeAssemblyInput) -> float:
+    if _has_unresolved_primary_miss(question, data.concept_ids):
+        return 80
+    if _has_due_primary_concept(question, data.due_concept_ids):
+        return 70
+    if not question.attempt_answers:
+        return 45
+    return 35
+
+
+def _has_due_primary_concept(question: Question, concept_ids: list[int] | None) -> bool:
+    if not concept_ids:
+        return False
+    return any(
+        link.concept_id in concept_ids and link.role == ConceptAssignmentRole.PRIMARY
+        for link in question.concept_links
+    )
+
+
+def _has_unresolved_primary_miss(question: Question, concept_ids: list[int] | None) -> bool:
+    if not _has_priority_concept(question, concept_ids):
+        return False
+    latest_answer = _latest_answer(question)
+    return latest_answer is not None and not latest_answer.is_correct
+
+
+def _latest_answer(question: Question) -> AttemptAnswer | None:
+    if not question.attempt_answers:
+        return None
+    return max(
+        question.attempt_answers,
+        key=lambda answer: (
+            answer.attempt.submitted_at or answer.answered_at or datetime.min.replace(tzinfo=UTC),
+            answer.id,
+        ),
+    )
+
+
+def _selection_reason(question: Question, data: PracticeAssemblyInput) -> str:
+    strategy = data.strategy
+    if strategy == "mastery_review":
+        if _has_unresolved_primary_miss(question, data.concept_ids):
+            return "mastery_review: learning concept with unresolved primary miss"
+        if _has_due_primary_concept(question, data.due_concept_ids):
+            return "mastery_review: concept due for spaced retrieval"
+        if not question.attempt_answers:
+            return "mastery_review: coverage slot for unseen concept"
     if question.health_state == QuestionHealthState.UNTESTED:
         return f"{strategy}: exploration slot for an untested active question"
     if question.health_state == QuestionHealthState.NEEDS_REVIEW:

@@ -14,7 +14,7 @@
     {% endfor %}
     <div class="stats-strip">
       <div><strong>{{ subject_summaries|length }}</strong><span>subjects</span></div>
-      <div><strong>{{ totals.questions }}</strong><span>questions</span></div>
+      <div><strong>{{ totals.questions }}</strong><span>total questions</span></div>
     </div>
   </section>
 
@@ -38,7 +38,11 @@
           {% endif %}
           <div class="mt-6 flex flex-wrap gap-2">
             <span class="meta-chip">{{ summary.concept_count }} concepts</span>
-            <span class="meta-chip">{{ summary.question_count }} questions</span>
+            <span class="meta-chip">{{ summary.question_count }} total questions</span>
+            <span class="meta-chip">{{ summary.active_question_count }} active</span>
+            {% if summary.draft_question_count %}
+              <span class="meta-chip">{{ summary.draft_question_count }} draft</span>
+            {% endif %}
             <span class="meta-chip">{{ summary.quiz_count }} quizzes</span>
             {% if summary.total_attempts %}
               <span class="meta-chip">{{ "%.0f"|format(summary.accuracy) }}% mastery</span>

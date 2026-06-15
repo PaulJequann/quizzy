@@ -18,6 +18,22 @@ from app.models import (
 )
 
 REVIEW_STATUS_OPEN = "open"
+QUESTION_FLAG_ACTIONS = {
+    "incorrect_answer": "verify_answer",
+    "unclear_wording": "revise_stem",
+    "bad_distractors": "improve_distractors",
+    "explanation_issue": "fix_explanation",
+    "source_mismatch": "verify_source",
+    "typo_formatting": "fix_formatting",
+    "other": "review_question",
+}
+HIGH_SEVERITY_FLAGS = {"incorrect_answer", "source_mismatch"}
+MEDIUM_SEVERITY_FLAGS = {
+    "unclear_wording",
+    "bad_distractors",
+    "explanation_issue",
+}
+LOW_SEVERITY_FLAGS = {"typo_formatting", "other"}
 
 
 @dataclass(frozen=True)
@@ -37,6 +53,14 @@ class ReviewEvidence:
     suggested_action: str
     attempt_count: int
     correct_count: int
+
+
+@dataclass(frozen=True)
+class QuestionIssueReport:
+    question_id: int
+    category: str
+    note: str = ""
+    attempt_answer_id: int | None = None
 
 
 def initialize_for_batch(db: Session, generation_batch_id: int) -> None:
@@ -133,6 +157,75 @@ def list_question_review_queue(
         statement = statement.where(QuestionReviewItem.subject_id == subject_id)
 
     return [_review_item_to_dict(item) for item in db.scalars(statement)]
+
+
+def report_question_issue(
+    db: Session,
+    report: QuestionIssueReport,
+) -> dict[str, Any]:
+    _validate_question_issue_category(report.category)
+    question = _question_for_issue_report(db, report)
+    _validate_issue_attempt_answer(db, report)
+    item = _upsert_question_flag_review(db, question, report)
+    _apply_question_flag_health_state(question, report.category)
+    db.commit()
+    db.refresh(item)
+    return _review_item_to_dict(item)
+
+
+def _validate_question_issue_category(category: str) -> None:
+    if category not in QUESTION_FLAG_ACTIONS:
+        raise ValueError("Unknown question issue category.")
+
+
+def _question_for_issue_report(db: Session, report: QuestionIssueReport) -> Question:
+    question = db.scalar(
+        select(Question)
+        .where(Question.id == report.question_id)
+        .options(selectinload(Question.subject), selectinload(Question.review_items))
+    )
+    if question is None:
+        raise ValueError(f"Unknown question id {report.question_id}")
+    return question
+
+
+def _validate_issue_attempt_answer(db: Session, report: QuestionIssueReport) -> None:
+    if report.attempt_answer_id is not None:
+        _validate_attempt_answer(db, report.attempt_answer_id, report.question_id)
+
+
+def _upsert_question_flag_review(
+    db: Session,
+    question: Question,
+    report: QuestionIssueReport,
+) -> QuestionReviewItem:
+    action = QUESTION_FLAG_ACTIONS[report.category]
+    evidence_json = _question_flag_evidence_json(
+        category=report.category,
+        note=report.note,
+        attempt_answer_id=report.attempt_answer_id,
+    )
+    item = _open_review_item_for_flag(question, action)
+    if item is None:
+        item = QuestionReviewItem(
+            question=question,
+            subject=question.subject,
+            generation_batch=question.generation_batch,
+            reason=_question_flag_reason(report.category),
+            suggested_action=action,
+            evidence_json=evidence_json,
+        )
+        db.add(item)
+    else:
+        item.reason = _question_flag_reason(report.category)
+        item.evidence_json = evidence_json
+    return item
+
+
+def _apply_question_flag_health_state(question: Question, category: str) -> None:
+    if _flag_should_change_health(category, question.health_state):
+        question.health_state = QuestionHealthState.NEEDS_REVIEW
+        question.last_health_checked_at = datetime.now(UTC)
 
 
 def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, Any]:
@@ -272,6 +365,59 @@ def _ensure_open_review_item(
             evidence_json=evidence_json,
         )
     )
+
+
+def _validate_attempt_answer(db: Session, attempt_answer_id: int, question_id: int) -> None:
+    answer_question_id = db.scalar(
+        select(AttemptAnswer.question_id).where(AttemptAnswer.id == attempt_answer_id)
+    )
+    if answer_question_id is None:
+        raise ValueError(f"Unknown attempt answer id {attempt_answer_id}")
+    if answer_question_id != question_id:
+        raise ValueError("Attempt answer does not belong to the flagged question.")
+
+
+def _question_flag_evidence_json(
+    *,
+    category: str,
+    note: str,
+    attempt_answer_id: int | None,
+) -> str:
+    return json.dumps(
+        {
+            "source": "learner_flag",
+            "category": category,
+            "note": note.strip(),
+            "attempt_answer_id": attempt_answer_id,
+        },
+        sort_keys=True,
+    )
+
+
+def _open_review_item_for_flag(
+    question: Question,
+    suggested_action: str,
+) -> QuestionReviewItem | None:
+    return next(
+        (
+            item
+            for item in question.review_items
+            if item.status == REVIEW_STATUS_OPEN and item.suggested_action == suggested_action
+        ),
+        None,
+    )
+
+
+def _question_flag_reason(category: str) -> str:
+    return f"Learner flagged {category.replace('_', ' ')}."
+
+
+def _flag_should_change_health(category: str, health_state: QuestionHealthState) -> bool:
+    if category in LOW_SEVERITY_FLAGS:
+        return False
+    if category not in HIGH_SEVERITY_FLAGS | MEDIUM_SEVERITY_FLAGS:
+        return False
+    return health_state not in {QuestionHealthState.SUSPECT, QuestionHealthState.ARCHIVED}
 
 
 def _review_evidence_json(evidence: ReviewEvidence) -> str:

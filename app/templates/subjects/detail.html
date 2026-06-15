@@ -62,6 +62,13 @@
                   <span>· {{ child_review_count }} review{{ "s" if child_review_count != 1 else "" }}</span>
                 {% endif %}
               </div>
+              {% if child.secondary_cues %}
+                <div class="mt-1 flex flex-wrap gap-1.5 text-xs font-medium text-[var(--color-text-3)]">
+                  {% for cue in child.secondary_cues %}
+                    <span>{{ cue }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
             </div>
             <div class="flex items-center gap-2">
               <span class="mastery-status mastery-{{ child.status }} whitespace-nowrap font-medium">{{ child.status|display_label }}</span>
@@ -99,6 +106,9 @@
                 {{ child.concept.name|display_label }}
                 {% if child_review_count %}
                   <span class="ml-2 text-xs font-medium text-[var(--color-text-3)]">{{ child_review_count }} review{{ "s" if child_review_count != 1 else "" }}</span>
+                {% endif %}
+                {% if child.secondary_cues %}
+                  <span class="mt-1 block text-xs font-medium text-[var(--color-text-3)]">{{ child.secondary_cues|join(" · ") }}</span>
                 {% endif %}
               </span>
               <span class="text-center tabular-nums">{{ child.linked_question_count }}</span>
@@ -190,19 +200,33 @@
           {% set improving_children = children|selectattr("status", "equalto", "improving")|list %}
           {% set strong_children = children|selectattr("status", "equalto", "strong")|list %}
           {% set review_count = concept_review_count_by_concept_id.get(row.concept.id, 0) %}
-          <details class="group overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]" {% if row.status == "weak" or weak_children %}open{% endif %}>
+          {% set row_display_status = mastery_group.display_status_by_concept_id.get(row.concept.id, row.status) %}
+          {% set child_status_counts = mastery_group.child_status_counts_by_concept_id.get(row.concept.id, {}) %}
+          {% set child_state_counts = mastery_group.child_state_counts_by_concept_id.get(row.concept.id, {}) %}
+          <details class="group overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]" {% if row_display_status == "weak" or weak_children %}open{% endif %}>
             <summary class="grid cursor-pointer list-none gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden">
               <div class="min-[821px]:hidden">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <h3 class="font-display text-xl leading-tight">{{ row.concept.name|display_label }}</h3>
-                      <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
+                      <span class="mastery-status mastery-{{ row_display_status }}">{{ row_display_status|display_label }}</span>
                     </div>
                     <p class="mt-1 text-xs font-medium text-[var(--color-text-2)]">
                       {{ row.linked_question_count }}q · {{ row.total_attempts }}a · {{ children|length }} sub-concepts · Last missed
                       {% if row.last_missed_at %}{{ row.last_missed_at.strftime("%b %-d, %Y") }}{% else %}-{% endif %}
                     </p>
+                    {% if child_status_counts %}
+                      <p class="mt-1 text-xs font-medium text-[var(--color-text-3)]">
+                        Child bucket:
+                        {{ child_status_counts.get("weak", 0) }} weak ·
+                        {{ child_status_counts.get("improving", 0) }} improving ·
+                        {{ child_status_counts.get("strong", 0) }} strong
+                      </p>
+                    {% endif %}
+                    {% if row.secondary_cues %}
+                      <p class="mt-1 text-xs font-medium text-[var(--color-text-3)]">{{ row.secondary_cues|join(" · ") }}</p>
+                    {% endif %}
                   </div>
                   <div class="flex shrink-0 items-start gap-3">
                     <span class="text-lg font-semibold tabular-nums">{{ "%.0f"|format(row.accuracy) }}%</span>
@@ -219,12 +243,23 @@
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
                     <h3 class="font-display text-xl leading-tight">{{ row.concept.name|display_label }}</h3>
-                    <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
+                    <span class="mastery-status mastery-{{ row_display_status }}">{{ row_display_status|display_label }}</span>
                     {% if review_count %}
                       <span class="meta-chip">{{ review_count }} open review{{ "s" if review_count != 1 else "" }}</span>
                     {% endif %}
+                    {% if child_status_counts %}
+                      <span class="meta-chip">{{ child_status_counts.get("weak", 0) }} weak children</span>
+                      <span class="meta-chip">{{ child_status_counts.get("improving", 0) }} improving children</span>
+                      <span class="meta-chip">{{ child_status_counts.get("strong", 0) }} strong children</span>
+                    {% endif %}
+                    {% if child_state_counts.get("review_due", 0) %}
+                      <span class="meta-chip">{{ child_state_counts.get("review_due", 0) }} child due</span>
+                    {% endif %}
                   </div>
                   <p class="mt-1 text-sm text-[var(--color-text-2)]">{{ row.linked_question_count }} questions · {{ row.total_attempts }} attempts · {{ children|length }} sub-concepts</p>
+                  {% if row.secondary_cues %}
+                    <p class="mt-1 text-sm font-medium text-[var(--color-text-3)]">{{ row.secondary_cues|join(" · ") }}</p>
+                  {% endif %}
                 </div>
                 <div class="grid grid-cols-2 gap-8 sm:min-w-64 sm:text-right">
                   <div>
@@ -252,7 +287,12 @@
             </summary>
             <div class="grid gap-3 border-t border-[var(--color-border)] bg-[rgba(245,241,234,0.24)] p-3 min-[821px]:p-4">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <p class="text-sm font-medium text-[var(--color-text-2)]">Child concepts are grouped by review priority.</p>
+                <p class="text-sm font-medium text-[var(--color-text-2)]">
+                  Child concepts are grouped by review priority.
+                  {% if child_state_counts %}
+                    {{ child_state_counts.get("mastered", 0) }} mastered · {{ child_state_counts.get("stable", 0) }} stable · {{ child_state_counts.get("review_due", 0) }} due · {{ child_state_counts.get("learning", 0) }} learning · {{ child_state_counts.get("unseen", 0) }} new
+                  {% endif %}
+                </p>
                 <div class="flex flex-wrap gap-2">
                   <form method="post" action="/concepts/{{ row.concept.id }}/practice">
                     <button class="btn-secondary min-h-8 px-3 py-1 text-xs" type="submit">Drill parent</button>
@@ -397,7 +437,26 @@
     <section class="panel">
       <div class="mb-5">
         <p class="eyebrow">Question bank</p>
-        <h2 class="section-title">Reusable questions</h2>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="section-title">Reusable questions</h2>
+          {% if subject.questions %}
+            {% set question_counts = namespace(active=0, draft=0) %}
+            {% for question in subject.questions %}
+              {% if question.status.value == "active" %}
+                {% set question_counts.active = question_counts.active + 1 %}
+              {% elif question.status.value == "draft" %}
+                {% set question_counts.draft = question_counts.draft + 1 %}
+              {% endif %}
+            {% endfor %}
+            <div class="flex flex-wrap gap-2">
+              <span class="meta-chip">{{ subject.questions|length }} total</span>
+              <span class="meta-chip">{{ question_counts.active }} active</span>
+              {% if question_counts.draft %}
+                <span class="meta-chip">{{ question_counts.draft }} draft</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
       </div>
       {% if subject.questions %}
         <ol class="space-y-4">
