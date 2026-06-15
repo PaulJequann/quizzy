@@ -7,12 +7,12 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <link rel="stylesheet" href="https://fonts.bunny.net/css?family=fraunces:500,600,600i,700|source-sans-3:400,500,600&display=swap">
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}?v=20260614-subject-mastery-layout">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}?v=20260614-tailwind-v4-important-pages">
   </head>
   <body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]{% endblock %}">
     {% block site_header %}
     <header class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-      <nav class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+      <nav class="mx-auto grid max-w-6xl gap-4 px-4 py-4 sm:px-6 md:flex md:items-center md:justify-between">
         <a href="/quizzes" class="flex items-center gap-3">
           <span class="font-display grid size-9 place-items-center rounded-lg bg-[var(--color-accent-subtle)] text-xl text-[var(--color-accent-text)]">Q</span>
           <span>
@@ -20,11 +20,11 @@
             <span class="eyebrow block">study drills</span>
           </span>
         </a>
-        <div class="flex items-center gap-2">
-          <a class="btn-secondary" href="/subjects">Subjects</a>
-          <a class="btn-secondary" href="/quizzes">Quizzes</a>
-          <a class="btn-secondary" href="/mastery">Mastery</a>
-          <a class="btn-primary" href="/quizzes/new">Practice</a>
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 md:flex md:items-center">
+          <a class="btn-secondary justify-center text-center" href="/subjects">Subjects</a>
+          <a class="btn-secondary justify-center text-center" href="/quizzes">Quizzes</a>
+          <a class="btn-secondary justify-center text-center" href="/mastery">Mastery</a>
+          <a class="btn-primary justify-center text-center" href="/quizzes/new">Practice</a>
         </div>
       </nav>
     </header>
