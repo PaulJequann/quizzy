@@ -43,7 +43,7 @@
   </section>
 
   {% if mastery_group %}
-    <section class="panel subject-mastery-panel mb-6">
+    <section class="panel mb-6 overflow-clip">
       <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p class="eyebrow">Stewardship</p>
@@ -55,13 +55,16 @@
           <span class="mastery-status mastery-strong">{{ mastery_group.strong_count }} Strong</span>
         </div>
       </div>
-      <div class="mastery-list subject-mastery-list">
+      <div class="-mx-[clamp(1.25rem,3vw,1.75rem)] -mb-[clamp(1.25rem,3vw,1.75rem)] border-t border-[var(--color-border)] bg-[rgba(245,241,234,0.28)]">
         {% for row in mastery_group.mastery_rows %}
           {% set review_count = concept_review_count_by_concept_id.get(row.concept.id, 0) %}
-          <article class="mastery-row" style="margin-left: {{ (row.depth - 1) * 1.25 }}rem">
-            <div class="mastery-row-main">
-              <div>
-                <div class="font-medium">{{ row.concept.name|display_label }}</div>
+          <article
+            class="grid min-h-[4.25rem] grid-cols-1 items-start gap-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-[clamp(1rem,3vw,1.75rem)] py-[0.85rem] last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto]"
+            style="margin-left: {{ (row.depth - 1) * 1.25 }}rem"
+          >
+            <div class="flex min-w-0 items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-medium leading-[1.3] [overflow-wrap:anywhere]">{{ row.concept.name|display_label }}</div>
                 <div class="mt-1 flex flex-wrap gap-2">
                   {% if row.concept.status.value != "active" %}
                     <span class="meta-chip">{{ row.concept.status|display_label }}</span>
@@ -76,37 +79,37 @@
               </div>
               <span class="mastery-status mastery-{{ row.status }}">{{ row.status|display_label }}</span>
             </div>
-            <form class="mt-3" method="post" action="/concepts/{{ row.concept.id }}/practice">
+            <form method="post" action="/concepts/{{ row.concept.id }}/practice">
               <button class="btn-secondary" type="submit">Drill concept</button>
             </form>
-            <dl class="mastery-row-stats">
-              <div>
-                <dt>Questions</dt>
-                <dd>{{ row.linked_question_count }}</dd>
+            <dl class="col-span-full grid grid-cols-2 gap-[0.65rem] min-[560px]:grid-cols-4 lg:grid-cols-7">
+              <div class="min-w-0">
+                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Questions</dt>
+                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.linked_question_count }}</dd>
               </div>
-              <div>
-                <dt>Direct</dt>
-                <dd>{{ row.direct_question_count }}</dd>
+              <div class="min-w-0">
+                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Direct</dt>
+                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.direct_question_count }}</dd>
               </div>
-              <div>
-                <dt>Descendant</dt>
-                <dd>{{ row.descendant_question_count }}</dd>
+              <div class="min-w-0">
+                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Descendant</dt>
+                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.descendant_question_count }}</dd>
               </div>
-              <div>
-                <dt>Accuracy</dt>
-                <dd>{{ "%.0f"|format(row.accuracy) }}%</dd>
+              <div class="min-w-0">
+                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Accuracy</dt>
+                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ "%.0f"|format(row.accuracy) }}%</dd>
               </div>
-              <div>
-                <dt>Primary evidence</dt>
-                <dd>{{ row.primary_attempts }}</dd>
+              <div class="min-w-0">
+                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Primary evidence</dt>
+                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.primary_attempts }}</dd>
               </div>
-              <div>
-                <dt>Secondary evidence</dt>
-                <dd>{{ row.secondary_attempts }}</dd>
+              <div class="min-w-0">
+                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Secondary evidence</dt>
+                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">{{ row.secondary_attempts }}</dd>
               </div>
-              <div>
-                <dt>Last missed</dt>
-                <dd>
+              <div class="min-w-0">
+                <dt class="text-[0.68rem] leading-[1.2] font-bold tracking-[0.08em] text-[var(--color-text-3)] uppercase">Last missed</dt>
+                <dd class="mt-[0.15rem] text-[0.95rem] font-semibold text-[var(--color-text)] tabular-nums">
                   {% if row.last_missed_at %}
                     {{ row.last_missed_at.strftime("%b %-d, %Y") }}
                   {% else %}

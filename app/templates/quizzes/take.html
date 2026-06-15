@@ -5,16 +5,16 @@
 {% block main_class %}mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 lg:py-12{% endblock %}
 {% block content %}
   <section data-quiz-flow>
-    <div class="runner-topbar">
+    <div class="mb-6 flex items-start justify-between gap-4">
       <div>
-        <p class="runner-kicker">{{ quiz.topic or "quiz" }}</p>
-        <h1>{{ quiz.title }}</h1>
+        <p class="mb-[0.3rem] text-[0.72rem] font-semibold tracking-[0.1em] text-[var(--color-accent-text)] uppercase">{{ quiz.topic or "quiz" }}</p>
+        <h1 class="font-display text-[clamp(1.4rem,3vw,1.8rem)] leading-[1.2] font-semibold">{{ quiz.title }}</h1>
       </div>
-      <a class="runner-quit" href="/quizzes/{{ quiz.id }}">Quit</a>
+      <a class="shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-[0.85rem] font-medium text-[var(--color-text-2)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-text)]" href="/quizzes/{{ quiz.id }}">Quit</a>
     </div>
 
-    <div class="runner-progress">
-      <span class="runner-count"><span data-current-number>1</span> of {{ question_steps|length }}</span>
+    <div class="mb-8 flex items-center gap-[0.85rem]">
+      <span class="whitespace-nowrap text-[0.8rem] font-medium text-[var(--color-text-2)] tabular-nums"><span data-current-number>1</span> of {{ question_steps|length }}</span>
       {% if question_steps|length <= 20 %}
         <div class="ledger" data-ledger aria-hidden="true">
           {% for step in question_steps %}
@@ -28,36 +28,36 @@
       {% endif %}
     </div>
 
-    <form class="runner-form" method="post" action="/quizzes/{{ quiz.id }}/submit">
+    <form method="post" action="/quizzes/{{ quiz.id }}/submit">
       {% for step in question_steps %}
         {% set question = step.question %}
         <fieldset
-          class="runner-step"
+          class="m-0 border-0 p-0"
           data-question-step
           data-step-index="{{ loop.index0 }}"
           {% if not loop.first %}hidden{% endif %}
         >
           <legend class="sr-only">Question {{ loop.index }} of {{ question_steps|length }}</legend>
-          <div class="runner-question">
-            <p>{{ question.stem }}</p>
+          <div>
+            <p class="font-display text-[clamp(1.2rem,2.5vw,1.4rem)] leading-[1.4] font-medium">{{ question.stem }}</p>
           </div>
-          <div class="runner-options">
+          <div class="mt-6 grid gap-[0.7rem]">
             {% for choice in step.choices %}
-              <label class="runner-option">
-                <input type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" required>
-                <span class="runner-key" aria-hidden="true">{{ loop.index }}</span>
-                <span class="runner-option-text">{{ choice.text }}</span>
+              <label class="grid cursor-pointer grid-cols-[auto_1fr] items-center gap-[0.85rem] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-[1.1rem] py-[0.95rem] shadow-[var(--shadow-card)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-2)] has-[input:checked]:border-[var(--color-accent)] has-[input:checked]:bg-[var(--color-accent-subtle)] has-[input:checked]:shadow-[0_0_0_1px_var(--color-accent)] has-[input:focus-visible]:border-[var(--color-accent)] has-[input:focus-visible]:shadow-[0_0_0_3px_var(--color-accent-subtle)]">
+                <input class="peer pointer-events-none absolute opacity-0" type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" required>
+                <span class="grid size-6 place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[0.78rem] font-semibold text-[var(--color-text-2)] tabular-nums transition-colors peer-checked:border-[var(--color-accent)] peer-checked:bg-[var(--color-accent)] peer-checked:text-white" aria-hidden="true">{{ loop.index }}</span>
+                <span class="text-base leading-[1.4] font-medium">{{ choice.text }}</span>
               </label>
             {% endfor %}
           </div>
         </fieldset>
       {% endfor %}
 
-      <div class="runner-actions">
-        <button class="runner-back" type="button" data-back-button disabled>Back</button>
-        <p class="runner-hint" data-runner-hint>Choose an answer to continue.</p>
-        <button class="runner-next" type="button" data-next-button>Next</button>
-        <button class="runner-next" type="submit" data-submit-button hidden>Submit</button>
+      <div class="mt-8 grid grid-cols-2 items-center gap-4 sm:grid-cols-[auto_1fr_auto]">
+        <button class="min-h-11 w-full cursor-pointer rounded-[0.6rem] border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-2.5 text-[0.9rem] font-semibold text-[var(--color-text-2)] transition-colors hover:not-disabled:border-[var(--color-border-strong)] hover:not-disabled:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-accent-subtle)] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto" type="button" data-back-button disabled>Back</button>
+        <p class="col-span-full row-start-1 text-center text-[0.85rem] text-[var(--color-text-3)] transition-colors sm:col-span-1 sm:row-auto" data-runner-hint>Choose an answer to continue.</p>
+        <button class="min-h-11 w-full min-w-[8.5rem] cursor-pointer rounded-[0.6rem] border border-[var(--color-accent)] bg-[var(--color-accent)] px-5 py-2.5 text-[0.9rem] font-semibold text-white transition-colors hover:not-disabled:border-[var(--color-accent-hover)] hover:not-disabled:bg-[var(--color-accent-hover)] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-accent-subtle)] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto" type="button" data-next-button>Next</button>
+        <button class="min-h-11 w-full min-w-[8.5rem] cursor-pointer rounded-[0.6rem] border border-[var(--color-accent)] bg-[var(--color-accent)] px-5 py-2.5 text-[0.9rem] font-semibold text-white transition-colors hover:not-disabled:border-[var(--color-accent-hover)] hover:not-disabled:bg-[var(--color-accent-hover)] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-accent-subtle)] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto" type="submit" data-submit-button hidden>Submit</button>
       </div>
     </form>
   </section>
@@ -100,7 +100,7 @@
         submitButton.hidden = !isLast;
         nextButton.disabled = !hasAnswer;
         submitButton.disabled = !hasAnswer;
-        hint.classList.remove("is-flash");
+        hint.classList.remove("text-[var(--color-error)]");
         hint.textContent = hasAnswer
           ? isLast ? "Ready to grade this attempt." : "Answer saved for this question."
           : "Choose an answer to continue.";
@@ -108,7 +108,7 @@
 
       const advance = () => {
         if (!answered(steps[activeIndex])) {
-          hint.classList.add("is-flash");
+          hint.classList.add("text-[var(--color-error)]");
           steps[activeIndex].querySelector("input[type='radio']").reportValidity();
           return;
         }

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Build practice · Quizzy{% endblock %}
 {% block content %}
-  <div class="practice-builder-heading">
+  <div class="max-w-3xl">
     <p class="eyebrow">Practice builder</p>
     <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">Build a focused practice run.</h1>
   </div>
@@ -13,10 +13,10 @@
   {% endif %}
 
   {% if subjects %}
-    <form class="practice-builder" method="post" action="/quizzes" data-practice-builder>
+    <form class="mt-8 grid items-start gap-4 min-[901px]:grid-cols-[minmax(0,1fr)_minmax(17rem,0.42fr)]" method="post" action="/quizzes" data-practice-builder>
       {% set initial_subject_id = subjects[0].id %}
-      <section class="panel practice-builder-main">
-        <div class="builder-row">
+      <section class="panel grid gap-[1.35rem]">
+        <div class="max-w-md max-[640px]:max-w-none">
           <label class="field-label">
             Subject
             <select class="field" name="subject_id" data-subject-select required>
@@ -27,9 +27,9 @@
           </label>
         </div>
 
-        <fieldset class="builder-fieldset">
-          <legend>Concepts</legend>
-          <div class="concept-pick-grid" data-concept-list>
+        <fieldset class="grid min-w-0 gap-[0.7rem]">
+          <legend class="text-[0.82rem] font-semibold text-[var(--color-text-2)]">Concepts</legend>
+          <div class="flex flex-wrap gap-[0.55rem]" data-concept-list>
             {% for subject in subjects %}
               {% for concept in subject.concepts %}
                 <label class="concept-pick" data-subject-id="{{ subject.id }}" {% if subject.id != initial_subject_id %}hidden{% endif %}>
@@ -39,12 +39,12 @@
               {% endfor %}
             {% endfor %}
           </div>
-          <p class="builder-empty" data-empty-concepts hidden>No concepts available for this subject.</p>
+          <p class="text-[0.9rem] text-[var(--color-text-3)]" data-empty-concepts hidden>No concepts available for this subject.</p>
         </fieldset>
 
-        <div class="builder-options-grid">
-          <fieldset class="builder-fieldset">
-            <legend>Questions</legend>
+        <div class="grid gap-4 min-[641px]:grid-cols-[minmax(0,0.46fr)_minmax(0,1fr)]">
+          <fieldset class="grid min-w-0 gap-[0.7rem]">
+            <legend class="text-[0.82rem] font-semibold text-[var(--color-text-2)]">Questions</legend>
             <div class="segmented-control segmented-control-three">
               {% for count in count_options %}
                 <label>
@@ -55,8 +55,8 @@
             </div>
           </fieldset>
 
-          <fieldset class="builder-fieldset">
-            <legend>Difficulty</legend>
+          <fieldset class="grid min-w-0 gap-[0.7rem]">
+            <legend class="text-[0.82rem] font-semibold text-[var(--color-text-2)]">Difficulty</legend>
             <div class="segmented-control">
               <label>
                 <input type="radio" name="difficulty" value="" checked data-difficulty-input>
@@ -72,28 +72,28 @@
           </fieldset>
         </div>
 
-        <button class="btn-primary builder-submit" type="submit">Start practice</button>
+        <button class="btn-primary w-fit min-w-40 max-[640px]:w-full max-[640px]:max-w-none" type="submit">Start practice</button>
       </section>
 
-      <aside class="panel practice-builder-summary" aria-live="polite">
+      <aside class="panel order-first grid gap-4 min-[901px]:sticky min-[901px]:top-20 min-[901px]:order-none" aria-live="polite">
         <p class="eyebrow">Selection</p>
-        <h2 class="font-display" data-summary-title>{{ subjects[0].name }} Quick Practice</h2>
-        <dl>
-          <div>
-            <dt>Subject</dt>
-            <dd data-summary-subject>{{ subjects[0].name }}</dd>
+        <h2 class="font-display text-[1.35rem] leading-[1.2]" data-summary-title>{{ subjects[0].name }} Quick Practice</h2>
+        <dl class="grid gap-3">
+          <div class="grid gap-[0.12rem]">
+            <dt class="text-[0.76rem] font-semibold text-[var(--color-text-3)] uppercase">Subject</dt>
+            <dd class="font-semibold text-[var(--color-text-2)] [overflow-wrap:anywhere]" data-summary-subject>{{ subjects[0].name }}</dd>
           </div>
-          <div>
-            <dt>Concepts</dt>
-            <dd data-summary-concepts>All available concepts</dd>
+          <div class="grid gap-[0.12rem]">
+            <dt class="text-[0.76rem] font-semibold text-[var(--color-text-3)] uppercase">Concepts</dt>
+            <dd class="font-semibold text-[var(--color-text-2)] [overflow-wrap:anywhere]" data-summary-concepts>All available concepts</dd>
           </div>
-          <div>
-            <dt>Questions</dt>
-            <dd><span data-summary-count>10</span></dd>
+          <div class="grid gap-[0.12rem]">
+            <dt class="text-[0.76rem] font-semibold text-[var(--color-text-3)] uppercase">Questions</dt>
+            <dd class="font-semibold text-[var(--color-text-2)] [overflow-wrap:anywhere]"><span data-summary-count>10</span></dd>
           </div>
-          <div>
-            <dt>Difficulty</dt>
-            <dd data-summary-difficulty>Any</dd>
+          <div class="grid gap-[0.12rem]">
+            <dt class="text-[0.76rem] font-semibold text-[var(--color-text-3)] uppercase">Difficulty</dt>
+            <dd class="font-semibold text-[var(--color-text-2)] [overflow-wrap:anywhere]" data-summary-difficulty>Any</dd>
           </div>
         </dl>
       </aside>
