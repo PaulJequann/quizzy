@@ -19,9 +19,10 @@ def test_mastery_page_marks_parent_and_child_concepts(
     response = client.get("/mastery")
 
     assert response.status_code == 200
-    assert "Parent concept" in response.text
-    assert "Sub-concept" in response.text
+    assert "Parent concept" not in response.text
+    assert "Sub-concept" not in response.text
     assert 'data-depth="2"' in response.text
+    assert 'aria-hidden="true"' in response.text
 
 
 def _concept(db_session: Session, name: str) -> Concept:
