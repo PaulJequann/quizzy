@@ -449,7 +449,8 @@ def test_subject_pages_show_namespace_workspace(client: TestClient) -> None:
 
     detail_response = client.get("/subjects/1")
     assert detail_response.status_code == 200
-    assert "Concept tree" in detail_response.text
+    assert "Overall Mastery" in detail_response.text
+    assert "Study options" in detail_response.text
     assert "Start quick practice" in detail_response.text
     assert "Save concept" in detail_response.text
     assert "Pytest Basics" in detail_response.text
