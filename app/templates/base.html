@@ -11,8 +11,13 @@
   </head>
   <body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]{% endblock %}">
     {% block site_header %}
+    {% set current_path = request.url.path %}
+    {% set subjects_active = current_path.startswith("/subjects") %}
+    {% set practice_active = current_path == "/quizzes/new" %}
+    {% set quizzes_active = current_path.startswith("/quizzes") and not practice_active %}
+    {% set mastery_active = current_path.startswith("/mastery") %}
     <header class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-      <nav class="mx-auto grid max-w-6xl gap-4 px-4 py-4 sm:px-6 md:flex md:items-center md:justify-between">
+      <nav class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6" aria-label="Primary navigation">
         <a href="/quizzes" class="flex items-center gap-3">
           <span class="font-display grid size-9 place-items-center rounded-lg bg-[var(--color-accent-subtle)] text-xl text-[var(--color-accent-text)]">Q</span>
           <span>
@@ -20,16 +25,102 @@
             <span class="eyebrow block">study drills</span>
           </span>
         </a>
-        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 md:flex md:items-center">
-          <a class="btn-secondary justify-center text-center" href="/subjects">Subjects</a>
-          <a class="btn-secondary justify-center text-center" href="/quizzes">Quizzes</a>
-          <a class="btn-secondary justify-center text-center" href="/mastery">Mastery</a>
-          <a class="btn-primary justify-center text-center" href="/quizzes/new">Practice</a>
+        <div class="hidden items-center gap-8 md:flex">
+          <a class="group relative flex min-h-12 items-center gap-2 px-1 text-sm font-semibold {% if subjects_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:text-[var(--color-text)]{% endif %}" href="/subjects" {% if subjects_active %}aria-current="page"{% endif %}>
+            <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path>
+              <path d="M4 5.5v16"></path>
+              <path d="M9 7h6"></path>
+              <path d="M9 11h7"></path>
+            </svg>
+            <span>Subjects</span>
+            <span class="absolute inset-x-0 -bottom-4 h-0.5 rounded-full {% if subjects_active %}bg-[var(--color-accent)]{% else %}bg-transparent group-hover:bg-[var(--color-border-strong)]{% endif %}"></span>
+          </a>
+          <a class="group relative flex min-h-12 items-center gap-2 px-1 text-sm font-semibold {% if quizzes_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:text-[var(--color-text)]{% endif %}" href="/quizzes" {% if quizzes_active %}aria-current="page"{% endif %}>
+            <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="6" y="3" width="12" height="18" rx="2"></rect>
+              <path d="M9 7h6"></path>
+              <path d="M9 11h1"></path>
+              <path d="M13 11h2"></path>
+              <path d="M9 15h1"></path>
+              <path d="M13 15h2"></path>
+            </svg>
+            <span>Quizzes</span>
+            <span class="absolute inset-x-0 -bottom-4 h-0.5 rounded-full {% if quizzes_active %}bg-[var(--color-accent)]{% else %}bg-transparent group-hover:bg-[var(--color-border-strong)]{% endif %}"></span>
+          </a>
+          <a class="group relative flex min-h-12 items-center gap-2 px-1 text-sm font-semibold {% if mastery_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:text-[var(--color-text)]{% endif %}" href="/mastery" {% if mastery_active %}aria-current="page"{% endif %}>
+            <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 20V10"></path>
+              <path d="M12 20V4"></path>
+              <path d="M19 20v-7"></path>
+              <path d="M3 20h18"></path>
+              <path d="m16 8 3-3 2 2"></path>
+            </svg>
+            <span>Mastery</span>
+            <span class="absolute inset-x-0 -bottom-4 h-0.5 rounded-full {% if mastery_active %}bg-[var(--color-accent)]{% else %}bg-transparent group-hover:bg-[var(--color-border-strong)]{% endif %}"></span>
+          </a>
+          <a class="group relative flex min-h-12 items-center gap-2 px-1 text-sm font-semibold {% if practice_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:text-[var(--color-text)]{% endif %}" href="/quizzes/new" {% if practice_active %}aria-current="page"{% endif %}>
+            <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="8"></circle>
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 4v3"></path>
+              <path d="M20 12h-3"></path>
+            </svg>
+            <span>Practice</span>
+            <span class="absolute inset-x-0 -bottom-4 h-0.5 rounded-full {% if practice_active %}bg-[var(--color-accent)]{% else %}bg-transparent group-hover:bg-[var(--color-border-strong)]{% endif %}"></span>
+          </a>
         </div>
       </nav>
     </header>
+    <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_32px_rgba(34,30,24,0.08)] md:hidden" aria-label="Primary mobile navigation">
+      <div class="mx-auto grid max-w-md grid-cols-4 gap-1">
+        <a class="relative grid min-h-14 place-items-center gap-1 rounded-md text-[0.72rem] font-semibold {% if subjects_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/subjects" {% if subjects_active %}aria-current="page"{% endif %}>
+          <span class="absolute top-0 h-0.5 w-10 rounded-full {% if subjects_active %}bg-[var(--color-accent)]{% else %}bg-transparent{% endif %}"></span>
+          <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path>
+            <path d="M4 5.5v16"></path>
+            <path d="M9 7h6"></path>
+            <path d="M9 11h7"></path>
+          </svg>
+          <span>Subjects</span>
+        </a>
+        <a class="relative grid min-h-14 place-items-center gap-1 rounded-md text-[0.72rem] font-semibold {% if quizzes_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/quizzes" {% if quizzes_active %}aria-current="page"{% endif %}>
+          <span class="absolute top-0 h-0.5 w-10 rounded-full {% if quizzes_active %}bg-[var(--color-accent)]{% else %}bg-transparent{% endif %}"></span>
+          <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="3" width="12" height="18" rx="2"></rect>
+            <path d="M9 7h6"></path>
+            <path d="M9 11h1"></path>
+            <path d="M13 11h2"></path>
+            <path d="M9 15h1"></path>
+            <path d="M13 15h2"></path>
+          </svg>
+          <span>Quizzes</span>
+        </a>
+        <a class="relative grid min-h-14 place-items-center gap-1 rounded-md text-[0.72rem] font-semibold {% if mastery_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/mastery" {% if mastery_active %}aria-current="page"{% endif %}>
+          <span class="absolute top-0 h-0.5 w-10 rounded-full {% if mastery_active %}bg-[var(--color-accent)]{% else %}bg-transparent{% endif %}"></span>
+          <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 20V10"></path>
+            <path d="M12 20V4"></path>
+            <path d="M19 20v-7"></path>
+            <path d="M3 20h18"></path>
+            <path d="m16 8 3-3 2 2"></path>
+          </svg>
+          <span>Mastery</span>
+        </a>
+        <a class="relative grid min-h-14 place-items-center gap-1 rounded-md text-[0.72rem] font-semibold {% if practice_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/quizzes/new" {% if practice_active %}aria-current="page"{% endif %}>
+          <span class="absolute top-0 h-0.5 w-10 rounded-full {% if practice_active %}bg-[var(--color-accent)]{% else %}bg-transparent{% endif %}"></span>
+          <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="8"></circle>
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M12 4v3"></path>
+            <path d="M20 12h-3"></path>
+          </svg>
+          <span>Practice</span>
+        </a>
+      </div>
+    </nav>
     {% endblock %}
-    <main class="{% block main_class %}mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-10{% endblock %}">
+    <main class="{% block main_class %}mx-auto max-w-6xl px-4 pb-28 pt-8 sm:px-6 md:pb-8 lg:py-10{% endblock %}">
       {% block content %}{% endblock %}
     </main>
     {% block scripts %}{% endblock %}
