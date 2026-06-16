@@ -14,7 +14,12 @@ from app.services.concept_service import normalize_concept_name
 from app.services.grading_service import submit_attempt
 from app.services.quiz_service import get_or_create_subject
 from tests.db_utils import clear_database_caches, reset_database
-from tests.test_mcp_integration import _approved_invoke, _invoke, write_note
+from tests.test_mcp_integration import (
+    _approved_invoke,
+    _invoke,
+    _mcp_ingest_note_content,
+    write_note,
+)
 
 pytestmark = pytest.mark.mcp
 
@@ -65,13 +70,7 @@ def test_mcp_question_first_generation_practice_and_repair_queue(mcp_database, t
 
 def _create_bank_question_with_mcp(server, tmp_path) -> tuple[dict, int]:
     note_path = write_note(tmp_path / "aws-s3.md")
-    ingest = asyncio.run(
-        _invoke(
-            server,
-            "ingest_obsidian_note",
-            {"path": str(note_path), "subject_name": "AWS"},
-        )
-    )
+    ingest = _mcp_ingest_note_content(server, note_path, source_key="aws/aws-s3.md")
     _seed_active_concept("AWS", "S3 storage classes")
     created = asyncio.run(
         _approved_invoke(

@@ -20,6 +20,9 @@ from app.schemas import ChoiceCreate, ConceptProposalInput, QuestionCreate, Quiz
 from app.services import concept_service
 from app.services.text_service import slugify
 
+SUBJECT_NAME_MAX_LENGTH = 160
+QUIZ_TITLE_MAX_LENGTH = 200
+
 
 @dataclass(frozen=True)
 class QuestionFormInput:
@@ -52,7 +55,7 @@ def get_quiz(db: Session, quiz_id: int) -> Quiz | None:
 def create_quiz(db: Session, data: QuizCreate) -> Quiz:
     primary_subject = get_or_create_subject(db, data.topic) if data.topic.strip() else None
     quiz = Quiz(
-        title=data.title.strip(),
+        title=validate_quiz_title(data.title),
         description=data.description.strip(),
         primary_subject=primary_subject,
         difficulty=data.difficulty,
@@ -87,7 +90,7 @@ def parse_concept_names(raw_concepts: str | None) -> list[str]:
 
 
 def get_or_create_subject(db: Session, name: str) -> Subject:
-    subject_name = name.strip() or "General"
+    subject_name = normalize_subject_name(name)
     slug = slugify(subject_name)
     existing = db.scalar(select(Subject).where(Subject.slug == slug))
     if existing is not None:
@@ -96,6 +99,22 @@ def get_or_create_subject(db: Session, name: str) -> Subject:
     subject = Subject(name=subject_name, slug=slug)
     db.add(subject)
     return subject
+
+
+def normalize_subject_name(name: str) -> str:
+    subject_name = name.strip() or "General"
+    if len(subject_name) > SUBJECT_NAME_MAX_LENGTH:
+        raise ValueError(f"subject_name must be at most {SUBJECT_NAME_MAX_LENGTH} characters.")
+    return subject_name
+
+
+def validate_quiz_title(title: str) -> str:
+    normalized = title.strip()
+    if not normalized:
+        raise ValueError("Quiz title is required.")
+    if len(normalized) > QUIZ_TITLE_MAX_LENGTH:
+        raise ValueError(f"Quiz title must be at most {QUIZ_TITLE_MAX_LENGTH} characters.")
+    return normalized
 
 
 def create_question(db: Session, quiz: Quiz, data: QuestionCreate) -> Question:
@@ -119,7 +138,21 @@ def create_review_quiz_from_concepts(db: Session, concept_ids: list[int]) -> Qui
     if not concept_ids:
         raise ValueError("At least one concept is required to create a review quiz.")
 
-    concepts = {
+    concepts = _review_concepts_by_id(db, concept_ids)
+    source_questions = _review_source_questions(concepts, concept_ids)
+    if not source_questions:
+        raise ValueError("No questions are tagged with the queued concepts.")
+
+    quiz = _new_review_quiz(source_questions)
+    _attach_review_questions(quiz, source_questions)
+    db.add(quiz)
+    db.commit()
+    db.refresh(quiz)
+    return quiz
+
+
+def _review_concepts_by_id(db: Session, concept_ids: list[int]) -> dict[int, Concept]:
+    return {
         concept.id: concept
         for concept in db.scalars(
             select(Concept)
@@ -133,26 +166,39 @@ def create_review_quiz_from_concepts(db: Session, concept_ids: list[int]) -> Qui
         )
     }
 
+
+def _review_source_questions(
+    concepts: dict[int, Concept],
+    concept_ids: list[int],
+) -> list[Question]:
     source_questions: list[Question] = []
     seen_question_ids: set[int] = set()
     for concept_id in concept_ids:
         concept = concepts.get(concept_id)
-        if concept is None:
-            continue
+        if concept is not None:
+            _append_unseen_questions(source_questions, seen_question_ids, concept)
+    return source_questions
 
-        ordered_questions = sorted(
-            concept.questions,
-            key=lambda question: (question.order_index, question.id),
-        )
-        for question in ordered_questions:
-            if question.id in seen_question_ids:
-                continue
+
+def _append_unseen_questions(
+    source_questions: list[Question],
+    seen_question_ids: set[int],
+    concept: Concept,
+) -> None:
+    for question in _ordered_concept_questions(concept):
+        if question.id not in seen_question_ids:
             seen_question_ids.add(question.id)
             source_questions.append(question)
 
-    if not source_questions:
-        raise ValueError("No questions are tagged with the queued concepts.")
 
+def _ordered_concept_questions(concept: Concept) -> list[Question]:
+    return sorted(
+        concept.questions,
+        key=lambda question: (question.order_index, question.id),
+    )
+
+
+def _new_review_quiz(source_questions: list[Question]) -> Quiz:
     quiz = Quiz(
         title="Weak Concept Review",
         description="A deterministic review quiz built from weak and improving concept tags.",
@@ -163,15 +209,14 @@ def create_review_quiz_from_concepts(db: Session, concept_ids: list[int]) -> Qui
     linked_subject_ids = {question.subject_id for question in source_questions}
     if len(linked_subject_ids) == 1:
         quiz.primary_subject = source_questions[0].subject
+    return quiz
+
+
+def _attach_review_questions(quiz: Quiz, source_questions: list[Question]) -> None:
     for question_index, source_question in enumerate(source_questions, start=1):
         quiz.question_links.append(
             QuizQuestion(question=source_question, order_index=question_index)
         )
-
-    db.add(quiz)
-    db.commit()
-    db.refresh(quiz)
-    return quiz
 
 
 def form_quiz_create(title: str, description: str, topic: str, difficulty: str) -> QuizCreate:

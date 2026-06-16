@@ -24,11 +24,17 @@ def test_migrations_create_question_first_schema(test_database_url, monkeypatch)
     set_database_url(test_database_url, monkeypatch)
     inspector = inspect(get_engine())
 
-    assert {"question_generation_batches", "question_review_items"}.issubset(
-        inspector.get_table_names()
-    )
-    assert {"generation_batch_id", "health_state", "source_excerpt"}.issubset(
+    assert {
+        "question_generation_batches",
+        "question_review_items",
+        "source_document_snapshots",
+        "mcp_tool_invocations",
+    }.issubset(inspector.get_table_names())
+    assert {"generation_batch_id", "health_state", "source_excerpt", "source_snapshot_id"}.issubset(
         _column_names(inspector, "questions")
+    )
+    assert {"source_key", "current_snapshot_id", "current_content_sha256"}.issubset(
+        _column_names(inspector, "source_documents")
     )
     assert "session_type" in _column_names(inspector, "attempts")
     assert {

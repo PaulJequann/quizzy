@@ -15,6 +15,7 @@ from app.models import (
     QuestionHealthState,
     QuestionReviewItem,
     QuestionStatus,
+    SourceDocument,
 )
 
 REVIEW_STATUS_OPEN = "open"
@@ -236,7 +237,8 @@ def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, 
             selectinload(Question.subject),
             selectinload(Question.choices),
             selectinload(Question.concepts),
-            selectinload(Question.source_document),
+            selectinload(Question.source_document).selectinload(SourceDocument.current_snapshot),
+            selectinload(Question.source_snapshot),
             selectinload(Question.review_items),
         )
     )
@@ -510,6 +512,22 @@ def _source_document_context(question: Question) -> dict[str, Any] | None:
     return {
         "id": document.id,
         "title": document.title,
-        "path": document.path,
-        "content": document.content,
+        "source_key": document.source_key,
+        "current_snapshot_id": document.current_snapshot_id,
+        "source_snapshot_id": question.source_snapshot_id,
+        "source_changed": question.source_snapshot_id != document.current_snapshot_id,
+        "original_content": _snapshot_content(question),
+        "current_content": _document_current_content(document),
     }
+
+
+def _snapshot_content(question: Question) -> str | None:
+    if question.source_snapshot is None:
+        return None
+    return question.source_snapshot.content
+
+
+def _document_current_content(document: SourceDocument) -> str:
+    if document.current_snapshot is None:
+        return document.content
+    return document.current_snapshot.content

@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.services import concept_planning_service, concept_service, question_bank_service
 from app.services.question_bank_service import BatchMetadata, QuestionBankCreateInput
-from app.services.quiz_service import get_or_create_subject
+from app.services.quiz_service import get_or_create_subject, validate_quiz_title
 from app.services.settings_service import get_default_difficulty
 from app.services.text_service import slugify
 
@@ -54,6 +54,13 @@ class GeneratedQuestionInput(BaseModel):
     source_document_id: int | None = Field(
         default=None,
         description="Ingested source document id that grounds this generated question.",
+    )
+    source_snapshot_id: int | None = Field(
+        default=None,
+        description=(
+            "Optional source document snapshot id. Defaults to the source document's current "
+            "snapshot when source_document_id is provided."
+        ),
     )
     source_reference: str | None = Field(
         default=None,
@@ -165,7 +172,7 @@ def create_generated_quiz(
 ) -> Quiz:
     subject = get_or_create_subject(db, quiz_input.subject_name)
     quiz = Quiz(
-        title=quiz_input.title.strip(),
+        title=validate_quiz_title(quiz_input.title),
         description=quiz_input.description.strip(),
         primary_subject=subject,
         difficulty=quiz_input.difficulty or default_difficulty(db),
@@ -294,6 +301,7 @@ def _generated_question_to_dict(question: Question) -> dict[str, Any]:
         "status": question.status.value,
         "source_reference": question.source_reference,
         "source_document_id": question.source_document_id,
+        "source_snapshot_id": question.source_snapshot_id,
         "source_excerpt": question.source_excerpt,
         "generation_batch_id": question.generation_batch_id,
         "health_state": question.health_state.value,
