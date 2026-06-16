@@ -87,11 +87,27 @@ def test_upsert_source_document_from_content_uses_portable_obsidian_uri(
     assert report.document.obsidian_uri == ("obsidian://open?vault=Study%20Vault&file=aws/route53")
 
 
+def test_upsert_source_document_from_content_bounds_extracted_title(db_session: Session):
+    title = "S" * 260
+    report = source_service.upsert_source_document_from_content(
+        db_session,
+        source_service.SourceDocumentContentInput(
+            source_key="aws/long-title.md",
+            content=f"---\ntitle: {title}\n---\n# Fallback\n\nBody",
+            subject_name="AWS",
+        ),
+    )
+
+    assert len(report.document.title) == 240
+    assert report.document.title.endswith("...")
+
+
 @pytest.mark.parametrize(
     ("case", "error_match"),
     [
         ("hash_mismatch", "content_sha256"),
         ("absolute_source_key", "portable key"),
+        ("long_source_key", "source_key"),
     ],
 )
 def test_upsert_source_document_from_content_rejects_invalid_inputs(
@@ -135,6 +151,29 @@ def test_reingesting_changed_content_creates_new_snapshot_and_marks_stale_questi
     assert updated.created_snapshot is True
     assert updated.stale_question_count == 1
     assert db_session.scalar(select(func.count(SourceDocumentSnapshot.id))) == 2
+
+
+def test_create_questions_rejects_snapshot_from_another_source_document(
+    db_session: Session, tmp_path
+):
+    s3_report = _ingest_note_content(db_session, write_note(tmp_path / "s3.md"), "aws/s3.md")
+    route53_report = _ingest_note_content(
+        db_session,
+        write_note(tmp_path / "route53.md"),
+        "aws/route53.md",
+    )
+    question = _s3_storage_question(s3_report.document.id)
+    question["source_snapshot_id"] = route53_report.snapshot.id
+
+    with pytest.raises(ValueError, match="source_snapshot_id must belong"):
+        generation_service.create_generated_questions(
+            db_session,
+            generation_service.QuestionBankCreateInput(
+                subject_name="AWS",
+                questions=[generation_service.GeneratedQuestionInput.model_validate(question)],
+                approve_new_concepts=True,
+            ),
+        )
 
 
 def test_mcp_source_tools_are_content_only(mcp_database):
@@ -242,6 +281,11 @@ def _invalid_ingest_input(case: str, note_path: Path) -> source_service.SourceDo
             content=note_path.read_text(encoding="utf-8"),
             subject_name="AWS",
         ),
+        "long_source_key": source_service.SourceDocumentContentInput(
+            source_key=f"aws/{'s' * 1024}.md",
+            content=note_path.read_text(encoding="utf-8"),
+            subject_name="AWS",
+        ),
     }
     return input_by_case[case]
 
@@ -305,9 +349,8 @@ def _start_http_mcp_process(port: int) -> subprocess.Popen:
         ],
         cwd=Path(__file__).resolve().parents[1],
         env=os.environ.copy(),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 

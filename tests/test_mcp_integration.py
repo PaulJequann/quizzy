@@ -274,6 +274,44 @@ def test_default_difficulty_falls_back_to_environment(db_session: Session, monke
         get_settings.cache_clear()
 
 
+def test_generated_quiz_rejects_overlong_title(db_session: Session):
+    with pytest.raises(ValueError, match="Quiz title"):
+        generation_service.create_generated_quiz(
+            db_session,
+            GeneratedQuizCreateInput(title="Q" * 201, subject_name="AWS"),
+        )
+
+
+def test_generated_questions_reject_overlong_subject_name(db_session: Session):
+    question = GeneratedQuestionInput(
+        stem="Which S3 storage class is intended for archival data?",
+        choices=[
+            GeneratedChoiceInput(text="S3 Glacier", is_correct=True),
+            GeneratedChoiceInput(text="S3 Standard because it is always cheapest"),
+            GeneratedChoiceInput(text="CloudFront because it stores all origin data permanently"),
+            GeneratedChoiceInput(text="IAM because policies retain objects"),
+        ],
+        concept_proposals=[
+            GeneratedConceptProposal(
+                name="S3 storage classes",
+                role=ConceptAssignmentRole.PRIMARY,
+                rationale="Reusable S3 storage-class learning objective.",
+            )
+        ],
+        source_reference="aws/s3.md",
+    )
+
+    with pytest.raises(ValueError, match="subject_name"):
+        generation_service.create_generated_questions(
+            db_session,
+            generation_service.QuestionBankCreateInput(
+                subject_name="S" * 161,
+                questions=[question],
+                approve_new_concepts=True,
+            ),
+        )
+
+
 def test_generated_questions_require_one_correct_choice_and_source(db_session: Session):
     quiz = generation_service.create_generated_quiz(
         db_session, GeneratedQuizCreateInput(title="Generated", subject_name="AWS")

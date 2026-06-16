@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.services import concept_planning_service, concept_service, question_bank_service
 from app.services.question_bank_service import BatchMetadata, QuestionBankCreateInput
-from app.services.quiz_service import get_or_create_subject
+from app.services.quiz_service import get_or_create_subject, validate_quiz_title
 from app.services.settings_service import get_default_difficulty
 from app.services.text_service import slugify
 
@@ -172,7 +172,7 @@ def create_generated_quiz(
 ) -> Quiz:
     subject = get_or_create_subject(db, quiz_input.subject_name)
     quiz = Quiz(
-        title=quiz_input.title.strip(),
+        title=validate_quiz_title(quiz_input.title),
         description=quiz_input.description.strip(),
         primary_subject=subject,
         difficulty=quiz_input.difficulty or default_difficulty(db),

@@ -13,6 +13,12 @@ from app.models import SourceDocument, SourceDocumentSnapshot, Subject
 from app.services.quiz_service import get_or_create_subject
 from app.services.text_service import slugify
 
+SOURCE_DISPLAY_PATH_MAX_LENGTH = 1024
+SOURCE_KEY_MAX_LENGTH = 1024
+SOURCE_OBSIDIAN_URI_MAX_LENGTH = 1024
+SOURCE_TITLE_MAX_LENGTH = 240
+SOURCE_TYPE_MAX_LENGTH = 40
+
 
 @dataclass(frozen=True)
 class SourceDocumentContentInput:
@@ -112,9 +118,11 @@ def _prepare_content_ingest(
     content_hash = _content_sha256(ingest_input.content)
     _validate_client_hash(content_hash, ingest_input.content_sha256)
     metadata, body = _metadata_for_ingest(ingest_input)
+    source_key = _normalize_source_key(ingest_input.source_key)
+    source_type = _normalize_source_type(ingest_input.source_type)
     return PreparedContentIngest(
-        source_key=_normalize_source_key(ingest_input.source_key),
-        source_type=_normalize_source_type(ingest_input.source_type),
+        source_key=source_key,
+        source_type=source_type,
         content_hash=content_hash,
         metadata=metadata,
         body=body,
@@ -180,10 +188,20 @@ def _apply_document_update(
         update.prepared.metadata,
         update.prepared.body,
     )
-    document.display_path = update.ingest_input.display_path or update.prepared.source_key
-    document.obsidian_uri = update.ingest_input.obsidian_uri or _obsidian_uri(
+    display_path = update.ingest_input.display_path or update.prepared.source_key
+    obsidian_uri = update.ingest_input.obsidian_uri or _obsidian_uri(
         update.prepared.source_key,
         vault_name=update.ingest_input.vault_name,
+    )
+    document.display_path = _validated_length(
+        display_path,
+        field_name="display_path",
+        max_length=SOURCE_DISPLAY_PATH_MAX_LENGTH,
+    )
+    document.obsidian_uri = _validated_optional_length(
+        obsidian_uri,
+        field_name="obsidian_uri",
+        max_length=SOURCE_OBSIDIAN_URI_MAX_LENGTH,
     )
     document.content = update.ingest_input.content
     document.current_content_sha256 = update.prepared.content_hash
@@ -345,12 +363,19 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, object], str]:
 def _title_for_content(source_key: str, metadata: dict[str, object], body: str) -> str:
     title = _frontmatter_string(metadata, "title")
     if title:
-        return title
+        return _bounded_title(title)
     for line in body.splitlines():
         if line.startswith("# "):
-            return line[2:].strip()
+            return _bounded_title(line[2:])
     fallback = source_key.rstrip("/").rsplit("/", maxsplit=1)[-1].removesuffix(".md")
-    return fallback.replace("-", " ").replace("_", " ").strip() or source_key
+    return _bounded_title(fallback.replace("-", " ").replace("_", " ") or source_key)
+
+
+def _bounded_title(title: str) -> str:
+    normalized = title.strip()
+    if len(normalized) <= SOURCE_TITLE_MAX_LENGTH:
+        return normalized
+    return f"{normalized[: SOURCE_TITLE_MAX_LENGTH - 3].rstrip()}..."
 
 
 def _frontmatter_string(metadata: dict[str, object], key: str) -> str | None:
@@ -371,7 +396,11 @@ def _normalize_source_type(source_type: str) -> str:
     normalized = source_type.strip().lower()
     if not normalized:
         raise ValueError("source_type is required.")
-    return normalized
+    return _validated_length(
+        normalized,
+        field_name="source_type",
+        max_length=SOURCE_TYPE_MAX_LENGTH,
+    )
 
 
 def _normalize_source_key(source_key: str) -> str:
@@ -381,8 +410,33 @@ def _normalize_source_key(source_key: str) -> str:
     if _looks_like_absolute_path(normalized):
         raise ValueError("source_key must be a portable key, not an absolute local path.")
     if _is_uri_source_key(normalized):
-        return normalized
-    return _normalize_relative_source_key(normalized)
+        return _validated_length(
+            normalized,
+            field_name="source_key",
+            max_length=SOURCE_KEY_MAX_LENGTH,
+        )
+    return _validated_length(
+        _normalize_relative_source_key(normalized),
+        field_name="source_key",
+        max_length=SOURCE_KEY_MAX_LENGTH,
+    )
+
+
+def _validated_optional_length(
+    value: str | None,
+    *,
+    field_name: str,
+    max_length: int,
+) -> str | None:
+    if value is None:
+        return None
+    return _validated_length(value, field_name=field_name, max_length=max_length)
+
+
+def _validated_length(value: str, *, field_name: str, max_length: int) -> str:
+    if len(value) > max_length:
+        raise ValueError(f"{field_name} must be at most {max_length} characters.")
+    return value
 
 
 def _is_uri_source_key(value: str) -> bool:

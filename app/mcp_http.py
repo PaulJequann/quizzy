@@ -1,19 +1,26 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import hmac
+from dataclasses import dataclass
 
 from starlette.middleware import Middleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.config import get_settings
 from app.mcp.auth import StaticBearerTokenVerifier
 from app.mcp.server import build_server
 
 
-class HostedMcpRequestGuard(BaseHTTPMiddleware):
+@dataclass(frozen=True)
+class AsgiCall:
+    scope: Scope
+    receive: Receive
+    send: Send
+
+
+class HostedMcpRequestGuard:
     def __init__(
         self,
         app: ASGIApp,
@@ -21,32 +28,106 @@ class HostedMcpRequestGuard(BaseHTTPMiddleware):
         allowed_origins: set[str],
         max_request_bytes: int,
     ) -> None:
-        super().__init__(app)
+        self.app = app
         self.allowed_origins = allowed_origins
         self.max_request_bytes = max_request_bytes
 
-    async def dispatch(
+    async def __call__(
         self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        origin = request.headers.get("origin")
-        if self._origin_is_blocked(origin):
-            return JSONResponse({"error": "Origin is not allowed."}, status_code=403)
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        content_length = request.headers.get("content-length")
+        call = AsgiCall(scope=scope, receive=receive, send=send)
+        headers = scope.get("headers", [])
+        origin = _header_value(headers, b"origin")
+        if self._origin_is_blocked(origin):
+            await _send_json(call, {"error": "Origin is not allowed."}, 403)
+            return
+
+        content_length = _header_value(headers, b"content-length")
         if content_length:
             try:
                 request_bytes = int(content_length)
             except ValueError:
-                return JSONResponse({"error": "Invalid Content-Length header."}, status_code=400)
+                await _send_json(
+                    call,
+                    {"error": "Invalid Content-Length header."},
+                    400,
+                )
+                return
             if request_bytes > self.max_request_bytes:
-                return JSONResponse({"error": "MCP request body is too large."}, status_code=413)
+                await _send_json(
+                    call,
+                    {"error": "MCP request body is too large."},
+                    413,
+                )
+                return
 
-        return await call_next(request)
+        messages, body_is_too_large = await self._bounded_request_messages(receive)
+        if body_is_too_large:
+            await _send_json(
+                call,
+                {"error": "MCP request body is too large."},
+                413,
+            )
+            return
+
+        await self.app(scope, _replay_messages(messages, receive), send)
 
     def _origin_is_blocked(self, origin: str | None) -> bool:
         return bool(origin and self.allowed_origins and origin not in self.allowed_origins)
+
+    async def _bounded_request_messages(self, receive: Receive) -> tuple[list[Message], bool]:
+        messages: list[Message] = []
+        body_bytes = 0
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                messages.append(message)
+                return messages, False
+
+            body_bytes += len(message.get("body", b""))
+            if body_bytes > self.max_request_bytes:
+                return messages, True
+
+            messages.append(message)
+            if not message.get("more_body", False):
+                return messages, False
+
+
+def _header_value(headers: list[tuple[bytes, bytes]], name: bytes) -> str | None:
+    for header_name, value in headers:
+        if header_name.lower() == name:
+            return value.decode("latin-1")
+    return None
+
+
+async def _send_json(
+    call: AsgiCall,
+    payload: dict[str, str],
+    status_code: int,
+) -> None:
+    response = JSONResponse(payload, status_code=status_code)
+    await response(call.scope, call.receive, call.send)
+
+
+def _replay_messages(messages: list[Message], receive_after_replay: Receive) -> Receive:
+    index = 0
+
+    async def receive() -> Message:
+        nonlocal index
+        if index < len(messages):
+            message = messages[index]
+            index += 1
+            return message
+        return await receive_after_replay()
+
+    return receive
 
 
 def create_app():
@@ -76,7 +157,7 @@ def _bearer_auth(token: str) -> StaticBearerTokenVerifier:
     if not expected:
         raise RuntimeError("MCP_BEARER_TOKEN is required for hosted MCP HTTP.")
     return StaticBearerTokenVerifier(
-        validate=lambda received: received == expected,
+        validate=lambda received: hmac.compare_digest(received, expected),
         required_scopes=["quizzy:mcp"],
         scopes=["quizzy:mcp"],
     )

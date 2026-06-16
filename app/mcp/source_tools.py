@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -127,16 +127,7 @@ def _upsert_source_document(params: SourceContentToolParams) -> dict[str, Any]:
             )
         except Exception as exc:
             db.rollback()
-            _record_mcp_invocation(
-                db,
-                McpInvocationLog(
-                    tool_name="upsert_source_document_from_content",
-                    request_hash=request_hash,
-                    status="error",
-                    error_message=str(exc),
-                ),
-            )
-            db.commit()
+            _record_failed_ingest(request_hash, exc)
             raise
         _record_successful_ingest(db, report, request_hash)
         db.commit()
@@ -225,6 +216,20 @@ def _ingest_report_to_dict(report: source_service.SourceDocumentIngestReport) ->
 def _source_ingest_request_hash(source_key: str, content: str) -> str:
     request_body = f"{source_key}\0{content}"
     return hashlib.sha256(request_body.encode()).hexdigest()
+
+
+def _record_failed_ingest(request_hash: str, exc: Exception) -> None:
+    with suppress(Exception), _session_scope() as db:
+        _record_mcp_invocation(
+            db,
+            McpInvocationLog(
+                tool_name="upsert_source_document_from_content",
+                request_hash=request_hash,
+                status="error",
+                error_message=str(exc),
+            ),
+        )
+        db.commit()
 
 
 def _record_mcp_invocation(db, invocation: McpInvocationLog) -> None:

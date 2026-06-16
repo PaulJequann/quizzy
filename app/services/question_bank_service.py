@@ -15,6 +15,7 @@ from app.models import (
     QuestionGenerationBatch,
     QuestionStatus,
     SourceDocument,
+    SourceDocumentSnapshot,
     Subject,
 )
 from app.services import concept_proposal_service, concept_service, question_health_service
@@ -307,15 +308,35 @@ def _question_source_snapshot_id(
     fallback_source_document_id: int | None,
 ) -> int | None:
     explicit_snapshot_id = getattr(question_input, "source_snapshot_id", None)
-    if explicit_snapshot_id is not None:
-        return explicit_snapshot_id
     source_document_id = _question_source_document_id(question_input, fallback_source_document_id)
+    if explicit_snapshot_id is not None:
+        _validate_source_snapshot(
+            db,
+            snapshot_id=explicit_snapshot_id,
+            source_document_id=source_document_id,
+        )
+        return explicit_snapshot_id
     if source_document_id is None:
         return None
     document = db.get(SourceDocument, source_document_id)
     if document is None:
         raise ValueError(f"Unknown source document id {source_document_id}")
     return document.current_snapshot_id
+
+
+def _validate_source_snapshot(
+    db: Session,
+    *,
+    snapshot_id: int,
+    source_document_id: int | None,
+) -> None:
+    if source_document_id is None:
+        raise ValueError("source_snapshot_id requires source_document_id")
+    snapshot = db.get(SourceDocumentSnapshot, snapshot_id)
+    if snapshot is None:
+        raise ValueError(f"Unknown source snapshot id {snapshot_id}")
+    if snapshot.source_document_id != source_document_id:
+        raise ValueError("source_snapshot_id must belong to source_document_id")
 
 
 def _concept_proposals(question_input: Any) -> list[concept_service.ConceptProposal]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 
 import pytest
@@ -66,3 +67,75 @@ def test_hosted_mcp_http_request_size_guard(monkeypatch):
     )
 
     assert oversized.status_code == 413
+
+
+def test_hosted_mcp_http_request_size_guard_limits_stream_without_content_length(
+    monkeypatch,
+):
+    monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
+
+    response = _guarded_response([b"{}", b"{}"])
+
+    assert response["status"] == 413
+
+
+def test_hosted_mcp_http_request_size_guard_replays_valid_body(monkeypatch):
+    monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
+    response = _guarded_response([b"{}"])
+
+    assert response["status"] == 200
+    assert response["body"] == b"2"
+
+
+def _guarded_response(chunks: list[bytes]) -> dict:
+    mcp_http = importlib.import_module("app.mcp_http")
+    app = mcp_http.HostedMcpRequestGuard(
+        _body_length_app,
+        allowed_origins=set(),
+        max_request_bytes=3,
+    )
+    return asyncio.run(_call_asgi_app(app, chunks))
+
+
+async def _body_length_app(scope, receive, send) -> None:
+    body = b""
+    more_body = True
+    while more_body:
+        message = await receive()
+        body += message.get("body", b"")
+        more_body = message.get("more_body", False)
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": str(len(body)).encode()})
+
+
+async def _call_asgi_app(app, chunks: list[bytes]) -> dict:
+    messages = [
+        {"type": "http.request", "body": chunk, "more_body": index < len(chunks) - 1}
+        for index, chunk in enumerate(chunks)
+    ]
+    sent_messages = []
+
+    async def receive():
+        if messages:
+            return messages.pop(0)
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent_messages.append(message)
+
+    await app(
+        {"type": "http", "method": "POST", "path": "/mcp", "headers": []},
+        receive,
+        send,
+    )
+    return _asgi_response(sent_messages)
+
+
+def _asgi_response(messages: list[dict]) -> dict:
+    response = {"status": None, "body": b""}
+    for message in messages:
+        if message["type"] == "http.response.start":
+            response["status"] = message["status"]
+        if message["type"] == "http.response.body":
+            response["body"] += message.get("body", b"")
+    return response
