@@ -1,0 +1,53 @@
+{
+  "name": "Quizzy",
+  "short_name": "Quizzy",
+  "description": "Study drills, practice quizzes, and mastery review.",
+  "id": "/",
+  "start_url": "/quizzes/new",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#faf8f4",
+  "theme_color": "#0f766e",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Practice",
+      "short_name": "Practice",
+      "description": "Start a practice session.",
+      "url": "/quizzes/new",
+      "icons": [{ "src": "/static/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mastery",
+      "short_name": "Mastery",
+      "description": "Review concept mastery.",
+      "url": "/mastery",
+      "icons": [{ "src": "/static/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Subjects",
+      "short_name": "Subjects",
+      "description": "Browse subject workspaces.",
+      "url": "/subjects",
+      "icons": [{ "src": "/static/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

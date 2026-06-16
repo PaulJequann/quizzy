@@ -3,11 +3,21 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0f766e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Quizzy">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>{% block title %}Quizzy{% endblock %}</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script defer src="/static/js/pwa-register.js?v=20260615-pwa"></script>
     <link rel="stylesheet" href="https://fonts.bunny.net/css?family=fraunces:500,600,600i,700|source-sans-3:400,500,600&display=swap">
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}?v=20260614-tailwind-v4-important-pages">
+    <link rel="stylesheet" href="/static/css/app.css?v=20260614-tailwind-v4-important-pages">
   </head>
   <body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]{% endblock %}">
     {% block site_header %}
