@@ -1,97 +1,149 @@
-# Quizzy
+<div align="center">
+  <img src="app/static/icons/icon-192.png" alt="Quizzy logo" width="96" height="96">
+  <h1>Quizzy</h1>
+  <p><strong>Turn study notes into grounded quizzes, focused practice, and concept-level mastery.</strong></p>
+  <p>
+    Quizzy is a self-hosted FastAPI study app with an MCP workflow for generating durable
+    question banks from your own notes. Bring local models, hosted model subscriptions, or any
+    MCP-capable AI client; Quizzy stores the learning system.
+  </p>
 
-Quizzy is a small FastAPI quiz web app POC. It tracks reusable questions, subject-scoped concepts, quiz attempts, and concept-level mastery. It uses Jinja templates, HTMX, Tailwind CSS v4 in the browser, SQLAlchemy, Alembic, Postgres, uv, Ruff, ty, and pytest.
+  <p>
+    <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
+    <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115%2B-009688?style=flat-square&logo=fastapi&logoColor=white">
+    <img alt="Postgres" src="https://img.shields.io/badge/Postgres-16-4169E1?style=flat-square&logo=postgresql&logoColor=white">
+    <img alt="MCP ready" src="https://img.shields.io/badge/MCP-ready-111827?style=flat-square">
+    <img alt="PWA ready" src="https://img.shields.io/badge/PWA-ready-0f766e?style=flat-square">
+    <a href="https://github.com/PaulJequann/quizzy/actions/workflows/cicd.yaml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/PaulJequann/quizzy/cicd.yaml?branch=main&label=CI&style=flat-square"></a>
+  </p>
 
-## Local setup
+  <p>
+    <a href="#why-quizzy">Why Quizzy</a> ·
+    <a href="#screenshots">Screenshots</a> ·
+    <a href="#quickstart">Quickstart</a> ·
+    <a href="#mcp-workflow">MCP Workflow</a> ·
+    <a href="#deploy">Deploy</a>
+  </p>
+</div>
+
+<p align="center">
+  <img src="docs/readme/quizzy-practice-builder.jpg" alt="Quizzy practice builder" width="900">
+</p>
+
+## Why Quizzy
+
+Most AI quiz tools stop at one-off generation. Quizzy is built around the part that matters after
+the first prompt: keeping a reusable question bank, preserving source grounding, maintaining a
+subject concept map, and using quiz attempts to decide what to review next.
+
+Use it when you want to:
+
+- Convert Markdown study notes into multiple-choice questions through an MCP-enabled agent.
+- Keep generated questions grounded to a source document, source excerpt, or explicit reference.
+- Organize knowledge by subject and durable learning concepts instead of loose tags.
+- Build quick practice, focused concept drills, and mastery review sessions from the same bank.
+- Review concepts, question quality, and generated taxonomy before they pollute practice.
+- Install the app as a mobile-friendly PWA for daily study sessions.
+
+> [!IMPORTANT]
+> Quizzy does not call an LLM directly. Your MCP client or agent reads notes, decides what to
+> generate, and writes structured questions into Quizzy. That keeps model choice outside the app:
+> local models, paid subscriptions, hosted tools, and future MCP clients can all use the same bank.
+
+## Screenshots
+
+| Mastery command center | Results review |
+| --- | --- |
+| <img src="docs/readme/quizzy-mastery.jpg" alt="Quizzy mastery dashboard" width="520"> | <img src="docs/readme/quizzy-results.jpg" alt="Quizzy quiz results review" width="520"> |
+
+| Quiz library | Mobile practice builder |
+| --- | --- |
+| <img src="docs/readme/quizzy-quiz-library.jpg" alt="Quizzy quiz library" width="520"> | <img src="docs/readme/quizzy-mobile-practice.jpg" alt="Quizzy mobile practice builder" width="260"> |
+
+## Features
+
+- **Source-grounded generation**: ingest Markdown notes as source documents with snapshots,
+  hashes, display paths, and optional Obsidian URIs.
+- **MCP-first AI workflow**: expose tools for source ingestion, generation context, concept
+  planning, durable question creation, quiz assembly, and mastery focus.
+- **Reusable question bank**: store questions independently from quizzes, then assemble standard,
+  generated, practice, and review quizzes.
+- **Concept mastery**: track subject-scoped concepts, weak/improving/strong status, attempts,
+  accuracy, missed dates, and review queues.
+- **Human-in-the-loop stewardship**: save proposed concepts and unresolved assignments for review
+  before they become active study material.
+- **Focused practice**: build sessions by subject, concept selection, question count, and
+  difficulty.
+- **Review-rich results**: compare selected and correct answers, read explanations, flag question
+  issues, and record retrieval friction after seeing each answer.
+- **Installable PWA shell**: web app manifest, app icons, root service worker, offline page, mobile
+  navigation, and responsive templates.
+- **Production-minded backend**: FastAPI, Jinja, HTMX, SQLAlchemy, Alembic, Postgres, Docker,
+  Testcontainers-backed integration tests, Ruff, ty, and pytest.
+
+## How It Works
+
+```mermaid
+flowchart LR
+  A["Markdown notes"] --> B["MCP client / AI agent"]
+  B --> C["Quizzy MCP tools"]
+  C --> D["Source documents + snapshots"]
+  C --> E["Generated question bank"]
+  E --> F["Practice and review quizzes"]
+  F --> G["Attempts + explanations"]
+  G --> H["Concept mastery queues"]
+  H --> F
+```
+
+The agent does the reading and inference. Quizzy provides the storage model, validation rules, UI,
+and review loops that turn generated questions into a maintainable study system.
+
+## Quickstart
+
+### Prerequisites
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
+- Docker, for local Postgres
+
+### Run Locally
 
 ```bash
 uv sync
 cp .env.example .env
-```
-
-Start Postgres locally or use Docker Compose for the database. The example `.env` points
-host-side tools such as Alembic, Uvicorn, and Codex MCP at the Compose database on port
-`55432`:
-
-```text
-postgresql+psycopg://quizzy:quizzy@localhost:55432/quizzy
-```
-
-Inside Docker Compose, the web container uses the internal service address `db:5432`.
-The host port can be changed with `POSTGRES_PORT`.
-
-## Run locally
-
-```bash
 docker compose up -d db
 uv run alembic upgrade head
 uv run python -m scripts.seed
 uv run uvicorn app.main:app --reload
 ```
 
-Open `http://localhost:8000`.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-## Docker Compose
+The seed command creates AWS, Linux, and Python study material so the app is useful immediately.
+The default `.env.example` points host-side tools at the Compose database on port `55432`.
+
+### Run With Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-In another terminal, initialize the database:
+In another terminal, initialize the database once:
 
 ```bash
 docker compose exec web uv run alembic upgrade head
 docker compose exec web uv run python -m scripts.seed
 ```
 
-## Useful commands
+## MCP Workflow
+
+Quizzy ships with a local stdio MCP server:
 
 ```bash
-uv sync
-uv run alembic upgrade head
-uv run alembic revision --autogenerate -m "message"
-uv run python -m scripts.seed
-uv run uvicorn app.main:app --reload
-make test-unit
-make test-db
-make test
-make test-final
-uv run ruff check .
-uv run ruff format .
-uv run ty check
+uv run python mcp_server.py
 ```
 
-Automated DB/API/MCP/migration tests use Testcontainers Postgres and run Alembic migrations
-against the disposable test database. They do not wipe the active development Postgres database
-from `.env`.
-
-## Agent workflow
-
-Agent operating rules live in `AGENTS.md`, including required validation and CodeScene
-code-health checks for touched source files.
-
-## MCP ingestion
-
-Quizzy exposes FastMCP tools so an MCP client such as Codex or Claude can read local source
-files, send the Markdown content to Quizzy, and write generated questions back into the app.
-Quizzy does not call an LLM itself; the MCP client is responsible for inference.
-
-Run migrations first:
-
-```bash
-uv run alembic upgrade head
-```
-
-The generated-quiz default difficulty is stored in the app database as
-`app_settings.default_difficulty`, so MCP clients read the current app state on every request
-instead of caching the value from process startup. The bootstrap fallback is
-`DEFAULT_DIFFICULTY=intermediate` when the database row is missing.
-
-MCP tools can inspect and change the generated-quiz default with `get_generation_settings` and
-`set_default_difficulty`. Valid values are `beginner`, `intermediate`, `advanced`, and `mixed`.
-
-Codex CLI, Codex Desktop, and the Codex IDE extension share MCP settings through
-`config.toml`. This repo includes a project-scoped config at `.codex/config.toml`:
+This repo also includes a project-scoped Codex config at `.codex/config.toml`:
 
 ```toml
 [mcp_servers.quizzy]
@@ -103,45 +155,57 @@ default_tools_approval_mode = "prompt"
 env_vars = ["DATABASE_URL"]
 ```
 
-Codex only loads project-scoped `.codex/config.toml` files for trusted projects. After opening
-this repo in Codex CLI or Codex Desktop, trust the workspace if prompted, then use `/mcp` to
-confirm the `quizzy` server is connected.
+Core MCP tools include:
 
-For a user-level setup that follows you outside this repo, add the same server to
-`~/.codex/config.toml` with absolute paths:
+- `upsert_source_document_from_content`
+- `prepare_generation_context`
+- `prepare_concept_plan`
+- `create_generated_questions`
+- `create_generated_quiz`
+- `create_generated_quiz_with_questions`
+- `list_question_bank`
+- `get_mastery_focus`
+- `get_subject_mastery_tree`
 
-```toml
-[mcp_servers.quizzy]
-command = "uv"
-args = [
-  "--project",
-  "/absolute/path/to/quizzy",
-  "run",
-  "python",
-  "/absolute/path/to/quizzy/mcp_server.py",
-]
-startup_timeout_sec = 20
-tool_timeout_sec = 120
-default_tools_approval_mode = "prompt"
-env_vars = ["DATABASE_URL"]
-```
+Recommended generation flow:
 
-You can also manage the user-level entry from the Codex CLI:
+1. Ingest the note content into Quizzy as a source document.
+2. Ask Quizzy for existing subject, concept, and generation context.
+3. Have the agent create a small concept plan before writing questions.
+4. Persist source-grounded questions with exactly four choices and one correct answer.
+5. Review proposed concepts or unresolved assignments in the subject workspace.
+6. Assemble practice or review quizzes from the durable question bank.
+
+## Deploy
+
+Build and run the web app from the included Dockerfile:
 
 ```bash
-codex mcp add quizzy \
-  --env DATABASE_URL="$DATABASE_URL" \
-  -- uv --project /absolute/path/to/quizzy run python /absolute/path/to/quizzy/mcp_server.py
+docker build -t quizzy .
+
+docker run --rm \
+  --add-host=host.docker.internal:host-gateway \
+  -e DATABASE_URL="postgresql+psycopg://quizzy:quizzy@host.docker.internal:55432/quizzy" \
+  quizzy uv run --no-sync alembic upgrade head
+
+docker run --rm -p 8000:8000 \
+  --add-host=host.docker.internal:host-gateway \
+  -e DATABASE_URL="postgresql+psycopg://quizzy:quizzy@host.docker.internal:55432/quizzy" \
+  -e APP_ENV=production \
+  -e SECRET_KEY="change-me" \
+  quizzy
 ```
 
-For hosted deployments, run the HTTP MCP app from the same image as a separate Kubernetes
-service:
+Run Alembic migrations as a release step before serving traffic. In a real deployment, replace the
+database URL with a managed or private Postgres address reachable from the container.
+
+For hosted MCP, run the HTTP MCP app as a separate process or service from the same image:
 
 ```bash
 uvicorn app.mcp_http:app --host 0.0.0.0 --port 8008
 ```
 
-Required hosted settings:
+Required hosted MCP settings:
 
 ```text
 DATABASE_URL=postgresql+psycopg://...
@@ -151,51 +215,44 @@ MCP_ALLOWED_ORIGINS=https://quizzy.example.com
 MCP_MAX_REQUEST_BYTES=2000000
 ```
 
-Remote MCP clients should connect to the hosted MCP endpoint, for example:
+Remote MCP clients connect to:
 
 ```text
 https://quizzy.example.com/mcp
 Authorization: Bearer <MCP_BEARER_TOKEN>
 ```
 
-Primary MCP tools:
+> [!WARNING]
+> Quizzy does not implement user authentication yet. If you host it outside a local trusted
+> network, put the web app behind your own authentication layer or private access controls.
 
-- `upsert_source_document_from_content`
-- `list_source_documents`, `find_source_documents`, `get_source_document`
-- `list_subjects`, `list_concepts`, `create_subject`
-- `get_generation_settings`, `set_default_difficulty`
-- `create_generated_quiz`, `add_questions_to_quiz`
-- `create_generated_quiz_with_questions`
-- `get_generation_guidance`
+## Development
 
-Recommended agent workflow:
+Useful commands:
 
-1. Read relevant source files locally and call `upsert_source_document_from_content` with a
-   portable `source_key` and full Markdown content.
-2. Read source documents and existing subject/concept context.
-3. Decide subject, concepts, difficulty, question set, and source references in the MCP client.
-4. Write a draft generated quiz.
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check
+make test-unit
+make test-db
+make test
+make test-final
+```
 
-Generated questions must have exactly four choices, exactly one correct answer, and source
-grounding. Distractors should represent common misconceptions or plausible adjacent mistakes
-about the same concept, not random false statements or unrelated options.
+Database-backed API, MCP, integration, and migration tests use Testcontainers Postgres and Alembic
+migrations. SQLite is not used as proof that the app works.
 
-## Routes
+## Project Map
 
-- `GET /` redirects to `/quizzes`
-- `GET /subjects`
-- `GET /subjects/{subject_id}`
-- `POST /subjects/{subject_id}/review`
-- `GET /quizzes`
-- `GET /mastery`
-- `POST /mastery/review`
-- `GET /quizzes/new`
-- `POST /quizzes`
-- `GET /quizzes/{quiz_id}`
-- `GET /quizzes/{quiz_id}/questions/new`
-- `POST /quizzes/{quiz_id}/questions`
-- `GET /quizzes/{quiz_id}/take`
-- `POST /quizzes/{quiz_id}/submit`
-- `GET /attempts/{attempt_id}/results`
-
-Minimal JSON routes are available under `/api`, including `GET /api/mastery/weak-concepts`.
+```text
+app/
+  mcp/          FastMCP tools for source ingestion, generation, and mastery reads
+  routes/       FastAPI web, API, scheduler, and PWA routes
+  services/     Domain logic for quizzes, concepts, mastery, generation, and sources
+  templates/    Jinja + HTMX web UI
+  static/       CSS, PWA manifest, service worker, icons, offline page
+alembic/        Postgres schema migrations
+scripts/        Seed data
+tests/          Unit, API, integration, MCP, PWA, and migration tests
+```
