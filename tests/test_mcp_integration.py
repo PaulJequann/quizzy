@@ -19,7 +19,6 @@ from app.models import (
     QuestionHealthState,
     Quiz,
     QuizType,
-    SourceDocument,
 )
 from app.services import (
     generation_service,
@@ -82,6 +81,42 @@ def write_note(path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _ingest_note_content(
+    db: Session,
+    note_path: Path,
+    source_key: str,
+):
+    return source_service.upsert_source_document_from_content(
+        db,
+        source_service.SourceDocumentContentInput(
+            source_key=source_key,
+            display_path=source_key,
+            content=note_path.read_text(encoding="utf-8"),
+            subject_name="AWS",
+        ),
+    )
+
+
+def _mcp_ingest_note_content(
+    server,
+    note_path: Path,
+    *,
+    source_key: str,
+    subject_name: str = "AWS",
+):
+    return asyncio.run(
+        _invoke(
+            server,
+            "upsert_source_document_from_content",
+            {
+                "source_key": source_key,
+                "content": note_path.read_text(encoding="utf-8"),
+                "subject_name": subject_name,
+            },
+        )
+    )
 
 
 def route53_cleanup_questions() -> list[dict]:
@@ -177,45 +212,10 @@ def _seed_active_generated_questions(questions: list[dict]) -> dict:
         )
 
 
-def test_ingest_obsidian_note_creates_or_updates_source_document(db_session: Session, tmp_path):
-    note_path = write_note(tmp_path / "s3-storage.md")
-
-    first = source_service.ingest_obsidian_note(db_session, note_path)
-    second = source_service.ingest_obsidian_note(db_session, note_path, subject_name="AWS")
-
-    documents = db_session.scalars(select(SourceDocument)).all()
-    assert len(documents) == 1
-    assert first.created is True
-    assert second.created is False
-    assert documents[0].title == "S3 Storage Classes"
-    assert documents[0].subject is not None
-    assert documents[0].subject.slug == "aws"
-    assert "Glacier" in documents[0].content
-
-
-def test_ingest_obsidian_note_uses_vault_relative_uri_and_stripped_roots(
-    db_session: Session, tmp_path, monkeypatch
-):
-    monkeypatch.setenv("OBSIDIAN_VAULT_ROOTS", f" {tmp_path} ")
-    get_settings.cache_clear()
-    note_path = write_note(tmp_path / "aws" / "route53.md")
-
-    try:
-        report = source_service.ingest_obsidian_note(
-            db_session,
-            note_path,
-            vault_name="Study Vault",
-        )
-    finally:
-        get_settings.cache_clear()
-
-    assert report.document.obsidian_uri == ("obsidian://open?vault=Study%20Vault&file=aws/route53")
-
-
 def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: Session, tmp_path):
     settings_service.set_default_difficulty(db_session, Difficulty.ADVANCED)
-    note = source_service.ingest_obsidian_note(
-        db_session, write_note(tmp_path / "s3.md"), subject_name="AWS"
+    note = _ingest_note_content(
+        db_session, write_note(tmp_path / "s3.md"), source_key="aws/s3.md"
     ).document
     question = GeneratedQuestionInput(
         stem="Which S3 storage class is best aligned with archival access?",
@@ -253,12 +253,14 @@ def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: 
     source_reference_type = Question.__table__.c.source_reference.type
     assert isinstance(source_reference_type, String)
     assert source_reference_type.length == 1024
-    assert saved_question.source_reference == note.path
+    assert saved_question.source_reference == note.source_key
     assert saved_question.source_document_id == note.id
+    assert saved_question.source_snapshot_id == note.current_snapshot_id
     assert saved_question.generation_batch_id is not None
     assert saved_question.health_state == QuestionHealthState.UNTESTED
     assert saved_question.source_excerpt == "Glacier is for archival access."
     assert result["questions"][0]["source_excerpt"] == "Glacier is for archival access."
+    assert result["questions"][0]["source_snapshot_id"] == note.current_snapshot_id
     assert [concept.name for concept in saved_question.concepts] == ["storage classes"]
 
 
@@ -434,15 +436,10 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     assert "create_generated_questions" in guidance["guidance"]
     assert "Concept granularity rules" in guidance["guidance"]
     assert "canonical concept plan" in guidance["guidance"]
+    assert "upsert_source_document_from_content" in guidance["guidance"]
 
     note_path = write_note(tmp_path / "aws-s3.md")
-    ingest = asyncio.run(
-        _invoke(
-            server,
-            "ingest_obsidian_note",
-            {"path": str(note_path), "subject_name": "AWS"},
-        )
-    )
+    ingest = _mcp_ingest_note_content(server, note_path, source_key="aws/aws-s3.md")
     document_id = ingest["document"]["id"]
 
     created = asyncio.run(
@@ -479,7 +476,8 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     assert created["title"] == "AWS S3 Generated"
     assert created["difficulty"] == "intermediate"
     assert created["quiz_type"] == "generated"
-    assert created["questions"][0]["source_reference"] == str(note_path.resolve())
+    assert created["questions"][0]["source_reference"] == "aws/aws-s3.md"
+    assert created["questions"][0]["source_snapshot_id"] == ingest["source_snapshot_id"]
     assert created["questions"][0]["generation_batch_id"] is not None
     assert created["questions"][0]["status"] == "draft"
     assert created["taxonomy_review"]["review_url"].endswith("/subjects/1#taxonomy-review")
@@ -490,13 +488,7 @@ def test_mcp_prepare_generation_context_returns_existing_concepts_and_policy(
 ):
     server = build_server()
     note_path = write_note(tmp_path / "aws-s3.md")
-    ingest = asyncio.run(
-        _invoke(
-            server,
-            "ingest_obsidian_note",
-            {"path": str(note_path), "subject_name": "AWS"},
-        )
-    )
+    ingest = _mcp_ingest_note_content(server, note_path, source_key="aws/aws-s3.md")
     document_id = ingest["document"]["id"]
 
     _seed_active_generated_questions([_s3_storage_question(document_id)])

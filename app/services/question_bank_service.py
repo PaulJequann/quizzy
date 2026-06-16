@@ -176,6 +176,11 @@ def _question_from_build_input(db: Session, data: QuestionBuildInput) -> Questio
             question_input,
             data.fallback_source_document_id,
         ),
+        source_snapshot_id=_question_source_snapshot_id(
+            db,
+            question_input,
+            fallback_source_document_id=data.fallback_source_document_id,
+        ),
         source_excerpt=(question_input.source_excerpt or "").strip() or None,
         generation_batch=data.batch,
     )
@@ -295,6 +300,24 @@ def _question_source_document_id(
     return question_input.source_document_id or fallback_source_document_id
 
 
+def _question_source_snapshot_id(
+    db: Session,
+    question_input: Any,
+    *,
+    fallback_source_document_id: int | None,
+) -> int | None:
+    explicit_snapshot_id = getattr(question_input, "source_snapshot_id", None)
+    if explicit_snapshot_id is not None:
+        return explicit_snapshot_id
+    source_document_id = _question_source_document_id(question_input, fallback_source_document_id)
+    if source_document_id is None:
+        return None
+    document = db.get(SourceDocument, source_document_id)
+    if document is None:
+        raise ValueError(f"Unknown source document id {source_document_id}")
+    return document.current_snapshot_id
+
+
 def _concept_proposals(question_input: Any) -> list[concept_service.ConceptProposal]:
     proposals: list[concept_service.ConceptProposal] = []
     seen: set[str] = set()
@@ -334,7 +357,7 @@ def _source_reference(
     document = db.get(SourceDocument, source_document_id)
     if document is None:
         raise ValueError(f"Unknown source document id {source_document_id}")
-    return document.path
+    return document.source_key
 
 
 def _batch_result(batch: QuestionGenerationBatch, questions: list[Question]) -> dict[str, Any]:
@@ -364,6 +387,7 @@ def _question_to_dict(question: Question) -> dict[str, Any]:
         "health_state": question.health_state.value,
         "health_score": question.health_score,
         "source_document_id": question.source_document_id,
+        "source_snapshot_id": question.source_snapshot_id,
         "source_reference": question.source_reference,
         "source_excerpt": question.source_excerpt,
         "generation_batch_id": question.generation_batch_id,

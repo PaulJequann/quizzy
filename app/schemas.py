@@ -109,6 +109,7 @@ class QuestionRead(BaseModel):
     health_state: QuestionHealthState
     health_score: float | None
     source_document_id: int | None
+    source_snapshot_id: int | None
     source_reference: str | None
     source_excerpt: str | None
     generation_batch_id: int | None

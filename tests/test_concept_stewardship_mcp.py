@@ -46,19 +46,21 @@ def _write_note(path: Path) -> Path:
     return path
 
 
+async def _ingest_note(client_or_server, path: Path, *, source_key: str) -> dict:
+    content = path.read_text(encoding="utf-8")
+    args = {"source_key": source_key, "content": content, "subject_name": "AWS"}
+    if isinstance(client_or_server, Client):
+        return await _client_invoke(client_or_server, "upsert_source_document_from_content", args)
+    return await _invoke(client_or_server, "upsert_source_document_from_content", args)
+
+
 def test_mcp_concept_plan_fails_closed_and_can_save_proposed_drafts(
     mcp_database,
     tmp_path,
 ):
     server = build_server()
     note_path = _write_note(tmp_path / "aws-s3.md")
-    ingest = asyncio.run(
-        _invoke(
-            server,
-            "ingest_obsidian_note",
-            {"path": str(note_path), "subject_name": "AWS"},
-        )
-    )
+    ingest = asyncio.run(_ingest_note(server, note_path, source_key="aws/aws-s3.md"))
     question = _generated_question(ingest["document"]["id"])
 
     plan = asyncio.run(
@@ -122,10 +124,10 @@ def test_mcp_elicitation_handler_cannot_create_active_concepts(
     async def run_flow():
         server = build_server()
         async with Client(server, elicitation_handler=fail_if_elicited) as client:
-            ingest = await _client_invoke(
+            ingest = await _ingest_note(
                 client,
-                "ingest_obsidian_note",
-                {"path": str(_write_note(tmp_path / "aws-s3.md")), "subject_name": "AWS"},
+                _write_note(tmp_path / "aws-s3.md"),
+                source_key="aws/aws-s3.md",
             )
             created = await _client_invoke(
                 client,
@@ -165,10 +167,10 @@ def test_mcp_without_elicitation_saves_new_concepts_as_draft_review(
     async def run_flow():
         server = build_server()
         async with Client(server) as client:
-            ingest = await _client_invoke(
+            ingest = await _ingest_note(
                 client,
-                "ingest_obsidian_note",
-                {"path": str(_write_note(tmp_path / "aws-s3.md")), "subject_name": "AWS"},
+                _write_note(tmp_path / "aws-s3.md"),
+                source_key="aws/aws-s3.md",
             )
             created = await _client_invoke(
                 client,
@@ -194,13 +196,7 @@ def test_mcp_routes_broad_concept_bypass_to_draft_review(
 ):
     server = build_server()
     note_path = _write_route53_health_note(tmp_path / "route53-health.md")
-    ingest = asyncio.run(
-        _invoke(
-            server,
-            "ingest_obsidian_note",
-            {"path": str(note_path), "subject_name": "AWS"},
-        )
-    )
+    ingest = asyncio.run(_ingest_note(server, note_path, source_key="aws/route53-health.md"))
     document_id = ingest["document"]["id"]
 
     seeded = asyncio.run(_approved_create(server, [_route53_dns_record_question(document_id)]))
@@ -236,13 +232,7 @@ def test_mcp_parentless_new_concept_requires_placement_review(
 ):
     server = build_server()
     note_path = _write_route53_routing_note(tmp_path / "routing-policies.md")
-    ingest = asyncio.run(
-        _invoke(
-            server,
-            "ingest_obsidian_note",
-            {"path": str(note_path), "subject_name": "AWS"},
-        )
-    )
+    ingest = asyncio.run(_ingest_note(server, note_path, source_key="aws/routing-policies.md"))
 
     created = asyncio.run(
         _invoke(

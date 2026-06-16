@@ -72,8 +72,8 @@ code-health checks for touched source files.
 
 ## MCP ingestion
 
-Quizzy exposes a local FastMCP server so an MCP client such as Codex or Claude can ingest
-Obsidian notes, read them as source documents, and write generated quizzes back into the app.
+Quizzy exposes FastMCP tools so an MCP client such as Codex or Claude can read local source
+files, send the Markdown content to Quizzy, and write generated questions back into the app.
 Quizzy does not call an LLM itself; the MCP client is responsible for inference.
 
 Run migrations first:
@@ -82,22 +82,13 @@ Run migrations first:
 uv run alembic upgrade head
 ```
 
-Useful environment settings in `.env`:
-
-```text
-OBSIDIAN_VAULT_ROOTS=/absolute/path/to/your/vault
-```
-
 The generated-quiz default difficulty is stored in the app database as
 `app_settings.default_difficulty`, so MCP clients read the current app state on every request
 instead of caching the value from process startup. The bootstrap fallback is
 `DEFAULT_DIFFICULTY=intermediate` when the database row is missing.
 
 MCP tools can inspect and change the generated-quiz default with `get_generation_settings` and
-`set_default_difficulty`. Valid values are `beginner`, `intermediate`, and `advanced`.
-
-`OBSIDIAN_VAULT_ROOTS` is optional. When set, it is a comma-separated allowlist of directories
-that MCP note-ingestion tools may read from.
+`set_default_difficulty`. Valid values are `beginner`, `intermediate`, `advanced`, and `mixed`.
 
 Codex CLI, Codex Desktop, and the Codex IDE extension share MCP settings through
 `config.toml`. This repo includes a project-scoped config at `.codex/config.toml`:
@@ -109,7 +100,7 @@ args = ["run", "python", "mcp_server.py"]
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 default_tools_approval_mode = "prompt"
-env_vars = ["DATABASE_URL", "OBSIDIAN_VAULT_ROOTS"]
+env_vars = ["DATABASE_URL"]
 ```
 
 Codex only loads project-scoped `.codex/config.toml` files for trusted projects. After opening
@@ -132,7 +123,7 @@ args = [
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 default_tools_approval_mode = "prompt"
-env_vars = ["DATABASE_URL", "OBSIDIAN_VAULT_ROOTS"]
+env_vars = ["DATABASE_URL"]
 ```
 
 You can also manage the user-level entry from the Codex CLI:
@@ -140,13 +131,35 @@ You can also manage the user-level entry from the Codex CLI:
 ```bash
 codex mcp add quizzy \
   --env DATABASE_URL="$DATABASE_URL" \
-  --env OBSIDIAN_VAULT_ROOTS="$OBSIDIAN_VAULT_ROOTS" \
   -- uv --project /absolute/path/to/quizzy run python /absolute/path/to/quizzy/mcp_server.py
+```
+
+For hosted deployments, run the HTTP MCP app from the same image as a separate Kubernetes
+service:
+
+```bash
+uvicorn app.mcp_http:app --host 0.0.0.0 --port 8008
+```
+
+Required hosted settings:
+
+```text
+DATABASE_URL=postgresql+psycopg://...
+MCP_BEARER_TOKEN=...
+MCP_ALLOWED_ORIGINS=https://quizzy.example.com
+MCP_MAX_REQUEST_BYTES=2000000
+```
+
+Remote MCP clients should connect to the hosted MCP endpoint, for example:
+
+```text
+https://quizzy.example.com/mcp
+Authorization: Bearer <MCP_BEARER_TOKEN>
 ```
 
 Primary MCP tools:
 
-- `ingest_obsidian_note` / `ingest_obsidian_directory`
+- `upsert_source_document_from_content`
 - `list_source_documents`, `find_source_documents`, `get_source_document`
 - `list_subjects`, `list_concepts`, `create_subject`
 - `get_generation_settings`, `set_default_difficulty`
@@ -156,7 +169,8 @@ Primary MCP tools:
 
 Recommended agent workflow:
 
-1. Ingest relevant Obsidian notes.
+1. Read relevant source files locally and call `upsert_source_document_from_content` with a
+   portable `source_key` and full Markdown content.
 2. Read source documents and existing subject/concept context.
 3. Decide subject, concepts, difficulty, question set, and source references in the MCP client.
 4. Write a draft generated quiz.

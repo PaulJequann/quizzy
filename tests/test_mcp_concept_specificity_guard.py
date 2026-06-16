@@ -36,6 +36,17 @@ async def _client_invoke(client, name: str, args: dict):
     return result.data
 
 
+async def _ingest_note(client_or_server, path: Path, *, source_key: str) -> dict:
+    args = {
+        "source_key": source_key,
+        "content": path.read_text(encoding="utf-8"),
+        "subject_name": "AWS",
+    }
+    if isinstance(client_or_server, Client):
+        return await _client_invoke(client_or_server, "upsert_source_document_from_content", args)
+    return await _invoke(client_or_server, "upsert_source_document_from_content", args)
+
+
 def test_specificity_guard_allows_existing_concept_when_source_topic_is_covered(
     mcp_database,
     tmp_path,
@@ -66,13 +77,10 @@ def test_specificity_guard_saves_specific_new_concept_as_draft_review(
     async def run_flow():
         server = build_server()
         async with Client(server) as client:
-            ingest = await _client_invoke(
+            ingest = await _ingest_note(
                 client,
-                "ingest_obsidian_note",
-                {
-                    "path": str(_write_route53_health_note(tmp_path / "route53-health.md")),
-                    "subject_name": "AWS",
-                },
+                _write_route53_health_note(tmp_path / "route53-health.md"),
+                source_key="aws/route53-health.md",
             )
             created = await _client_invoke(
                 client,
@@ -132,13 +140,10 @@ def test_specificity_guard_rejects_obvious_bypass_attempt(
     server = build_server()
     _seed_route53_records(server, tmp_path)
     health_ingest = asyncio.run(
-        _invoke(
+        _ingest_note(
             server,
-            "ingest_obsidian_note",
-            {
-                "path": str(_write_route53_health_note(tmp_path / "route53-health.md")),
-                "subject_name": "AWS",
-            },
+            _write_route53_health_note(tmp_path / "route53-health.md"),
+            source_key="aws/route53-health.md",
         )
     )
     document_id = health_ingest["document"]["id"]
@@ -170,13 +175,10 @@ def test_specificity_guard_rejects_obvious_bypass_attempt(
 
 def _seed_route53_records(server: Any, tmp_path: Path) -> int:
     ingest = asyncio.run(
-        _invoke(
+        _ingest_note(
             server,
-            "ingest_obsidian_note",
-            {
-                "path": str(_write_route53_records_note(tmp_path / "route53-records.md")),
-                "subject_name": "AWS",
-            },
+            _write_route53_records_note(tmp_path / "route53-records.md"),
+            source_key="aws/route53-records.md",
         )
     )
     document_id = ingest["document"]["id"]

@@ -119,22 +119,89 @@ class Subject(TimestampMixin, Base):
 
 class SourceDocument(TimestampMixin, Base):
     __tablename__ = "source_documents"
-    __table_args__ = (UniqueConstraint("path", name="uq_source_documents_path"),)
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_key", name="uq_source_documents_type_key"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int | None] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"))
+    current_snapshot_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "source_document_snapshots.id",
+            name="fk_source_documents_current_snapshot_id",
+            ondelete="SET NULL",
+            use_alter=True,
+        )
+    )
     source_type: Mapped[str] = mapped_column(String(40), nullable=False, default="obsidian")
     title: Mapped[str] = mapped_column(String(240), nullable=False)
-    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    display_path: Mapped[str | None] = mapped_column(String(1024))
     obsidian_uri: Mapped[str | None] = mapped_column(String(1024))
+    current_content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     subject: Mapped[Subject | None] = relationship(back_populates="source_documents")
     questions: Mapped[list["Question"]] = relationship(back_populates="source_document")
     generation_batches: Mapped[list["QuestionGenerationBatch"]] = relationship(
         back_populates="source_document"
     )
+    snapshots: Mapped[list["SourceDocumentSnapshot"]] = relationship(
+        back_populates="source_document",
+        cascade="all, delete-orphan",
+        foreign_keys="SourceDocumentSnapshot.source_document_id",
+        order_by="SourceDocumentSnapshot.created_at.desc()",
+    )
+    current_snapshot: Mapped["SourceDocumentSnapshot | None"] = relationship(
+        foreign_keys=[current_snapshot_id],
+        post_update=True,
+    )
+
+
+class SourceDocumentSnapshot(TimestampMixin, Base):
+    __tablename__ = "source_document_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_document_id",
+            "content_sha256",
+            name="uq_source_document_snapshots_document_hash",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_document_id: Mapped[int] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+    source_document: Mapped[SourceDocument] = relationship(
+        back_populates="snapshots",
+        foreign_keys=[source_document_id],
+    )
+    questions: Mapped[list["Question"]] = relationship(back_populates="source_snapshot")
+
+
+class McpToolInvocation(Base):
+    __tablename__ = "mcp_tool_invocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tool_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    client_id: Mapped[str | None] = mapped_column(String(160))
+    subject_id: Mapped[int | None] = mapped_column(ForeignKey("subjects.id", ondelete="SET NULL"))
+    source_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_documents.id", ondelete="SET NULL")
+    )
+    source_snapshot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_document_snapshots.id", ondelete="SET NULL")
+    )
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class QuestionGenerationBatch(TimestampMixin, Base):
@@ -474,6 +541,9 @@ class Question(TimestampMixin, Base):
     source_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("source_documents.id", ondelete="SET NULL")
     )
+    source_snapshot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_document_snapshots.id", ondelete="SET NULL")
+    )
     source_excerpt: Mapped[str | None] = mapped_column(Text)
     generation_batch_id: Mapped[int | None] = mapped_column(
         ForeignKey("question_generation_batches.id", ondelete="SET NULL")
@@ -492,6 +562,9 @@ class Question(TimestampMixin, Base):
 
     subject: Mapped[Subject] = relationship(back_populates="questions")
     source_document: Mapped[SourceDocument | None] = relationship(back_populates="questions")
+    source_snapshot: Mapped[SourceDocumentSnapshot | None] = relationship(
+        back_populates="questions"
+    )
     generation_batch: Mapped[QuestionGenerationBatch | None] = relationship(
         back_populates="questions"
     )

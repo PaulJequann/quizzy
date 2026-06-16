@@ -55,6 +55,13 @@ class GeneratedQuestionInput(BaseModel):
         default=None,
         description="Ingested source document id that grounds this generated question.",
     )
+    source_snapshot_id: int | None = Field(
+        default=None,
+        description=(
+            "Optional source document snapshot id. Defaults to the source document's current "
+            "snapshot when source_document_id is provided."
+        ),
+    )
     source_reference: str | None = Field(
         default=None,
         description=(
@@ -294,6 +301,7 @@ def _generated_question_to_dict(question: Question) -> dict[str, Any]:
         "status": question.status.value,
         "source_reference": question.source_reference,
         "source_document_id": question.source_document_id,
+        "source_snapshot_id": question.source_snapshot_id,
         "source_excerpt": question.source_excerpt,
         "generation_batch_id": question.generation_batch_id,
         "health_state": question.health_state.value,

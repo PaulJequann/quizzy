@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: quizzy
+      POSTGRES_USER: quizzy
+      POSTGRES_PASSWORD: quizzy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quizzy -d quizzy"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+
+  migrate:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://quizzy:quizzy@db:5432/quizzy
+    command: uv run --no-sync alembic upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://quizzy:quizzy@db:5432/quizzy
+      APP_ENV: development
+      SECRET_KEY: change-me
+    ports:
+      - "18000:8000"
+    command: uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  mcp:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://quizzy:quizzy@db:5432/quizzy
+      MCP_BEARER_TOKEN: local-test-token
+      MCP_ALLOWED_ORIGINS: http://127.0.0.1:18008,http://localhost:18008
+      SECRET_KEY: change-me
+    ports:
+      - "18008:8008"
+    command: uv run --no-sync uvicorn app.mcp_http:app --host 0.0.0.0 --port 8008
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
