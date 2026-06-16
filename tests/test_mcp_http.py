@@ -21,6 +21,7 @@ def clear_settings_cache():
 
 
 def test_hosted_mcp_http_requires_bearer_token(monkeypatch):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
     monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
     mcp_http = importlib.import_module("app.mcp_http")
 
@@ -31,7 +32,20 @@ def test_hosted_mcp_http_requires_bearer_token(monkeypatch):
         mcp_http.create_app()
 
 
+def test_hosted_mcp_http_requires_app_base_url(monkeypatch):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
+    monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
+    mcp_http = importlib.import_module("app.mcp_http")
+
+    monkeypatch.delenv("APP_BASE_URL", raising=False)
+    get_settings.cache_clear()
+
+    with pytest.raises(RuntimeError, match="APP_BASE_URL"):
+        mcp_http.create_app()
+
+
 def test_hosted_mcp_http_health_and_origin_guard(monkeypatch):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
     monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
     monkeypatch.setenv("MCP_ALLOWED_ORIGINS", "https://quizzy.example.com")
     get_settings.cache_clear()
@@ -54,6 +68,7 @@ def test_hosted_mcp_http_health_and_origin_guard(monkeypatch):
 
 
 def test_hosted_mcp_http_request_size_guard(monkeypatch):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
     monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
     monkeypatch.setenv("MCP_MAX_REQUEST_BYTES", "3")
     get_settings.cache_clear()
@@ -72,6 +87,7 @@ def test_hosted_mcp_http_request_size_guard(monkeypatch):
 def test_hosted_mcp_http_request_size_guard_limits_stream_without_content_length(
     monkeypatch,
 ):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
     monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
 
     response = _guarded_response([b"{}", b"{}"])
@@ -80,6 +96,7 @@ def test_hosted_mcp_http_request_size_guard_limits_stream_without_content_length
 
 
 def test_hosted_mcp_http_request_size_guard_replays_valid_body(monkeypatch):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
     monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
     response = _guarded_response([b"{}"])
 

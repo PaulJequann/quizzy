@@ -145,6 +145,7 @@ Required hosted settings:
 
 ```text
 DATABASE_URL=postgresql+psycopg://...
+APP_BASE_URL=https://quizzy.example.com
 MCP_BEARER_TOKEN=...
 MCP_ALLOWED_ORIGINS=https://quizzy.example.com
 MCP_MAX_REQUEST_BYTES=2000000

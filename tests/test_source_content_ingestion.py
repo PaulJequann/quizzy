@@ -227,6 +227,7 @@ def test_mcp_stdio_process_upserts_source_content(mcp_database, tmp_path):
 
 
 def test_http_mcp_ingests_source_and_creates_question(mcp_database, tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
     monkeypatch.setenv("MCP_BEARER_TOKEN", "test-token")
     port = _free_port()
     note_path = write_note(tmp_path / "aws-s3.md")
@@ -240,6 +241,9 @@ def test_http_mcp_ingests_source_and_creates_question(mcp_database, tmp_path, mo
 
     assert result["ingest"]["document"]["source_key"] == "aws/aws-s3.md"
     assert result["created"]["questions_created"] == 1
+    assert result["created"]["taxonomy_review"]["review_url"] == (
+        "https://quizzy.example.com/subjects/1#taxonomy-review"
+    )
     assert (
         result["bank"]["questions"][0]["source_document_id"] == result["ingest"]["document"]["id"]
     )

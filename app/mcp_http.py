@@ -8,7 +8,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.mcp.auth import StaticBearerTokenVerifier
 from app.mcp.server import build_server
 
@@ -132,6 +132,7 @@ def _replay_messages(messages: list[Message], receive_after_replay: Receive) -> 
 
 def create_app():
     settings = get_settings()
+    _require_app_base_url(settings)
     auth = _bearer_auth(settings.mcp_bearer_token)
     server = build_server(auth=auth)
 
@@ -161,6 +162,11 @@ def _bearer_auth(token: str) -> StaticBearerTokenVerifier:
         required_scopes=["quizzy:mcp"],
         scopes=["quizzy:mcp"],
     )
+
+
+def _require_app_base_url(settings: Settings) -> None:
+    if not settings.app_base_url_is_configured:
+        raise RuntimeError("APP_BASE_URL is required for hosted MCP HTTP.")
 
 
 def _allowed_origins(raw_origins: str) -> set[str]:

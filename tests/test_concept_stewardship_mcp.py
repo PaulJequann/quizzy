@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastmcp import Client
 
+from app.config import get_settings
 from app.database import get_session_factory
 from app.mcp.server import build_server
 from app.services import generation_service
@@ -188,6 +189,33 @@ def test_mcp_without_elicitation_saves_new_concepts_as_draft_review(
     assert created["questions_created"] == 1
     assert created["taxonomy_review"]["review_url"].endswith("/subjects/1#taxonomy-review")
     assert bank["questions"][0]["status"] == "draft"
+
+
+def test_mcp_taxonomy_review_url_uses_configured_app_base_url(
+    mcp_database,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("APP_BASE_URL", "https://quizzy.local.bysliek.com")
+    get_settings.cache_clear()
+    server = build_server()
+    note_path = _write_note(tmp_path / "aws-s3.md")
+    ingest = asyncio.run(_ingest_note(server, note_path, source_key="aws/aws-s3.md"))
+    question = _generated_question(ingest["document"]["id"])
+
+    created = asyncio.run(
+        _invoke(
+            server,
+            "create_generated_questions",
+            {"subject_name": "AWS", "questions": [question]},
+        )
+    )
+
+    assert (
+        created["taxonomy_review"]["review_url"]
+        == "https://quizzy.local.bysliek.com/subjects/1#taxonomy-review"
+    )
+    assert created["taxonomy_review"]["review_path"] == "/subjects/1#taxonomy-review"
 
 
 def test_mcp_routes_broad_concept_bypass_to_draft_review(
