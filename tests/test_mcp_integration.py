@@ -475,6 +475,12 @@ def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     assert "Concept granularity rules" in guidance["guidance"]
     assert "canonical concept plan" in guidance["guidance"]
     assert "upsert_source_document_from_content" in guidance["guidance"]
+    assert "Learner-visible fields must stand alone" in guidance["guidance"]
+    assert "Which expectation is most consistent with the Multi-AZ note?" in guidance["guidance"]
+    assert "What should you expect during Multi-AZ failover" in guidance["guidance"]
+    assert "If a note" not in guidance["guidance"]
+    assert "source note" not in guidance["guidance"].casefold()
+    assert "Read relevant notes" not in guidance["guidance"]
 
     note_path = write_note(tmp_path / "aws-s3.md")
     ingest = _mcp_ingest_note_content(server, note_path, source_key="aws/aws-s3.md")
