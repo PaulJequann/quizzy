@@ -127,6 +127,11 @@ CONCEPT_POLICY = {
     ),
     "reuse_first": True,
     "concept_planning_required": True,
+    "concepts_per_source_document": {
+        "focused_document_usual_min": 1,
+        "focused_document_usual_max": 3,
+    },
+    "concepts_per_source_document_hard_warning": 6,
     "concepts_per_source_note": {"focused_note_usual_min": 1, "focused_note_usual_max": 3},
     "concepts_per_source_note_hard_warning": 6,
     "concepts_per_question": {"usual": 1, "maximum": 2},
