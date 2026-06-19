@@ -469,12 +469,20 @@ def test_generated_quiz_reuses_concepts_within_one_batch(db_session: Session):
 def test_mcp_guidance_and_generation_workflow(mcp_database, tmp_path):
     server = build_server()
     guidance = asyncio.run(_invoke(server, "get_generation_guidance", {}))
-    assert "Distractor Control" in guidance["guidance"]
-    assert "common misconceptions" in guidance["guidance"]
-    assert "create_generated_questions" in guidance["guidance"]
-    assert "Concept granularity rules" in guidance["guidance"]
-    assert "canonical concept plan" in guidance["guidance"]
-    assert "upsert_source_document_from_content" in guidance["guidance"]
+    guidance_text = guidance["guidance"]
+    guidance_text_casefolded = guidance_text.casefold()
+    assert "Distractor Control" in guidance_text
+    assert "common misconceptions" in guidance_text
+    assert "create_generated_questions" in guidance_text
+    assert "Concept granularity rules" in guidance_text
+    assert "canonical concept plan" in guidance_text
+    assert "upsert_source_document_from_content" in guidance_text
+    assert "Learner-visible fields must stand alone" in guidance_text
+    assert "Which expectation is most consistent with the Multi-AZ note?" in guidance_text
+    assert "What should you expect during Multi-AZ failover" in guidance_text
+    assert "if a note" not in guidance_text_casefolded
+    assert "source note" not in guidance_text_casefolded
+    assert "read relevant notes" not in guidance_text_casefolded
 
     note_path = write_note(tmp_path / "aws-s3.md")
     ingest = _mcp_ingest_note_content(server, note_path, source_key="aws/aws-s3.md")
@@ -538,6 +546,15 @@ def test_mcp_prepare_generation_context_returns_existing_concepts_and_policy(
     assert context["subject"]["name"] == "AWS"
     assert context["source_document"]["id"] == document_id
     assert context["concept_policy"]["concepts_per_question"]["maximum"] == 2
+    assert context["concept_policy"]["concepts_per_source_document"] == {
+        "focused_document_usual_min": 1,
+        "focused_document_usual_max": 3,
+    }
+    assert context["concept_policy"]["concepts_per_source_document_hard_warning"] == 6
+    assert context["concept_policy"]["concepts_per_source_note"] == {
+        "focused_note_usual_min": 1,
+        "focused_note_usual_max": 3,
+    }
     assert context["concept_policy"]["concept_planning_required"] is True
     assert context["concept_policy"]["reuse_first"] is True
     assert [concept["name"] for concept in context["existing_concepts"]] == ["S3 storage classes"]

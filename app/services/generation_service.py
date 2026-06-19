@@ -28,7 +28,14 @@ from app.services.text_service import slugify
 
 
 class GeneratedChoiceInput(BaseModel):
-    text: str = Field(min_length=1, max_length=1000)
+    text: str = Field(
+        min_length=1,
+        max_length=1000,
+        description=(
+            "Learner-facing answer choice. It must stand alone and must not refer to source "
+            "artifacts such as notes, source documents, excerpts, study guides, or Obsidian."
+        ),
+    )
     is_correct: bool = False
 
 
@@ -40,9 +47,21 @@ class GeneratedConceptProposal(BaseModel):
 
 
 class GeneratedQuestionInput(BaseModel):
-    stem: str = Field(min_length=1)
+    stem: str = Field(
+        min_length=1,
+        description=(
+            "Learner-facing question stem. It must stand alone and must not refer to source "
+            "artifacts such as notes, source documents, excerpts, study guides, or Obsidian."
+        ),
+    )
     choices: list[GeneratedChoiceInput] = Field(min_length=4, max_length=4)
-    explanation: str | None = None
+    explanation: str | None = Field(
+        default=None,
+        description=(
+            "Learner-facing explanation of why the correct answer is right. It must not refer to "
+            "source artifacts such as notes, source documents, excerpts, study guides, or Obsidian."
+        ),
+    )
     difficulty: Difficulty | None = Field(
         default=None,
         description=(
