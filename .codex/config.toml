@@ -1,7 +1,7 @@
 [mcp_servers.quizzy]
+enabled = true
 command = "uv"
 args = ["run", "python", "mcp_server.py"]
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 default_tools_approval_mode = "prompt"
-env_vars = ["DATABASE_URL"]
