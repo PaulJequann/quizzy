@@ -205,12 +205,13 @@ For hosted MCP, run the HTTP MCP app as a separate process or service from the s
 uvicorn app.mcp_http:app --host 0.0.0.0 --port 8008
 ```
 
-Required hosted MCP settings:
+Hosted MCP settings:
 
 ```text
 DATABASE_URL=postgresql+psycopg://...
 APP_BASE_URL=https://quizzy.example.com
-MCP_BEARER_TOKEN=...
+MCP_AUTH_ENABLED=true
+MCP_BEARER_TOKEN=...  # Required when MCP_AUTH_ENABLED=true
 MCP_ALLOWED_ORIGINS=https://quizzy.example.com
 MCP_MAX_REQUEST_BYTES=2000000
 ```
@@ -221,6 +222,18 @@ Remote MCP clients connect to:
 https://quizzy.example.com/mcp
 Authorization: Bearer <MCP_BEARER_TOKEN>
 ```
+
+Bearer-token authentication is enabled by default. For an isolated, trusted home-lab network, it
+can be disabled explicitly:
+
+```text
+MCP_AUTH_ENABLED=false
+```
+
+When authentication is disabled, `MCP_BEARER_TOKEN` may be omitted and MCP clients do not send an
+`Authorization` header. This exposes all MCP read and write tools to any client that can reach the
+service, so restrict access with a private interface, firewall, or equivalent network controls. An
+empty `MCP_BEARER_TOKEN` does not disable authentication while `MCP_AUTH_ENABLED` is true.
 
 > [!WARNING]
 > Quizzy does not implement user authentication yet. If you host it outside a local trusted
