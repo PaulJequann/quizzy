@@ -79,6 +79,11 @@ Run CodeScene on every touched or new source file after edits and before commit.
 - MCP server changes: include at least one fresh-process MCP tool invocation or integration test.
 - Frontend template or CSS changes: inspect the affected route in a browser when feasible.
 
+For a new checkout, run `review-party checkpoint install git` to install the Git hook.
+The hook requires working Review Party configuration. Hook setup errors can warn and allow a push.
+Agents must also run `review-party checkpoint check pre-push --base <upstream> --head HEAD`
+and require a passing result before pushing.
+
 <!-- review-party checkpoints: begin -->
 Before pushing, review the change with `review-party run --base <upstream> --head HEAD` and record a verdict for each Finding with `review-party finding record <id>`; the pre-push Checkpoint refuses a push with more than 0 unreviewed lines or a Finding without a verdict. Every fix after a Review needs `review-party run --unreviewed --base <upstream> --head HEAD`. At most 3 Reviews per change; when the Checkpoint says stop, report the unreviewed lines and stop. When a Review does not fit, waive it with `review-party checkpoint waive pre-push --reason "<why>"`.
 `review-party checkpoint --help` has details.
