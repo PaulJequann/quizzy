@@ -233,7 +233,10 @@ def api_create_attempt(
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
     answers = {answer.question_id: answer.selected_choice_id for answer in payload.answers}
-    attempt = submit_attempt(db, quiz, answers)
+    try:
+        attempt = submit_attempt(db, quiz, answers)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     question_health_service.record_attempt_evidence(db, attempt.id)
     return attempt
 
