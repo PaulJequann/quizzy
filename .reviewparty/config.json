@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "reviews": {
+    "concurrency_limit": 4,
+    "global": [
+      {
+        "party": "baseline"
+      }
+    ],
+    "repository": []
+  },
+  "checkpoints": {
+    "pre-push": {
+      "requirement": "judged",
+      "unreviewed_lines": 0,
+      "review_budget": 3,
+      "waivers": "anyone",
+      "integrations": [
+        "git",
+        "agents-md"
+      ]
+    }
+  }
+}

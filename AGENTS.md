@@ -68,3 +68,8 @@ Run CodeScene on every touched or new source file after edits and before commit.
 - Database migrations or SQLAlchemy model changes: include migration upgrade verification against Postgres.
 - MCP server changes: include at least one fresh-process MCP tool invocation or integration test.
 - Frontend template or CSS changes: inspect the affected route in a browser when feasible.
+
+<!-- review-party checkpoints: begin -->
+Before pushing, review the change with `review-party run --base <upstream> --head HEAD` and record a verdict for each Finding with `review-party finding record <id>`; the pre-push Checkpoint refuses a push with more than 0 unreviewed lines or a Finding without a verdict. Every fix after a Review needs `review-party run --unreviewed --base <upstream> --head HEAD`. At most 3 Reviews per change; when the Checkpoint says stop, report the unreviewed lines and stop. When a Review does not fit, waive it with `review-party checkpoint waive pre-push --reason "<why>"`.
+`review-party checkpoint --help` has details.
+<!-- review-party checkpoints: end -->
