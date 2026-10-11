@@ -199,6 +199,7 @@ docker run --rm -p 8000:8000 \
   --add-host=host.docker.internal:host-gateway \
   -e DATABASE_URL="postgresql+psycopg://quizzy:quizzy@host.docker.internal:55432/quizzy" \
   -e APP_ENV=production \
+  -e APP_BASE_URL="http://127.0.0.1:8000" \
   -e SECRET_KEY="change-me" \
   quizzy
 ```

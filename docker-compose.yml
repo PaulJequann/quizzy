@@ -20,6 +20,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://quizzy:quizzy@db:5432/quizzy
       APP_ENV: development
+      APP_BASE_URL: ${APP_BASE_URL:-http://127.0.0.1:8000}
       SECRET_KEY: change-me
     ports:
       - "8000:8000"
