@@ -8,9 +8,11 @@ from app.models import (
     Concept,
     ConceptReviewState,
     Question,
+    QuestionFeedbackEvent,
     QuestionHealthState,
     QuestionReviewItem,
 )
+from app.services import question_health_service
 from app.services.grading_service import get_mastery_rows
 from app.services.mastery_evidence_service import capped_family_evidence
 
@@ -125,10 +127,44 @@ def test_question_issue_report_creates_review_work_without_rewriting_answer(
     review_items = db_session.scalars(select(QuestionReviewItem)).all()
     assert len(review_items) == 1
     assert review_items[0].suggested_action == "improve_distractors"
+    feedback_events = db_session.scalars(select(QuestionFeedbackEvent)).all()
+    assert [event.note for event in feedback_events] == [
+        "Two choices are too easy to discard.",
+        "Distractors still need revision.",
+    ]
     db_session.expire_all()
     unchanged_answer = db_session.get(AttemptAnswer, answer.id)
     assert unchanged_answer is not None
     assert unchanged_answer.is_correct is original_correctness
+
+
+def test_quick_question_flag_is_idempotent_and_available_to_agents(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    question = _seeded_question(db_session)
+
+    take_response = client.get("/quizzes/1/take")
+    flag_response = client.post(
+        f"/api/questions/{question.id}/report-issue",
+        json={"category": "flag_for_later", "reported_from": "quick"},
+    )
+    repeated_response = client.post(
+        f"/api/questions/{question.id}/report-issue",
+        json={"category": "flag_for_later", "reported_from": "quick"},
+    )
+
+    assert take_response.status_code == 200
+    assert "data-quick-flag-button" in take_response.text
+    assert flag_response.status_code == 200
+    assert repeated_response.status_code == 200
+    feedback_events = db_session.scalars(select(QuestionFeedbackEvent)).all()
+    assert len(feedback_events) == 1
+    assert feedback_events[0].category == "flag_for_later"
+
+    context = question_health_service.prepare_question_repair_context(db_session, question.id)
+
+    assert context["learner_feedback"][0]["reported_from"] == "quick"
 
 
 def test_wrong_shaky_feedback_resets_concept_interval(

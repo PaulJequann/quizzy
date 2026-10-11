@@ -21,6 +21,24 @@
   </head>
   <body class="{% block body_class %}min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]{% endblock %}">
     {% block site_header %}
+    {% if request.state.actor is defined %}
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3 text-sm">
+      <strong>{{ request.state.access.workspace_name if request.state.access is defined else request.state.actor.display_name }}</strong>
+      {% if request.state.actor.is_superuser %}
+        <a href="/accounts">Switch workspace</a>
+      {% endif %}
+      {% if request.state.access is defined and request.state.access.can_manage_study %}
+        <a href="/progress">Practice history</a><a href="/teaching">Prepare next practice</a>
+      {% endif %}
+      {% if request.state.access is defined and request.state.access.is_preview %}
+        <span>Reviewer preview · submissions disabled</span>
+      {% endif %}
+      <form action="/auth/logout" method="post" onsubmit="event.preventDefault(); fetch('/auth/logout', {method:'POST'}).then(() => location.assign('/login'));"><button>Sign out</button></form>
+    </div>
+    {% endif %}
+    {% if request.state.access is defined and not request.state.access.can_manage_study %}
+    <nav class="flex gap-6 border-b px-4 py-4" aria-label="Primary navigation"><a href="/quizzes">My quizzes</a><a href="/mastery">My progress</a><a href="/progress">My results</a></nav>
+    {% else %}
     {% set current_path = request.url.path %}
     {% set subjects_active = current_path.startswith("/subjects") %}
     {% set practice_active = current_path == "/quizzes/new" %}
@@ -129,6 +147,7 @@
         </a>
       </div>
     </nav>
+    {% endif %}
     {% endblock %}
     <main class="{% block main_class %}mx-auto max-w-6xl px-4 pb-28 pt-8 sm:px-6 md:pb-8 lg:py-10{% endblock %}">
       {% block content %}{% endblock %}

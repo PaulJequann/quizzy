@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     secret_key: str = "change-me-in-production"
     default_difficulty: str = "intermediate"
+    mcp_admin_user_id: int = 0
     mcp_auth_enabled: bool = True
     mcp_bearer_token: str = ""
     mcp_allowed_origins: str = ""

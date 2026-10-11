@@ -134,6 +134,7 @@ class _RollupAccumulator:
 
 
 def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | None]) -> Attempt:
+    _validate_submission(quiz, submitted_answers)
     total_questions = len(quiz.questions)
     correct_count = 0
     attempt = Attempt(
@@ -684,3 +685,15 @@ def _tree_node(
         "secondary_question_count": row.secondary_question_count,
         "children": [_tree_node(child, rows_by_parent_id) for child in children],
     }
+
+
+def _validate_submission(quiz: Quiz, submitted_answers: dict[int, int | None]) -> None:
+    valid_choices = {
+        question.id: {None, *(choice.id for choice in question.choices)}
+        for question in quiz.questions
+    }
+    for question_id, choice_id in submitted_answers.items():
+        if question_id not in valid_choices:
+            raise ValueError("Unknown question in submission")
+        if choice_id not in valid_choices[question_id]:
+            raise ValueError("Selected choice does not belong to the question")

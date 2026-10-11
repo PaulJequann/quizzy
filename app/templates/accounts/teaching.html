@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="font-display text-3xl">Prepare next practice</h1>
+<p class="my-4">Copy this brief to your agent. Review its draft quiz here before publishing it for the learner.</p>
+<label class="block" for="teaching-brief">Teaching brief</label>
+<textarea id="teaching-brief" readonly class="mt-2 h-96 w-full rounded border p-4 font-mono text-sm">{{ brief }}</textarea>
+<button class="btn-primary mt-4" id="copy-brief">Copy brief</button>
+<p id="copy-status" role="status" class="mt-2"></p>
+<script>
+document.getElementById('copy-brief').addEventListener('click', async () => {
+  const brief = document.getElementById('teaching-brief');
+  const status = document.getElementById('copy-status');
+  try {
+    await navigator.clipboard.writeText(brief.value);
+    status.textContent = 'Brief copied.';
+  } catch {
+    brief.focus();
+    brief.select();
+    status.textContent = 'Brief selected. Use Copy on your device to copy it.';
+  }
+});
+</script>
+{% endblock %}

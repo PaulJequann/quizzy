@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.auth.boundary import study_operation
 from app.database import get_db
 from app.models import AttemptAnswer
 from app.services import concept_scheduler_service, question_health_service
 from app.services.question_health_service import QuestionIssueReport
+from app.study_access import StudyOperation
 
 router = APIRouter()
 
@@ -18,6 +20,7 @@ def redirect(path: str) -> RedirectResponse:
 
 
 @router.post("/attempt-answers/{answer_id}/retrieval-feedback")
+@study_operation(StudyOperation.RECORD_PROGRESS)
 async def record_retrieval_feedback(
     request: Request,
     answer_id: int,
@@ -40,6 +43,7 @@ async def record_retrieval_feedback(
 
 
 @router.post("/questions/{question_id}/report-issue")
+@study_operation(StudyOperation.RECORD_PROGRESS)
 async def report_question_issue(
     request: Request,
     question_id: int,
@@ -47,6 +51,8 @@ async def report_question_issue(
 ):
     form = await request.form()
     attempt_answer_id = _form_optional_int(form, "attempt_answer_id")
+    if not request.state.access.can_report_question(attempt_answer_id):
+        raise HTTPException(403, "Report feedback from one of your answers")
     try:
         question_health_service.report_question_issue(
             db,
@@ -55,6 +61,7 @@ async def report_question_issue(
                 category=_form_text(form, "category"),
                 note=_form_text(form, "note"),
                 attempt_answer_id=attempt_answer_id,
+                reported_from="detailed",
             ),
         )
     except ValueError as error:

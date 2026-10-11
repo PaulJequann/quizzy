@@ -1,7 +1,8 @@
+import argparse
 from collections.abc import Mapping
 from typing import cast
 
-from app.database import get_session_factory
+from app.mcp.access import authorize_mcp_workspace
 from app.models import (
     Choice,
     Concept,
@@ -15,6 +16,7 @@ from app.models import (
 )
 from app.services.concept_service import normalize_concept_name
 from app.services.quiz_service import get_or_create_subject, slugify
+from app.workspace_database import workspace_session
 
 QUIZZES = [
     {
@@ -242,8 +244,10 @@ def _quiz_from_seed(quiz_data: Mapping[str, object], subject) -> Quiz:
 
 
 def main() -> None:
-    session_factory = get_session_factory()
-    with session_factory() as db:
+    parser = argparse.ArgumentParser(description="Seed a chosen private workspace")
+    parser.add_argument("--workspace-id", type=int, required=True)
+    args = parser.parse_args()
+    with workspace_session(authorize_mcp_workspace(args.workspace_id)) as db:
         existing_titles = {title for (title,) in db.query(Quiz.title).all()}
         created = 0
         for quiz_data in QUIZZES:

@@ -45,7 +45,12 @@ def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_db
-    return TestClient(app)
+    browser = TestClient(app, headers={"origin": "http://testserver"})
+    response = browser.post(
+        "/auth/login", data={"username": "parent@example.com", "password": "test-password"}
+    )
+    assert response.status_code == 204
+    return browser
 
 
 def seed_test_quiz(session: Session) -> None:

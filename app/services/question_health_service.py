@@ -12,6 +12,7 @@ from app.models import (
     Attempt,
     AttemptAnswer,
     Question,
+    QuestionFeedbackEvent,
     QuestionHealthState,
     QuestionReviewItem,
     QuestionStatus,
@@ -20,6 +21,7 @@ from app.models import (
 
 REVIEW_STATUS_OPEN = "open"
 QUESTION_FLAG_ACTIONS = {
+    "flag_for_later": "review_question",
     "incorrect_answer": "verify_answer",
     "unclear_wording": "revise_stem",
     "bad_distractors": "improve_distractors",
@@ -62,6 +64,7 @@ class QuestionIssueReport:
     category: str
     note: str = ""
     attempt_answer_id: int | None = None
+    reported_from: str = "detailed"
 
 
 def initialize_for_batch(db: Session, generation_batch_id: int) -> None:
@@ -149,6 +152,7 @@ def list_question_review_queue(
         .where(QuestionReviewItem.status == status)
         .options(
             selectinload(QuestionReviewItem.subject),
+            selectinload(QuestionReviewItem.feedback_events),
             selectinload(QuestionReviewItem.question).selectinload(Question.choices),
             selectinload(QuestionReviewItem.question).selectinload(Question.concepts),
         )
@@ -165,9 +169,11 @@ def report_question_issue(
     report: QuestionIssueReport,
 ) -> dict[str, Any]:
     _validate_question_issue_category(report.category)
+    _validate_question_issue_source(report.reported_from)
     question = _question_for_issue_report(db, report)
     _validate_issue_attempt_answer(db, report)
     item = _upsert_question_flag_review(db, question, report)
+    _record_question_feedback_event(db, question, item, report)
     _apply_question_flag_health_state(question, report.category)
     db.commit()
     db.refresh(item)
@@ -179,11 +185,19 @@ def _validate_question_issue_category(category: str) -> None:
         raise ValueError("Unknown question issue category.")
 
 
+def _validate_question_issue_source(reported_from: str) -> None:
+    if reported_from not in {"quick", "detailed"}:
+        raise ValueError("Unknown question issue report type.")
+
+
 def _question_for_issue_report(db: Session, report: QuestionIssueReport) -> Question:
     question = db.scalar(
         select(Question)
         .where(Question.id == report.question_id)
-        .options(selectinload(Question.subject), selectinload(Question.review_items))
+        .options(
+            selectinload(Question.subject),
+            selectinload(Question.review_items).selectinload(QuestionReviewItem.feedback_events),
+        )
     )
     if question is None:
         raise ValueError(f"Unknown question id {report.question_id}")
@@ -223,6 +237,32 @@ def _upsert_question_flag_review(
     return item
 
 
+def _record_question_feedback_event(
+    db: Session,
+    question: Question,
+    item: QuestionReviewItem,
+    report: QuestionIssueReport,
+) -> None:
+    if report.category == "flag_for_later" and _has_open_quick_flag(item):
+        return
+    db.add(
+        QuestionFeedbackEvent(
+            question=question,
+            review_item=item,
+            attempt_answer_id=report.attempt_answer_id,
+            category=report.category,
+            note=report.note.strip(),
+            reported_from=report.reported_from,
+        )
+    )
+
+
+def _has_open_quick_flag(item: QuestionReviewItem) -> bool:
+    return item.status == REVIEW_STATUS_OPEN and any(
+        event.category == "flag_for_later" for event in item.feedback_events
+    )
+
+
 def _apply_question_flag_health_state(question: Question, category: str) -> None:
     if _flag_should_change_health(category, question.health_state):
         question.health_state = QuestionHealthState.NEEDS_REVIEW
@@ -239,7 +279,7 @@ def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, 
             selectinload(Question.concepts),
             selectinload(Question.source_document).selectinload(SourceDocument.current_snapshot),
             selectinload(Question.source_snapshot),
-            selectinload(Question.review_items),
+            selectinload(Question.review_items).selectinload(QuestionReviewItem.feedback_events),
         )
     )
     if question is None:
@@ -255,6 +295,11 @@ def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, 
             _review_item_to_dict(item)
             for item in question.review_items
             if item.status == REVIEW_STATUS_OPEN
+        ],
+        "learner_feedback": [
+            _feedback_event_to_dict(event)
+            for item in question.review_items
+            for event in item.feedback_events
         ],
         "source_document": _source_document_context(question),
     }
@@ -471,6 +516,19 @@ def _review_item_to_dict(item: QuestionReviewItem) -> dict[str, Any]:
         "question_stem": item.question.stem,
         "concepts": [concept.name for concept in item.question.concepts],
         "created_at": item.created_at.isoformat(),
+        "feedback_count": len(item.feedback_events),
+    }
+
+
+def _feedback_event_to_dict(event: QuestionFeedbackEvent) -> dict[str, Any]:
+    return {
+        "id": event.id,
+        "review_item_id": event.review_item_id,
+        "attempt_answer_id": event.attempt_answer_id,
+        "category": event.category,
+        "note": event.note,
+        "reported_from": event.reported_from,
+        "created_at": event.created_at.isoformat(),
     }
 
 

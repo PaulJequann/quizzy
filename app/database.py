@@ -1,6 +1,7 @@
 from collections.abc import Generator
 from functools import lru_cache
 
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -27,10 +28,8 @@ def get_session_factory() -> sessionmaker[Session]:
     )
 
 
-def get_db() -> Generator[Session, None, None]:
-    session_factory = get_session_factory()
-    db = session_factory()
-    try:
+def get_db(request: Request) -> Generator[Session, None, None]:
+    from app.workspace_database import workspace_session
+
+    with workspace_session(request.state.access) as db:
         yield db
-    finally:
-        db.close()

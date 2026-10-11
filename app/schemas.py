@@ -179,6 +179,7 @@ class QuestionIssueReportRequest(BaseModel):
     category: str = Field(min_length=1, max_length=80)
     note: str = Field(default="", max_length=2000)
     attempt_answer_id: int | None = None
+    reported_from: str = Field(default="detailed", pattern="^(quick|detailed)$")
 
 
 class ConceptQueueItemRead(BaseModel):

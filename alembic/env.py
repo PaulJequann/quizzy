@@ -6,6 +6,7 @@ from alembic import context
 from app import models  # noqa: F401
 from app.config import get_settings
 from app.database import Base
+from app.migration_policy import include_schema_object
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
@@ -21,6 +22,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_schema_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -37,7 +39,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_schema_object,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

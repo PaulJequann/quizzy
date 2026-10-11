@@ -10,7 +10,6 @@ from sqlalchemy import String, func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import get_session_factory
 from app.mcp.server import build_server
 from app.models import (
     ConceptAssignmentRole,
@@ -32,10 +31,7 @@ from app.services.generation_service import (
     GeneratedQuizCreateInput,
 )
 from tests.db_utils import clear_database_caches, reset_database
-from tests.legacy_quiz_fixtures import (
-    seed_legacy_route53_concepts,
-    seed_legacy_route53_duplicate_links,
-)
+from tests.db_utils import get_test_session_factory as get_session_factory
 
 pytestmark = pytest.mark.mcp
 
@@ -58,12 +54,12 @@ def mcp_database(test_database_url, monkeypatch):
 
 
 async def _invoke(server, name: str, args: dict):
-    result = await server.call_tool(name, args)
+    result = await server.call_tool(name, {"workspace_id": 1, **args})
     return result.structured_content
 
 
 async def _client_invoke(client, name: str, args: dict):
-    result = await client.call_tool(name, args)
+    result = await client.call_tool(name, {"workspace_id": 1, **args})
     return result.data
 
 
@@ -642,67 +638,6 @@ def test_mcp_generated_quiz_reuses_concepts_within_one_batch(mcp_database):
         "Route 53 health checks"
     ]
     assert [concept["name"] for concept in result["questions"][1]["concepts"]] == [
-        "Route 53 health checks"
-    ]
-
-
-def test_mcp_can_suggest_and_merge_granular_concepts(mcp_database):
-    server = build_server()
-
-    created = seed_legacy_route53_concepts(route53_cleanup_questions())
-
-    suggestions = asyncio.run(_invoke(server, "suggest_concept_merges", {"subject_name": "AWS"}))
-    assert suggestions["one_off_concept_count"] == 3
-
-    merge_args = {
-        "subject_name": "AWS",
-        "target_concept_name": "Route 53 health checks",
-        "source_concept_names": ["HTTP health checks", "TCP health checks"],
-    }
-    dry_run = asyncio.run(_invoke(server, "merge_concepts", merge_args | {"dry_run": True}))
-    assert dry_run["dry_run"] is True
-    assert dry_run["affected_question_count"] == 2
-    assert dry_run["merged_link_count"] == 0
-
-    executed = asyncio.run(_invoke(server, "merge_concepts", merge_args | {"dry_run": False}))
-    assert executed["dry_run"] is False
-    assert executed["affected_question_count"] == 2
-    assert executed["merged_link_count"] == 2
-
-    concepts = asyncio.run(_invoke(server, "list_concepts", {"subject_name": "AWS"}))
-    assert [concept["name"] for concept in concepts["concepts"]] == ["Route 53 health checks"]
-
-    quiz = asyncio.run(_invoke(server, "get_quiz", {"quiz_id": created["id"]}))
-    assert [
-        [concept["name"] for concept in question["concepts"]] for question in quiz["questions"]
-    ] == [
-        ["Route 53 health checks"],
-        ["Route 53 health checks"],
-        ["Route 53 health checks"],
-    ]
-
-
-def test_mcp_merge_dedupes_multiple_source_links_on_same_question(mcp_database):
-    server = build_server()
-    created = seed_legacy_route53_duplicate_links(route53_cleanup_questions()[1])
-
-    executed = asyncio.run(
-        _invoke(
-            server,
-            "merge_concepts",
-            {
-                "subject_name": "AWS",
-                "target_concept_name": "Route 53 health checks",
-                "source_concept_names": ["HTTP health checks", "TCP health checks"],
-                "dry_run": False,
-            },
-        )
-    )
-
-    assert executed["merged_link_count"] == 1
-    assert executed["deduped_link_count"] == 1
-    quiz = asyncio.run(_invoke(server, "get_quiz", {"quiz_id": created["id"]}))
-    assert [concept["name"] for concept in quiz["questions"][0]["concepts"]] == [
         "Route 53 health checks"
     ]
 

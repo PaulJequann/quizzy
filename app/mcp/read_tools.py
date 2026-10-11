@@ -1,26 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Annotated, Any
 
 from pydantic import Field
 
-from app.database import get_session_factory
+from app.mcp.access import session_scope as _session_scope
 from app.models import ConceptStatus
 from app.services import concept_service, generation_service, grading_service
-
-
-@contextmanager
-def _session_scope():
-    session_factory = get_session_factory()
-    db = session_factory()
-    try:
-        yield db
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def list_concepts(

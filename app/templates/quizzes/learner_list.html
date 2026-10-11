@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="font-display text-3xl">My quizzes</h1>
+<p class="my-4">Choose a quiz to practice. Your results and progress are saved here.</p>
+<div class="grid gap-4 sm:grid-cols-2">
+{% for quiz in quizzes %}
+<article class="quiz-card"><h2 class="font-display text-xl">{{ quiz.title }}</h2>
+<p class="my-4">{{ quiz.description }}</p><p>{{ quiz.questions|length }} questions</p>
+<a class="btn-primary mt-4 inline-block" href="/quizzes/{{ quiz.id }}/take">Start quiz</a></article>
+{% else %}<p>Your next quiz will appear here when it is ready.</p>{% endfor %}
+</div>
+{% endblock %}

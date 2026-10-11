@@ -3,6 +3,16 @@ It prioritizes: safety -> reviewability -> correctness -> speed.
 
 If anything conflicts with your instincts, follow this.
 
+## Disposable work
+
+Use the gitignored `scratch/` folder at the repository root for temporary scripts,
+generated artifacts, test logs, screenshots, review evidence, and other disposable work.
+Create a task-specific subfolder so concurrent agents do not overwrite each other's files.
+Keep reusable scripts and maintained documentation in their normal tracked locations.
+Do not create top-level `.audit/` folders or stage files from `scratch/`.
+Clean up only files and processes your task created. Preserve verification evidence until
+the user no longer needs it.
+
 ## Quality Gates
 
 ### Database Policy

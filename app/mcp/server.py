@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import contextmanager
 from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
@@ -13,8 +12,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.database import get_session_factory
+from app.draft_policy import require_draft_content
 from app.mcp import concept_approval, question_first_tools, read_tools, source_tools
+from app.mcp.access import session_scope as _session_scope
+from app.mcp.access import workspace_tool
 from app.models import (
     Difficulty,
     Question,
@@ -172,6 +173,7 @@ def build_server(auth: AuthProvider | None = None) -> FastMCP:
         instructions=GENERATION_GUIDANCE,
         auth=auth,
     )
+    register_tool(server, "prepare_next_practice", prepare_next_practice)
     _register_read_tools(server)
     _register_source_tools(server)
     _register_write_tools(server)
@@ -190,20 +192,7 @@ def register_tool(
     annotations: dict[str, Any] | None = None,
 ) -> None:
     tool_annotations = ToolAnnotations(**annotations) if annotations else None
-    server.add_tool(Tool.from_function(fn, name=name, annotations=tool_annotations))
-
-
-@contextmanager
-def _session_scope():
-    session_factory = get_session_factory()
-    db = session_factory()
-    try:
-        yield db
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    server.add_tool(Tool.from_function(workspace_tool(fn), name=name, annotations=tool_annotations))
 
 
 def _source_document_for_context(
@@ -622,6 +611,7 @@ def _register_add_questions_tool(server: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Append generated questions to an existing quiz."""
         with _session_scope() as db:
+            require_draft_content(db, db.get(Quiz, quiz_id))
             subject_name = concept_approval.quiz_subject_name(db, quiz_id)
             options = await concept_approval.write_options_after_concept_approval(
                 db,
@@ -734,3 +724,10 @@ def _with_taxonomy_review_link(
             ),
         }
     }
+
+
+def prepare_next_practice(subject_id: int | None = None) -> dict:
+    from app.services.teaching_brief_service import prepare_next_practice as build_brief
+
+    with _session_scope() as db:
+        return build_brief(db, db.access.workspace_id, subject_id)

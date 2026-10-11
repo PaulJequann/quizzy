@@ -4,10 +4,10 @@
   <section class="mb-8 grid gap-6 lg:grid-cols-[0.7fr_1fr] lg:items-end">
     <div class="score-card">
       <p class="eyebrow">Result</p>
-      {% if attempt.quiz.questions|length <= 20 %}
+      {% if attempt.answers|length <= 20 %}
         <nav class="ledger mt-3" aria-label="Question results">
-          {% for question in attempt.quiz.questions %}
-            {% set answer = answer_by_question.get(question.id) %}
+          {% for answer in attempt.answers|sort(attribute="id") %}
+            {% set question = answer.question %}
             <a class="ledger-tap" href="#q-{{ loop.index }}" aria-label="Question {{ loop.index }}: {% if answer and answer.is_correct %}correct{% else %}incorrect{% endif %}">
               <span class="ledger-mark {% if answer and answer.is_correct %}is-correct{% else %}is-incorrect{% endif %}"></span>
             </a>
@@ -44,12 +44,12 @@
     </div>
   </section>
   <ol class="space-y-5">
-    {% for question in attempt.quiz.questions %}
-      {% set answer = answer_by_question.get(question.id) %}
-      {% set correct_choice = correct_by_question.get(question.id) %}
-      {% set question_text = answer.question_stem_snapshot if answer and answer.question_stem_snapshot else question.stem %}
-      {% set selected_text = answer.selected_choice_text_snapshot if answer and answer.selected_choice_text_snapshot else answer.selected_choice.text if answer and answer.selected_choice else "No answer" %}
-      {% set correct_text = answer.correct_choice_text_snapshot if answer and answer.correct_choice_text_snapshot else correct_choice.text if correct_choice else "Missing correct answer" %}
+    {% for answer in attempt.answers|sort(attribute="id") %}
+      {% set question = answer.question %}
+
+      {% set question_text = answer.question_stem_snapshot or "Question snapshot unavailable" %}
+      {% set selected_text = answer.selected_choice_text_snapshot or ("Selected answer snapshot unavailable" if answer.selected_choice_id else "No answer recorded") %}
+      {% set correct_text = answer.correct_choice_text_snapshot or "Answer snapshot unavailable" %}
       <li
         id="q-{{ loop.index }}"
         class="panel"
@@ -80,11 +80,11 @@
             <p>{{ correct_text }}</p>
           </div>
         </div>
-        {% set explanation = answer.explanation_snapshot if answer and answer.explanation_snapshot else question.explanation %}
+        {% set explanation = answer.explanation_snapshot %}
         {% if explanation %}
           <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-4 py-3 text-sm leading-6 text-[var(--color-text-2)]">{{ explanation }}</p>
         {% endif %}
-        {% if answer %}
+        {% if answer and request.state.access.can_record_progress %}
           <section class="mt-4 border-t border-[var(--color-border)] pt-4" aria-label="Retrieval feedback for question {{ loop.index }}">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from contextlib import contextmanager, suppress
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -11,7 +11,8 @@ from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from app.database import get_session_factory
+from app.mcp.access import session_scope as _session_scope
+from app.mcp.access import workspace_tool
 from app.models import McpToolInvocation
 from app.services import source_service
 
@@ -255,17 +256,4 @@ def _register_tool(
     annotations: dict[str, Any] | None = None,
 ) -> None:
     tool_annotations = ToolAnnotations(**annotations) if annotations else None
-    server.add_tool(Tool.from_function(fn, name=name, annotations=tool_annotations))
-
-
-@contextmanager
-def _session_scope():
-    session_factory = get_session_factory()
-    db = session_factory()
-    try:
-        yield db
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    server.add_tool(Tool.from_function(workspace_tool(fn), name=name, annotations=tool_annotations))

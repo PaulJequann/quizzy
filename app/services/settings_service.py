@@ -27,7 +27,7 @@ def get_setting(db: Session, key: str) -> str | None:
 
 
 def _get_or_create_setting(db: Session, key: str) -> AppSetting:
-    setting = db.get(AppSetting, key)
+    setting = db.scalar(select(AppSetting).where(AppSetting.key == key))
     if setting is not None:
         return setting
     setting = AppSetting(key=key, value="")

@@ -4,16 +4,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth.boundary import study_operation
 from app.database import get_db
 from app.models import Question
 from app.schemas import QuestionIssueReportRequest, RetrievalFeedbackRequest
 from app.services import concept_scheduler_service, question_health_service
 from app.services.question_health_service import QuestionIssueReport
+from app.study_access import StudyOperation
 
 router = APIRouter(prefix="/api", tags=["api"])
 
 
 @router.post("/attempt-answers/{answer_id}/retrieval-feedback")
+@study_operation(StudyOperation.RECORD_PROGRESS)
 def api_record_retrieval_feedback(
     answer_id: int,
     payload: RetrievalFeedbackRequest,
@@ -35,6 +38,7 @@ def api_record_retrieval_feedback(
 
 
 @router.post("/questions/{question_id}/report-issue")
+@study_operation(StudyOperation.MANAGE_AND_RECORD)
 def api_report_question_issue(
     question_id: int,
     payload: QuestionIssueReportRequest,
@@ -48,6 +52,7 @@ def api_report_question_issue(
                 category=payload.category,
                 note=payload.note,
                 attempt_answer_id=payload.attempt_answer_id,
+                reported_from=payload.reported_from,
             ),
         )
     except ValueError as error:

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block site_header %}{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-sm rounded-xl border p-6">
+<h1 class="font-display text-3xl">Sign in to Quizzy</h1>
+<form action="/auth/login" method="post" class="mt-6 grid gap-4" id="login-form">
+<label>Email<input class="block w-full rounded border p-2" type="email" name="username" autocomplete="username" required></label>
+<label>Password<input class="block w-full rounded border p-2" type="password" name="password" autocomplete="current-password" required></label>
+<button class="rounded bg-teal-700 p-3 text-white" type="submit">Sign in</button>
+<p id="login-error" role="alert"></p>
+</form>
+</section>
+<script>
+document.getElementById('login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const response = await fetch('/auth/login', {method: 'POST', body: new FormData(event.target)});
+  if (response.ok) { window.location.assign('/quizzes'); return; }
+  document.getElementById('login-error').textContent = response.status === 403
+    ? 'This address is not configured for sign-in. Open Quizzy at the configured address.'
+    : 'Email or password was not accepted.';
+});
+</script>
+{% endblock %}

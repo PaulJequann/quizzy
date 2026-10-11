@@ -269,7 +269,7 @@ def test_assignment_role_validation_uses_shared_question_wording(db_session: Ses
         )
 
 
-def test_results_page_falls_back_to_live_answer_and_shows_question_metadata(
+def test_results_page_labels_missing_snapshots_and_shows_question_metadata(
     client: TestClient, db_session: Session
 ) -> None:
     question = db_session.scalar(select(Question).where(Question.stem == "What does pytest run?"))
@@ -294,7 +294,8 @@ def test_results_page_falls_back_to_live_answer_and_shows_question_metadata(
     response = client.get(f"/attempts/{answer.attempt_id}/results")
 
     assert response.status_code == 200
-    assert "No answer" not in response.text
+    assert "Selected answer snapshot unavailable" in response.text
+    assert "Question snapshot unavailable" in response.text
     assert "Tests" in response.text
     assert "testing" in response.text
     assert ">Beginner<" in response.text

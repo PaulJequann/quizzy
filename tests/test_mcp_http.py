@@ -32,18 +32,15 @@ def test_hosted_mcp_http_requires_bearer_token(monkeypatch):
         mcp_http.create_app()
 
 
-def test_hosted_mcp_http_can_disable_authentication(monkeypatch):
+def test_hosted_mcp_http_rejects_disabled_authentication(monkeypatch):
     monkeypatch.setenv("APP_BASE_URL", "https://quizzy.example.com")
     monkeypatch.setenv("MCP_AUTH_ENABLED", "false")
     monkeypatch.delenv("MCP_BEARER_TOKEN", raising=False)
     get_settings.cache_clear()
     mcp_http = importlib.import_module("app.mcp_http")
 
-    with TestClient(mcp_http.create_app()) as client:
-        response = client.post("/mcp", content="{}")
-
-    assert response.status_code == 400
-    assert response.text == "Invalid Content-Type header"
+    with pytest.raises(RuntimeError, match="authentication"):
+        mcp_http.create_app()
 
 
 def test_hosted_mcp_http_requires_app_base_url(monkeypatch):

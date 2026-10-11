@@ -8,7 +8,7 @@
       <p class="mt-3 max-w-3xl leading-7 text-[var(--color-text-2)]">Concept-level performance based on submitted quiz attempts.</p>
     </div>
     <div class="flex flex-wrap gap-3">
-      {% if queue_items %}
+      {% if queue_items and request.state.access.can_manage_study %}
         <form method="post" action="/mastery/review">
           <button class="btn-primary" type="submit">Review scheduled concepts</button>
         </form>
@@ -18,7 +18,7 @@
   </section>
 
   {% if mastery_groups %}
-    {% if queue_items %}
+    {% if queue_items and request.state.access.can_manage_study %}
       <section class="panel mb-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -54,7 +54,7 @@
             <div class="min-w-0 min-[821px]:col-start-2">
               <p class="eyebrow">{{ group.subject.slug }}</p>
               <h2 class="section-title">
-                <a href="/subjects/{{ group.subject.id }}">{{ group.subject.name }}</a>
+                {% if request.state.access.can_manage_study %}<a href="/subjects/{{ group.subject.id }}">{{ group.subject.name }}</a>{% else %}{{ group.subject.name }}{% endif %}
               </h2>
               <p class="mt-0.5 text-[0.82rem] font-semibold text-[var(--color-text-3)]">{{ group.mastery_rows|length }} concepts · {{ group.total_attempts }} attempts</p>
             </div>
