@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="font-display text-3xl">Practice history</h1>
+<p class="my-4">Recent submitted quizzes in {{ request.state.access.workspace_name }}'s workspace.</p>
+<div class="grid gap-4">
+{% for attempt in attempts %}
+<article class="rounded border p-4"><h2 class="text-xl">{{ attempt.quiz.title if attempt.quiz else 'Previous quiz' }}</h2>
+<p>{{ attempt.submitted_at.strftime('%b %d, %Y %H:%M') if attempt.submitted_at else '' }} · {{ attempt.correct_count }}/{{ attempt.total_questions }} correct · {{ attempt.score }}%</p>
+<a class="mt-2 inline-block underline" href="/attempts/{{ attempt.id }}/results">Review results</a></article>
+{% else %}<p>No completed quizzes yet.</p>{% endfor %}
+</div>
+{% endblock %}

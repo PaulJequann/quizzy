@@ -113,13 +113,19 @@ uv sync
 cp .env.example .env
 docker compose up -d db
 uv run alembic upgrade head
-uv run python -m scripts.seed
+uv run python -m app.auth.provision --parent-email parent@example.com --learner-email learner@example.com --learner-name Learner
+# Set MCP_ADMIN_USER_ID in .env to the printed parent workspace ID.
+uv run python -m scripts.seed --workspace-id 1
 uv run uvicorn app.main:app --reload
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-The seed command creates AWS, Linux, and Python study material so the app is useful immediately.
+Sign in with the credentials you chose during provisioning. Use the actual workspace IDs printed
+by that command; the example seed destination is `1`. See [Study account setup](docs/family-accounts.md)
+for private libraries, learner publication, and MCP configuration.
+
+The seed command creates AWS, Linux, and Python study material in the selected workspace.
 The default `.env.example` points host-side tools at the Compose database on port `55432`.
 
 ### Run With Docker Compose
@@ -132,7 +138,9 @@ In another terminal, initialize the database once:
 
 ```bash
 docker compose exec web uv run alembic upgrade head
-docker compose exec web uv run python -m scripts.seed
+docker compose exec web uv run python -m app.auth.provision --parent-email parent@example.com --learner-email learner@example.com --learner-name Learner
+# Set MCP_ADMIN_USER_ID, then recreate web to load its updated environment.
+docker compose exec web uv run python -m scripts.seed --workspace-id 1
 ```
 
 ## MCP Workflow
@@ -152,7 +160,6 @@ args = ["run", "python", "mcp_server.py"]
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 default_tools_approval_mode = "prompt"
-env_vars = ["DATABASE_URL"]
 ```
 
 Core MCP tools include:
@@ -192,6 +199,7 @@ docker run --rm -p 8000:8000 \
   --add-host=host.docker.internal:host-gateway \
   -e DATABASE_URL="postgresql+psycopg://quizzy:quizzy@host.docker.internal:55432/quizzy" \
   -e APP_ENV=production \
+  -e APP_BASE_URL="http://127.0.0.1:8000" \
   -e SECRET_KEY="change-me" \
   quizzy
 ```
@@ -211,7 +219,8 @@ Hosted MCP settings:
 DATABASE_URL=postgresql+psycopg://...
 APP_BASE_URL=https://quizzy.example.com
 MCP_AUTH_ENABLED=true
-MCP_BEARER_TOKEN=...  # Required when MCP_AUTH_ENABLED=true
+MCP_BEARER_TOKEN=...  # Required for hosted MCP
+MCP_ADMIN_USER_ID=1  # Use your provisioned parent ID
 MCP_ALLOWED_ORIGINS=https://quizzy.example.com
 MCP_MAX_REQUEST_BYTES=2000000
 ```
@@ -223,21 +232,14 @@ https://quizzy.example.com/mcp
 Authorization: Bearer <MCP_BEARER_TOKEN>
 ```
 
-Bearer-token authentication is enabled by default. For an isolated, trusted home-lab network, it
-can be disabled explicitly:
+Hosted MCP requires bearer authentication and an active administrator selected by
+`MCP_ADMIN_USER_ID`. It refuses to start with `MCP_AUTH_ENABLED=false`. Local stdio trusts
+access to the process but still requires the configured administrator. Every MCP tool call
+includes an explicit `workspace_id`. Generated and assembled quizzes stay draft until the
+parent publishes them in the browser.
 
-```text
-MCP_AUTH_ENABLED=false
-```
-
-When authentication is disabled, `MCP_BEARER_TOKEN` may be omitted and MCP clients do not send an
-`Authorization` header. This exposes all MCP read and write tools to any client that can reach the
-service, so restrict access with a private interface, firewall, or equivalent network controls. An
-empty `MCP_BEARER_TOKEN` does not disable authentication while `MCP_AUTH_ENABLED` is true.
-
-> [!WARNING]
-> Quizzy does not implement user authentication yet. If you host it outside a local trusted
-> network, put the web app behind your own authentication layer or private access controls.
+The web app uses local accounts with private workspaces. See [Study account setup](docs/family-accounts.md)
+for migration, passwords, learner access, and reviewer oversight.
 
 ## Development
 

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="font-display text-3xl">Choose a workspace</h1>
+<p class="my-4">Your study and each learner's library and progress are separate.</p>
+<div class="grid gap-4 sm:grid-cols-2">
+{% for account in accounts %}
+<form class="rounded-xl border p-5" method="post" action="/accounts/select">
+<input type="hidden" name="workspace_id" value="{{ account.id }}">
+<h2 class="text-xl">{{ account.display_name }}</h2>
+<p>{{ 'Own study' if account.id == request.state.actor.id else 'Manage library and view progress' }}</p>
+<button class="mt-4 rounded bg-teal-700 px-4 py-2 text-white">Open workspace</button>
+</form>
+{% endfor %}
+</div>
+{% endblock %}

@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 from fastmcp import Client
 
-from app.database import get_session_factory
 from app.mcp.server import build_server
 from app.services import generation_service
 from tests.db_utils import clear_database_caches, reset_database
+from tests.db_utils import get_test_session_factory as get_session_factory
 
 pytestmark = pytest.mark.mcp
 
@@ -27,12 +27,12 @@ def mcp_database(test_database_url, monkeypatch):
 
 
 async def _invoke(server, name: str, args: dict):
-    result = await server.call_tool(name, args)
+    result = await server.call_tool(name, {"workspace_id": 1, **args})
     return result.structured_content
 
 
 async def _client_invoke(client, name: str, args: dict):
-    result = await client.call_tool(name, args)
+    result = await client.call_tool(name, {"workspace_id": 1, **args})
     return result.data
 
 

@@ -4,16 +4,14 @@ import asyncio
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.database import get_engine
 from app.mcp.server import build_server
 from app.models import Concept, ConceptStatus, Question, Quiz, Subject
 from app.services import question_health_service
 from app.services.concept_service import normalize_concept_name
 from app.services.grading_service import submit_attempt
 from app.services.quiz_service import get_or_create_subject
-from tests.db_utils import clear_database_caches, reset_database
+from tests.db_utils import clear_database_caches, get_test_session_factory, reset_database
 from tests.test_mcp_integration import (
     _approved_invoke,
     _invoke,
@@ -88,7 +86,7 @@ def _create_bank_question_with_mcp(server, tmp_path) -> tuple[dict, int]:
 
 
 def _seed_active_concept(subject_name: str, concept_name: str) -> None:
-    with Session(get_engine()) as db:
+    with get_test_session_factory()() as db:
         subject = db.scalar(select(Subject).where(Subject.name == subject_name))
         if subject is None:
             subject = get_or_create_subject(db, subject_name)
@@ -130,7 +128,7 @@ def _assemble_mcp_practice(server, subject_id: int) -> dict:
 
 
 def _miss_practice_question(practice_id: int, question_id: int) -> None:
-    with Session(get_engine()) as db:
+    with get_test_session_factory()() as db:
         quiz = db.get(Quiz, practice_id)
         assert quiz is not None
         question = db.get(Question, question_id)

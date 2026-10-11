@@ -16,6 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.auth.models import User  # noqa: F401
 from app.database import Base
 
 
@@ -75,16 +76,21 @@ class TimestampMixin:
     )
 
 
-class AppSetting(TimestampMixin, Base):
+class WorkspaceOwned:
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+
+
+class AppSetting(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "app_settings"
 
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     key: Mapped[str] = mapped_column(String(120), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-class Subject(TimestampMixin, Base):
+class Subject(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "subjects"
-    __table_args__ = (UniqueConstraint("slug", name="uq_subjects_slug"),)
+    __table_args__ = (UniqueConstraint("workspace_id", "slug", name="uq_subjects_slug"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
@@ -117,10 +123,12 @@ class Subject(TimestampMixin, Base):
     source_documents: Mapped[list["SourceDocument"]] = relationship(back_populates="subject")
 
 
-class SourceDocument(TimestampMixin, Base):
+class SourceDocument(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "source_documents"
     __table_args__ = (
-        UniqueConstraint("source_type", "source_key", name="uq_source_documents_type_key"),
+        UniqueConstraint(
+            "workspace_id", "source_type", "source_key", name="uq_source_documents_type_key"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -160,7 +168,7 @@ class SourceDocument(TimestampMixin, Base):
     )
 
 
-class SourceDocumentSnapshot(TimestampMixin, Base):
+class SourceDocumentSnapshot(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "source_document_snapshots"
     __table_args__ = (
         UniqueConstraint(
@@ -185,7 +193,7 @@ class SourceDocumentSnapshot(TimestampMixin, Base):
     questions: Mapped[list["Question"]] = relationship(back_populates="source_snapshot")
 
 
-class McpToolInvocation(Base):
+class McpToolInvocation(WorkspaceOwned, Base):
     __tablename__ = "mcp_tool_invocations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -204,7 +212,7 @@ class McpToolInvocation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
-class QuestionGenerationBatch(TimestampMixin, Base):
+class QuestionGenerationBatch(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "question_generation_batches"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -229,7 +237,7 @@ class QuestionGenerationBatch(TimestampMixin, Base):
     )
 
 
-class QuizQuestion(Base):
+class QuizQuestion(WorkspaceOwned, Base):
     __tablename__ = "quiz_questions"
 
     quiz_id: Mapped[int] = mapped_column(
@@ -246,7 +254,7 @@ class QuizQuestion(Base):
     question: Mapped["Question"] = relationship(back_populates="quiz_links")
 
 
-class Quiz(TimestampMixin, Base):
+class Quiz(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "quizzes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -306,7 +314,7 @@ class Quiz(TimestampMixin, Base):
         return self.primary_subject.name if self.primary_subject else ""
 
 
-class QuestionConcept(Base):
+class QuestionConcept(WorkspaceOwned, Base):
     __tablename__ = "question_concepts"
     __table_args__ = (Index("ix_question_concepts_question_role", "question_id", "role"),)
 
@@ -340,7 +348,7 @@ class QuestionConcept(Base):
         self.role = ConceptAssignmentRole.PRIMARY if value else ConceptAssignmentRole.SECONDARY
 
 
-class Concept(TimestampMixin, Base):
+class Concept(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "concepts"
     __table_args__ = (
         UniqueConstraint("subject_id", "slug", name="uq_concepts_subject_slug"),
@@ -409,7 +417,7 @@ class Concept(TimestampMixin, Base):
         return self.subject.name
 
 
-class ConceptReviewState(TimestampMixin, Base):
+class ConceptReviewState(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "concept_review_states"
     __table_args__ = (
         UniqueConstraint("concept_id", name="uq_concept_review_states_concept_id"),
@@ -437,7 +445,7 @@ class ConceptReviewState(TimestampMixin, Base):
     concept: Mapped[Concept] = relationship(back_populates="review_state")
 
 
-class ConceptAlias(TimestampMixin, Base):
+class ConceptAlias(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "concept_aliases"
     __table_args__ = (
         UniqueConstraint(
@@ -469,7 +477,7 @@ class ConceptAlias(TimestampMixin, Base):
     )
 
 
-class ConceptDecisionEvent(TimestampMixin, Base):
+class ConceptDecisionEvent(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "concept_decision_events"
     __table_args__ = (Index("ix_concept_decision_events_subject_action", "subject_id", "action"),)
 
@@ -488,7 +496,7 @@ class ConceptDecisionEvent(TimestampMixin, Base):
     subject: Mapped[Subject] = relationship(back_populates="concept_decision_events")
 
 
-class ConceptReviewItem(TimestampMixin, Base):
+class ConceptReviewItem(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "concept_review_items"
     __table_args__ = (Index("ix_concept_review_items_subject_status", "subject_id", "status"),)
 
@@ -510,7 +518,7 @@ class ConceptReviewItem(TimestampMixin, Base):
     question: Mapped["Question | None"] = relationship()
 
 
-class Question(TimestampMixin, Base):
+class Question(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -587,6 +595,11 @@ class Question(TimestampMixin, Base):
         back_populates="question",
         cascade="all, delete-orphan",
     )
+    feedback_events: Mapped[list["QuestionFeedbackEvent"]] = relationship(
+        back_populates="question",
+        cascade="all, delete-orphan",
+        order_by="QuestionFeedbackEvent.created_at",
+    )
     concepts: Mapped[list[Concept]] = relationship(
         secondary="question_concepts",
         back_populates="questions",
@@ -601,7 +614,7 @@ class Question(TimestampMixin, Base):
         return min(link.order_index for link in self.quiz_links)
 
 
-class Choice(Base):
+class Choice(WorkspaceOwned, Base):
     __tablename__ = "choices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -616,7 +629,7 @@ class Choice(Base):
     selected_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="selected_choice")
 
 
-class QuestionReviewItem(TimestampMixin, Base):
+class QuestionReviewItem(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "question_review_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -640,9 +653,36 @@ class QuestionReviewItem(TimestampMixin, Base):
     generation_batch: Mapped[QuestionGenerationBatch | None] = relationship(
         back_populates="review_items"
     )
+    feedback_events: Mapped[list["QuestionFeedbackEvent"]] = relationship(
+        back_populates="review_item",
+        cascade="all, delete-orphan",
+        order_by="QuestionFeedbackEvent.created_at",
+    )
 
 
-class Attempt(Base):
+class QuestionFeedbackEvent(WorkspaceOwned, TimestampMixin, Base):
+    __tablename__ = "question_feedback_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
+    )
+    review_item_id: Mapped[int] = mapped_column(
+        ForeignKey("question_review_items.id", ondelete="CASCADE"), nullable=False
+    )
+    attempt_answer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attempt_answers.id", ondelete="SET NULL")
+    )
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reported_from: Mapped[str] = mapped_column(String(40), nullable=False)
+
+    question: Mapped[Question] = relationship(back_populates="feedback_events")
+    review_item: Mapped[QuestionReviewItem] = relationship(back_populates="feedback_events")
+    attempt_answer: Mapped["AttemptAnswer | None"] = relationship()
+
+
+class Attempt(WorkspaceOwned, Base):
     __tablename__ = "attempts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -663,7 +703,7 @@ class Attempt(Base):
     )
 
 
-class AttemptAnswer(Base):
+class AttemptAnswer(WorkspaceOwned, Base):
     __tablename__ = "attempt_answers"
     __table_args__ = (
         CheckConstraint(

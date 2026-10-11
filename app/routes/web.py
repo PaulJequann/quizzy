@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.auth.boundary import require_published_for_learner, study_operation
 from app.database import get_db
 from app.models import (
     Attempt,
@@ -49,6 +50,7 @@ from app.services.subject_service import (
     get_subjects,
     quizzes_for_subject,
 )
+from app.study_access import StudyOperation
 from app.templating import templates
 
 router = APIRouter()
@@ -151,21 +153,27 @@ def form_int_list(form, key: str) -> list[int]:
 
 
 @router.get("/", include_in_schema=False)
+@study_operation(StudyOperation.VIEW)
 def root() -> RedirectResponse:
     return redirect("/quizzes")
 
 
 @router.get("/quizzes", response_class=HTMLResponse)
+@study_operation(StudyOperation.VIEW)
 def quiz_list(request: Request, db: Annotated[Session, Depends(get_db)]):
     quizzes = list_quizzes(db)
+    quizzes = [quiz for quiz in quizzes if request.state.access.can_view_quiz(quiz.status)]
     return templates.TemplateResponse(
         request,
-        "quizzes/list.html",
+        "quizzes/list.html"
+        if request.state.access.can_manage_study
+        else "quizzes/learner_list.html",
         {"quizzes": quizzes},
     )
 
 
 @router.get("/mastery", response_class=HTMLResponse)
+@study_operation(StudyOperation.VIEW)
 def mastery(request: Request, db: Annotated[Session, Depends(get_db)]):
     mastery_rows = get_mastery_rows(db)
     mastery_groups = build_subject_mastery_groups(mastery_rows)
@@ -181,11 +189,13 @@ def mastery(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 
 @router.post("/mastery/review")
+@study_operation(StudyOperation.MANAGE)
 def create_mastery_review_quiz(db: Annotated[Session, Depends(get_db)]):
     return redirect_to_practice(lambda: practice_service.assemble_mastery_review(db), "/mastery")
 
 
 @router.get("/subjects", response_class=HTMLResponse)
+@study_operation(StudyOperation.MANAGE)
 def subject_list(request: Request, db: Annotated[Session, Depends(get_db)]):
     mastery_groups = build_subject_mastery_groups(get_mastery_rows(db))
     subjects = get_subjects(db)
@@ -197,6 +207,7 @@ def subject_list(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 
 @router.get("/subjects/{subject_id}", response_class=HTMLResponse)
+@study_operation(StudyOperation.MANAGE)
 def subject_detail(request: Request, subject_id: int, db: Annotated[Session, Depends(get_db)]):
     subject = get_subject(db, subject_id)
     if subject is None:
@@ -272,6 +283,7 @@ def _concept_review_counts(review_items: list[dict]) -> dict[int, int]:
 
 
 @router.post("/concept-reviews/{review_item_id}/approve")
+@study_operation(StudyOperation.MANAGE)
 def approve_concept_review(
     review_item_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -288,6 +300,7 @@ def approve_concept_review(
 
 
 @router.post("/concept-reviews/{review_item_id}/reject")
+@study_operation(StudyOperation.MANAGE)
 def reject_concept_review(
     review_item_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -301,6 +314,7 @@ def reject_concept_review(
 
 
 @router.post("/concept-reviews/{review_item_id}/accept-assignment")
+@study_operation(StudyOperation.MANAGE)
 def accept_concept_review_assignment(
     review_item_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -315,6 +329,7 @@ def accept_concept_review_assignment(
 
 
 @router.post("/concept-reviews/{review_item_id}/remap")
+@study_operation(StudyOperation.MANAGE)
 async def remap_concept_review_assignment(
     request: Request,
     review_item_id: int,
@@ -391,6 +406,7 @@ def _concept_review_item(db: Session, review_item_id: int) -> ConceptReviewItem:
 
 
 @router.post("/concepts/{concept_id}/update")
+@study_operation(StudyOperation.MANAGE)
 async def update_concept_from_subject(
     request: Request,
     concept_id: int,
@@ -433,6 +449,7 @@ async def update_concept_from_subject(
 
 
 @router.post("/subjects/{subject_id}/practice")
+@study_operation(StudyOperation.MANAGE)
 def create_subject_practice(
     subject_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -447,6 +464,7 @@ def create_subject_practice(
 
 
 @router.post("/subjects/{subject_id}/review")
+@study_operation(StudyOperation.MANAGE)
 def create_subject_review_quiz(
     subject_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -462,6 +480,7 @@ def create_subject_review_quiz(
 
 
 @router.post("/concepts/{concept_id}/practice")
+@study_operation(StudyOperation.MANAGE)
 def create_concept_practice(
     concept_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -480,6 +499,7 @@ def create_concept_practice(
 
 
 @router.get("/quizzes/new", response_class=HTMLResponse)
+@study_operation(StudyOperation.MANAGE)
 def new_quiz(request: Request, db: Annotated[Session, Depends(get_db)]):
     return templates.TemplateResponse(
         request,
@@ -489,6 +509,7 @@ def new_quiz(request: Request, db: Annotated[Session, Depends(get_db)]):
 
 
 @router.post("/quizzes")
+@study_operation(StudyOperation.MANAGE)
 async def post_quiz(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
@@ -508,7 +529,10 @@ async def post_quiz(
 
 
 @router.get("/quizzes/{quiz_id}", response_class=HTMLResponse)
+@study_operation(StudyOperation.VIEW)
 def quiz_detail(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
+    if not request.state.access.can_manage_study:
+        return redirect(f"/quizzes/{quiz_id}/take")
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
@@ -520,6 +544,7 @@ def quiz_detail(request: Request, quiz_id: int, db: Annotated[Session, Depends(g
 
 
 @router.post("/quizzes/{quiz_id}/publish", response_class=HTMLResponse)
+@study_operation(StudyOperation.MANAGE)
 def publish_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
@@ -529,6 +554,7 @@ def publish_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(
 
 
 @router.get("/quizzes/{quiz_id}/questions/new", response_class=HTMLResponse)
+@study_operation(StudyOperation.MANAGE)
 def new_question(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
@@ -541,6 +567,7 @@ def new_question(request: Request, quiz_id: int, db: Annotated[Session, Depends(
 
 
 @router.post("/quizzes/{quiz_id}/questions", response_class=HTMLResponse)
+@study_operation(StudyOperation.MANAGE)
 async def post_question(
     request: Request,
     quiz_id: int,
@@ -587,10 +614,12 @@ async def post_question(
 
 
 @router.get("/quizzes/{quiz_id}/take", response_class=HTMLResponse)
+@study_operation(StudyOperation.VIEW)
 def take_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
+    require_published_for_learner(request, quiz)
     if not quiz.questions:
         raise HTTPException(status_code=400, detail="Quiz has no questions")
     return templates.TemplateResponse(
@@ -601,30 +630,33 @@ def take_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(get
 
 
 @router.post("/quizzes/{quiz_id}/submit")
+@study_operation(StudyOperation.RECORD_PROGRESS)
 async def submit_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
+    require_published_for_learner(request, quiz)
     form = await request.form()
     answers: dict[int, int | None] = {}
     for question in quiz.questions:
         raw_answer = form.get(f"question_{question.id}")
         answers[question.id] = int(raw_answer) if isinstance(raw_answer, str) else None
-    attempt = submit_attempt(db, quiz, answers)
+    try:
+        attempt = submit_attempt(db, quiz, answers)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     question_health_service.record_attempt_evidence(db, attempt.id)
     return redirect(f"/attempts/{attempt.id}/results")
 
 
 @router.get("/attempts/{attempt_id}/results", response_class=HTMLResponse)
+@study_operation(StudyOperation.VIEW)
 def attempt_results(request: Request, attempt_id: int, db: Annotated[Session, Depends(get_db)]):
     attempt = db.scalar(
         select(Attempt)
         .where(Attempt.id == attempt_id)
         .options(
             selectinload(Attempt.quiz).selectinload(Quiz.primary_subject),
-            selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.choices),
-            selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.concepts),
-            selectinload(Attempt.quiz).selectinload(Quiz.questions).selectinload(Question.subject),
             selectinload(Attempt.answers)
             .selectinload(AttemptAnswer.question)
             .selectinload(Question.choices),
@@ -636,18 +668,11 @@ def attempt_results(request: Request, attempt_id: int, db: Annotated[Session, De
     )
     if attempt is None:
         raise HTTPException(status_code=404, detail="Attempt not found")
-    answer_by_question = {answer.question_id: answer for answer in attempt.answers}
-    correct_by_question = {
-        question.id: next((choice for choice in question.choices if choice.is_correct), None)
-        for question in attempt.quiz.questions
-    }
     return templates.TemplateResponse(
         request,
         "attempts/results.html",
         {
             "attempt": attempt,
-            "answer_by_question": answer_by_question,
-            "correct_by_question": correct_by_question,
             "missed_concepts": missed_concepts_for_attempt(attempt),
             "letter_grade": letter_grade(attempt.score),
             "passed": passed(attempt.score),

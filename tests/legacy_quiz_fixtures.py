@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
-
-from app.database import get_engine
 from app.models import (
     Choice,
     Concept,
@@ -19,6 +16,7 @@ from app.services.concept_service import normalize_concept_name
 from app.services.generation_service import GeneratedQuizCreateInput
 from app.services.quiz_service import get_or_create_subject
 from app.services.text_service import slugify
+from tests.db_utils import get_test_session_factory
 
 
 def seed_legacy_route53_concepts(questions: list[dict]) -> dict:
@@ -50,8 +48,9 @@ def _seed_legacy_route53_quiz(
     questions: list[dict],
     extra_concept_names: list[str] | None = None,
 ) -> dict:
-    with Session(get_engine()) as db:
+    with get_test_session_factory()() as db:
         subject = get_or_create_subject(db, "AWS")
+        db.flush()
         quiz = generation_service.create_generated_quiz(
             db,
             GeneratedQuizCreateInput(title=title, subject_name="AWS"),

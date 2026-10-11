@@ -5,7 +5,7 @@ from sqlalchemy import inspect, text
 
 from alembic import command
 from app.database import get_engine
-from tests.db_utils import clear_database_caches, set_database_url
+from tests.db_utils import clear_database_caches, reset_schema, set_database_url
 
 pytestmark = pytest.mark.migration
 
@@ -27,6 +27,7 @@ def test_migrations_create_question_first_schema(test_database_url, monkeypatch)
     assert {
         "question_generation_batches",
         "question_review_items",
+        "question_feedback_events",
         "source_document_snapshots",
         "mcp_tool_invocations",
     }.issubset(inspector.get_table_names())
@@ -50,7 +51,7 @@ def test_question_first_migration_backfills_attempt_session_type(
 ) -> None:
     set_database_url(test_database_url, monkeypatch)
     config = Config("alembic.ini")
-    command.downgrade(config, "202606120005")
+    reset_schema(config, "202606120005")
     try:
         _seed_pre_question_first_attempt()
         clear_database_caches()
@@ -68,7 +69,7 @@ def test_concept_stewardship_migration_backfills_runtime_normalized_names(
 ) -> None:
     set_database_url(test_database_url, monkeypatch)
     config = Config("alembic.ini")
-    command.downgrade(config, "202606120007")
+    reset_schema(config, "202606120007")
     try:
         _clear_app_tables()
         _seed_pre_concept_stewardship_concepts()

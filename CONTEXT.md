@@ -5,6 +5,25 @@ subject-scoped learning objectives.
 
 ## Language
 
+**Study workspace**:
+A person's private study material, attempts, mastery, and review schedule.
+_Avoid_: Family workspace, shared class library
+
+**Study access**:
+The permission to view or manage a study workspace and to record learning activity in it.
+Access to someone else's workspace does not permit recording attempts or feedback as that person.
+_Avoid_: Family access, impersonation
+
+**Workspace reviewer**:
+A person authorized to manage another learner's study material and review their learning progress.
+A reviewer can be a teacher, mentor, parent, or another trusted person.
+_Avoid_: Parent role, family administrator
+
+**Reviewer preview**:
+Viewing another learner's study workspace to manage material or review progress without recording
+learning activity on their behalf.
+_Avoid_: Parent preview, learner impersonation
+
 **Subject**:
 A broad study namespace that groups related questions, concepts, source material, and practice.
 Examples include AWS, cardiology, world history, or organic chemistry.

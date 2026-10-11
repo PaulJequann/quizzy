@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -451,14 +451,17 @@ def _open_duplicate_review_item(
 
 
 def _close_stale_reviews(db: Session, context: MergeContext) -> None:
-    db.execute(
-        delete(ConceptReviewItem).where(
+    reviews = db.scalars(
+        select(ConceptReviewItem).where(
             ConceptReviewItem.subject_id == context.subject.id,
             ConceptReviewItem.status == "open",
             ConceptReviewItem.review_type.in_(["near_duplicate", "unresolved_assignment"]),
             ConceptReviewItem.concept_id.in_(_merged_concept_ids(context)),
         )
     )
+
+    for review in reviews:
+        db.delete(review)
 
 
 def _merged_concept_ids(context: MergeContext) -> list[int]:

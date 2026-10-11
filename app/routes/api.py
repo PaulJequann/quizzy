@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.auth.boundary import study_operation
 from app.database import get_db
 from app.models import Concept, Subject
 from app.routes import concept_api_actions
@@ -33,21 +34,25 @@ from app.services import (
 from app.services.concept_maintenance_service import MergeConceptsInput
 from app.services.grading_service import get_concept_queue_items, submit_attempt
 from app.services.quiz_service import create_question, create_quiz, get_quiz, list_quizzes
+from app.study_access import StudyOperation
 
 router = APIRouter(prefix="/api", tags=["api"])
 
 
 @router.get("/quizzes", response_model=list[QuizRead])
+@study_operation(StudyOperation.MANAGE)
 def api_quizzes(db: Annotated[Session, Depends(get_db)]):
     return list_quizzes(db)
 
 
 @router.get("/mastery/weak-concepts", response_model=list[ConceptQueueItemRead])
+@study_operation(StudyOperation.MANAGE)
 def api_weak_concepts(db: Annotated[Session, Depends(get_db)]):
     return get_concept_queue_items(db)
 
 
 @router.get("/subjects/{subject_id}/concepts", response_model=list[ConceptRead])
+@study_operation(StudyOperation.MANAGE)
 def api_subject_concepts(subject_id: int, db: Annotated[Session, Depends(get_db)]):
     return list(
         db.scalars(
@@ -60,6 +65,7 @@ def api_subject_concepts(subject_id: int, db: Annotated[Session, Depends(get_db)
 
 
 @router.post("/subjects/{subject_id}/concepts", response_model=ConceptRead, status_code=201)
+@study_operation(StudyOperation.MANAGE)
 def api_create_subject_concept(
     subject_id: int,
     payload: ConceptCreate,
@@ -81,6 +87,7 @@ def api_create_subject_concept(
 
 
 @router.patch("/concepts/{concept_id}", response_model=ConceptRead)
+@study_operation(StudyOperation.MANAGE)
 def api_update_concept(
     concept_id: int,
     payload: ConceptUpdate,
@@ -118,6 +125,7 @@ def api_update_concept(
 
 
 @router.post("/concepts/{concept_id}/split")
+@study_operation(StudyOperation.MANAGE)
 def api_split_concept(
     concept_id: int,
     payload: ConceptSplitRequest,
@@ -134,6 +142,7 @@ def api_split_concept(
 
 
 @router.post("/concepts/{concept_id}/archive", response_model=ConceptRead)
+@study_operation(StudyOperation.MANAGE)
 def api_archive_concept(
     concept_id: int,
     payload: ConceptArchiveRequest,
@@ -149,6 +158,7 @@ def api_archive_concept(
 
 
 @router.delete("/concepts/{concept_id}", status_code=204)
+@study_operation(StudyOperation.MANAGE)
 def api_delete_empty_concept(
     concept_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -159,6 +169,7 @@ def api_delete_empty_concept(
 
 
 @router.post("/concepts/merge")
+@study_operation(StudyOperation.MANAGE)
 def api_merge_concepts(
     payload: ConceptMergeRequest,
     db: Annotated[Session, Depends(get_db)],
@@ -181,6 +192,7 @@ def api_merge_concepts(
 
 
 @router.get("/quizzes/{quiz_id}", response_model=QuizRead)
+@study_operation(StudyOperation.MANAGE)
 def api_quiz(quiz_id: int, db: Annotated[Session, Depends(get_db)]):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
@@ -189,11 +201,13 @@ def api_quiz(quiz_id: int, db: Annotated[Session, Depends(get_db)]):
 
 
 @router.post("/quizzes", response_model=QuizRead, status_code=201)
+@study_operation(StudyOperation.MANAGE)
 def api_create_quiz(payload: QuizCreate, db: Annotated[Session, Depends(get_db)]):
     return create_quiz(db, payload)
 
 
 @router.post("/quizzes/{quiz_id}/questions", response_model=QuestionRead, status_code=201)
+@study_operation(StudyOperation.MANAGE)
 def api_create_question(
     quiz_id: int,
     payload: QuestionCreate,
@@ -209,6 +223,7 @@ def api_create_question(
 
 
 @router.post("/quizzes/{quiz_id}/attempts", response_model=AttemptRead, status_code=201)
+@study_operation(StudyOperation.MANAGE_AND_RECORD)
 def api_create_attempt(
     quiz_id: int,
     payload: AttemptCreate,
@@ -218,12 +233,16 @@ def api_create_attempt(
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
     answers = {answer.question_id: answer.selected_choice_id for answer in payload.answers}
-    attempt = submit_attempt(db, quiz, answers)
+    try:
+        attempt = submit_attempt(db, quiz, answers)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     question_health_service.record_attempt_evidence(db, attempt.id)
     return attempt
 
 
 @router.post("/subjects/{subject_id}/practice", response_model=QuizRead, status_code=201)
+@study_operation(StudyOperation.MANAGE)
 def api_create_subject_practice(
     subject_id: int,
     db: Annotated[Session, Depends(get_db)],

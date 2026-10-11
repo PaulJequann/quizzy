@@ -15,11 +15,11 @@ from fastmcp.client.transports import StdioTransport
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.database import get_session_factory
 from app.mcp.server import build_server
 from app.models import McpToolInvocation, SourceDocument, SourceDocumentSnapshot
 from app.services import generation_service, source_service
 from tests.db_utils import clear_database_caches, reset_database
+from tests.db_utils import get_test_session_factory as get_session_factory
 from tests.test_mcp_integration import (
     _client_invoke,
     _invoke,

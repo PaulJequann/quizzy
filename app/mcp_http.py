@@ -133,7 +133,9 @@ def _replay_messages(messages: list[Message], receive_after_replay: Receive) -> 
 def create_app():
     settings = get_settings()
     _require_app_base_url(settings)
-    auth = _bearer_auth(settings.mcp_bearer_token) if settings.mcp_auth_enabled else None
+    if not settings.mcp_auth_enabled:
+        raise RuntimeError("Hosted MCP requires authentication")
+    auth = _bearer_auth(settings.mcp_bearer_token)
     server = build_server(auth=auth)
 
     @server.custom_route("/health", methods=["GET"], include_in_schema=False)
