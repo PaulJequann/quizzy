@@ -46,8 +46,8 @@ def provision_family(setup: FamilySetup) -> tuple[int, int]:
 
 
 def _validate_setup(setup: FamilySetup) -> None:
-    if min(len(setup.parent_password), len(setup.learner_password)) < 12:
-        raise ValueError("Choose passwords with at least 12 characters")
+    if min(len(setup.parent_password), len(setup.learner_password)) < 8:
+        raise ValueError("Choose passwords with at least 8 characters")
     if setup.parent_email.casefold() == setup.learner_email.casefold():
         raise ValueError("Distinct emails are required")
     if not setup.learner_name.strip():

@@ -15,7 +15,7 @@ uv run python -m app.auth.provision \
   --learner-name Learner
 ```
 
-The command prompts for both passwords without echoing them. Choose at least 12 characters
+The command prompts for both passwords without echoing them. Choose at least 8 characters
 for each password. Replace the example emails with your own sign-in addresses. Provisioning
 activates the migrated parent and creates the learner in one transaction. It prints their
 workspace IDs. It refuses to overwrite an already provisioned parent.

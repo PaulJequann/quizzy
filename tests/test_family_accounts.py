@@ -164,9 +164,9 @@ def test_bootstrap_claims_inactive_parent_once(db_session):
     parent_id, learner_id = provision_family(
         FamilySetup(
             "family@example.com",
-            "parent-long-secret",
+            "parent12",
             "kid@example.com",
-            "learner-long-secret",
+            "learner1",
             "Kid",
         )
     )
@@ -175,9 +175,9 @@ def test_bootstrap_claims_inactive_parent_once(db_session):
         provision_family(
             FamilySetup(
                 "family@example.com",
-                "parent-long-secret",
+                "parent12",
                 "kid@example.com",
-                "learner-long-secret",
+                "learner1",
                 "Kid",
             )
         )
@@ -185,7 +185,7 @@ def test_bootstrap_claims_inactive_parent_once(db_session):
         assert (
             browser.post(
                 "/auth/login",
-                data={"username": "family@example.com", "password": "parent-long-secret"},
+                data={"username": "family@example.com", "password": "parent12"},
             ).status_code
             == 204
         )
