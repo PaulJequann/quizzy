@@ -3,8 +3,10 @@ import inspect
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
+from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.config import get_settings
@@ -16,19 +18,54 @@ from app.workspace_database import workspace_session
 _call_access: ContextVar[StudyAccess] = ContextVar("mcp_workspace_access")
 
 
+def load_mcp_admin(db: Session) -> User:
+    admin = db.scalar(
+        select(User).filter_by(
+            id=get_settings().mcp_admin_user_id, is_active=True, is_superuser=True
+        )
+    )
+    if admin is None:
+        raise ValueError("MCP requires a configured administrator")
+    return admin
+
+
 def authorize_mcp_workspace(workspace_id: int) -> StudyAccess:
     with get_session_factory()() as db:
-        actor = db.scalar(
-            select(User).filter_by(
-                id=get_settings().mcp_admin_user_id, is_active=True, is_superuser=True
-            )
-        )
-        if actor is None:
-            raise ValueError("MCP requires a configured administrator")
+        actor = load_mcp_admin(db)
         try:
             return resolve_study_access(db, actor, workspace_id)
         except StudyAccessDenied as exc:
             raise ValueError("Unknown active workspace") from exc
+
+
+def list_accessible_workspaces() -> dict[str, Any]:
+    """Identify the configured administrator and the workspaces it may act on.
+
+    Discovery for MCP agents: pass a returned workspace_id to every other Quizzy
+    MCP tool instead of asking the user for an internal id.
+    """
+    with get_session_factory()() as db:
+        actor = load_mcp_admin(db)
+        users = db.scalars(select(User).filter_by(is_active=True).order_by(User.id)).all()
+        workspaces = [
+            {
+                "workspace_id": user.id,
+                "name": user.display_name,
+                "is_admin_workspace": user.id == actor.id,
+            }
+            for user in users
+        ]
+        return {
+            "administrator": {
+                "workspace_id": actor.id,
+                "name": actor.display_name,
+            },
+            "workspaces": workspaces,
+            "next_action": (
+                "Select the learner's workspace by name and pass its workspace_id "
+                "explicitly to every other Quizzy MCP tool."
+            ),
+        }
 
 
 def workspace_tool(fn):

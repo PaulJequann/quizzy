@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.draft_policy import require_draft_content
 from app.mcp import concept_approval, question_first_tools, read_tools, source_tools
+from app.mcp.access import list_accessible_workspaces, workspace_tool
 from app.mcp.access import session_scope as _session_scope
-from app.mcp.access import workspace_tool
 from app.models import (
     Difficulty,
     Question,
@@ -102,6 +102,12 @@ Concept granularity rules:
 - If unsure whether two proposed labels are separate concepts, choose the broader label and reuse
   it. The user can split concepts later during review; merging noisy concepts is more expensive.
 
+Workspace discovery:
+- Every Quizzy MCP tool except list_workspaces requires an explicit workspace_id. When the
+  target workspace is not stated, call list_workspaces first and select the learner's
+  workspace by name instead of asking the user for an internal id. The tool also identifies
+  the configured administrator.
+
 Recommended workflow:
 1. Read source files in the local agent environment and send their Markdown content with
    upsert_source_document_from_content. Pass subject_name when the content frontmatter/body does
@@ -173,6 +179,7 @@ def build_server(auth: AuthProvider | None = None) -> FastMCP:
         instructions=GENERATION_GUIDANCE,
         auth=auth,
     )
+    _register_discovery_tool(server)
     register_tool(server, "prepare_next_practice", prepare_next_practice)
     _register_read_tools(server)
     _register_source_tools(server)
@@ -184,6 +191,9 @@ def run_stdio(server: FastMCP) -> None:
     server.run(transport="stdio")
 
 
+READ_ONLY: dict[str, Any] = {"readOnlyHint": True, "idempotentHint": True}
+
+
 def register_tool(
     server: FastMCP,
     name: str,
@@ -193,6 +203,17 @@ def register_tool(
 ) -> None:
     tool_annotations = ToolAnnotations(**annotations) if annotations else None
     server.add_tool(Tool.from_function(workspace_tool(fn), name=name, annotations=tool_annotations))
+
+
+def _register_discovery_tool(server: FastMCP) -> None:
+    # Workspace discovery has no workspace to scope to, so it bypasses workspace_tool.
+    server.add_tool(
+        Tool.from_function(
+            list_accessible_workspaces,
+            name="list_workspaces",
+            annotations=ToolAnnotations(**READ_ONLY),
+        )
+    )
 
 
 def _source_document_for_context(
@@ -361,35 +382,39 @@ def list_question_bank(
 
 
 def _register_read_tools(server: FastMCP) -> None:
-    ro = {"readOnlyHint": True, "idempotentHint": True}
-    register_tool(server, "get_generation_guidance", get_generation_guidance, annotations=ro)
-    register_tool(server, "get_status", get_status, annotations=ro)
-    register_tool(server, "list_subjects", list_subjects, annotations=ro)
-    register_tool(server, "list_concepts", read_tools.list_concepts, annotations=ro)
+    register_tool(server, "get_generation_guidance", get_generation_guidance, annotations=READ_ONLY)
+    register_tool(server, "get_status", get_status, annotations=READ_ONLY)
+    register_tool(server, "list_subjects", list_subjects, annotations=READ_ONLY)
+    register_tool(server, "list_concepts", read_tools.list_concepts, annotations=READ_ONLY)
     register_tool(
         server,
         "list_concept_review_queue",
         read_tools.list_concept_review_queue,
-        annotations=ro,
+        annotations=READ_ONLY,
     )
-    register_tool(server, "get_mastery_focus", read_tools.get_mastery_focus, annotations=ro)
+    register_tool(server, "get_mastery_focus", read_tools.get_mastery_focus, annotations=READ_ONLY)
     register_tool(
         server,
         "get_subject_mastery_tree",
         read_tools.get_subject_mastery_tree,
-        annotations=ro,
+        annotations=READ_ONLY,
     )
-    register_tool(server, "prepare_generation_context", prepare_generation_context, annotations=ro)
+    register_tool(
+        server,
+        "prepare_generation_context",
+        prepare_generation_context,
+        annotations=READ_ONLY,
+    )
     register_tool(
         server,
         "prepare_question_generation_context",
         prepare_generation_context,
-        annotations=ro,
+        annotations=READ_ONLY,
     )
-    register_tool(server, "prepare_concept_plan", prepare_concept_plan, annotations=ro)
-    register_tool(server, "list_quizzes", list_quizzes, annotations=ro)
-    register_tool(server, "get_quiz", get_quiz, annotations=ro)
-    register_tool(server, "list_question_bank", list_question_bank, annotations=ro)
+    register_tool(server, "prepare_concept_plan", prepare_concept_plan, annotations=READ_ONLY)
+    register_tool(server, "list_quizzes", list_quizzes, annotations=READ_ONLY)
+    register_tool(server, "get_quiz", get_quiz, annotations=READ_ONLY)
+    register_tool(server, "list_question_bank", list_question_bank, annotations=READ_ONLY)
 
 
 def _register_source_tools(server: FastMCP) -> None:

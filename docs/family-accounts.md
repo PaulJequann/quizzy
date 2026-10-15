@@ -71,7 +71,10 @@ agent. It includes bounded mastery evidence, due state, recent wrong answers, an
 references. Thin evidence is marked explicitly. The app does not run an AI model.
 
 The agent can request the same brief through `prepare_next_practice`. Every MCP tool requires
-an explicit `workspace_id`, including reads. The configured administrator must remain active.
+an explicit `workspace_id`, including reads. `list_workspaces` is the one exception: it takes
+no `workspace_id` and returns the configured administrator plus every workspace it may act
+on, so agents can pick a learner's workspace by name instead of asking for an internal id.
+The configured administrator must remain active.
 The stdio process reads `DATABASE_URL` and `MCP_ADMIN_USER_ID` from its environment or `.env`:
 
 ```bash

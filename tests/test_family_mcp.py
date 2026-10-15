@@ -26,6 +26,59 @@ def test_mcp_requires_explicit_workspace_and_active_admin(db_session, monkeypatc
     asyncio.run(exercise())
 
 
+def test_list_workspaces_discovers_accessible_workspaces(db_session):
+    async def exercise():
+        from app.auth.models import User
+        from app.database import get_session_factory
+
+        with get_session_factory()() as accounts:
+            child = User(
+                email="discovery-child@example.com",
+                hashed_password="!",
+                display_name="Discovery Child",
+                is_active=True,
+                is_superuser=False,
+            )
+            inactive = User(
+                email="discovery-inactive@example.com",
+                hashed_password="!",
+                display_name="Discovery Inactive",
+                is_active=False,
+                is_superuser=False,
+            )
+            accounts.add_all([child, inactive])
+            accounts.commit()
+
+        async with Client(build_server()) as client:
+            result = await client.call_tool("list_workspaces", {})
+            assert result.data["administrator"] == {"workspace_id": 1, "name": "Parent"}
+            workspaces = result.data["workspaces"]
+            assert [workspace["workspace_id"] for workspace in workspaces] == [1, child.id]
+            assert [workspace["name"] for workspace in workspaces] == [
+                "Parent",
+                "Discovery Child",
+            ]
+            assert [workspace["is_admin_workspace"] for workspace in workspaces] == [
+                True,
+                False,
+            ]
+
+    asyncio.run(exercise())
+
+
+def test_list_workspaces_fails_closed_without_a_configured_admin(db_session, monkeypatch):
+    async def exercise():
+        async with Client(build_server()) as client:
+            monkeypatch.setenv("MCP_ADMIN_USER_ID", "999")
+            from app.config import get_settings
+
+            get_settings.cache_clear()
+            with pytest.raises(ToolError, match="administrator"):
+                await client.call_tool("list_workspaces", {})
+
+    asyncio.run(exercise())
+
+
 def test_mcp_cannot_publish_generated_quiz(db_session):
     async def exercise():
         async with Client(build_server()) as client:

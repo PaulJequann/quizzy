@@ -164,6 +164,7 @@ default_tools_approval_mode = "prompt"
 
 Core MCP tools include:
 
+- `list_workspaces` (no workspace_id required; identifies the configured administrator)
 - `upsert_source_document_from_content`
 - `prepare_generation_context`
 - `prepare_concept_plan`
@@ -176,6 +177,8 @@ Core MCP tools include:
 
 Recommended generation flow:
 
+0. When the target workspace is not stated, call `list_workspaces` and select the
+   learner's workspace by name instead of asking for an internal workspace id.
 1. Ingest the note content into Quizzy as a source document.
 2. Ask Quizzy for existing subject, concept, and generation context.
 3. Have the agent create a small concept plan before writing questions.
