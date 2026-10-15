@@ -79,6 +79,37 @@ def test_list_workspaces_fails_closed_without_a_configured_admin(db_session, mon
     asyncio.run(exercise())
 
 
+def test_list_workspaces_fails_closed_for_inactive_or_demoted_admin(db_session, monkeypatch):
+    async def exercise():
+        from app.auth.models import User
+        from app.config import get_settings
+        from app.database import get_session_factory
+
+        monkeypatch.setenv("MCP_ADMIN_USER_ID", "1")
+        get_settings.cache_clear()
+        async with Client(build_server()) as client:
+            with get_session_factory()() as accounts:
+                admin = accounts.get(User, 1)
+                assert admin is not None
+                admin.is_superuser = False
+                accounts.commit()
+
+            with pytest.raises(ToolError, match="administrator"):
+                await client.call_tool("list_workspaces", {})
+
+            with get_session_factory()() as accounts:
+                admin = accounts.get(User, 1)
+                assert admin is not None
+                admin.is_superuser = True
+                admin.is_active = False
+                accounts.commit()
+
+            with pytest.raises(ToolError, match="administrator"):
+                await client.call_tool("list_workspaces", {})
+
+    asyncio.run(exercise())
+
+
 def test_mcp_cannot_publish_generated_quiz(db_session):
     async def exercise():
         async with Client(build_server()) as client:
