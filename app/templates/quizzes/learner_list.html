@@ -1,12 +1,68 @@
 {% extends "base.html" %}
+{% block title %}My quizzes · Quizzy{% endblock %}
 {% block content %}
-<h1 class="font-display text-3xl">My quizzes</h1>
-<p class="my-4">Choose a quiz to practice. Your results and progress are saved here.</p>
-<div class="grid gap-4 sm:grid-cols-2">
-{% for quiz in quizzes %}
-<article class="quiz-card"><h2 class="font-display text-xl">{{ quiz.title }}</h2>
-<p class="my-4">{{ quiz.description }}</p><p>{{ quiz.questions|length }} questions</p>
-<a class="btn-primary mt-4 inline-block" href="/quizzes/{{ quiz.id }}/take">Start quiz</a></article>
-{% else %}<p>Your next quiz will appear here when it is ready.</p>{% endfor %}
-</div>
+  <section class="mb-8 grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
+    <div>
+      <p class="eyebrow">Your study library</p>
+      <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">
+        {% if quizzes %}Choose a quiz to practice.{% else %}Your study space is ready.{% endif %}
+      </h1>
+      <p class="mt-3 max-w-2xl text-[var(--color-text-2)]">
+        {% if quizzes %}
+          Pick a practice set below. Your results and progress are saved here.
+        {% else %}
+          Quizzes published for {{ request.state.access.workspace_name }} will show up here. Your progress and past results are always available too.
+        {% endif %}
+      </p>
+    </div>
+    {% if quizzes %}
+      {% set totals = namespace(questions=0) %}
+      {% for quiz in quizzes %}
+        {% set totals.questions = totals.questions + quiz.questions|length %}
+      {% endfor %}
+      <div class="stats-strip min-w-64">
+        <div><strong>{{ quizzes|length }}</strong><span>quizzes</span></div>
+        <div><strong>{{ totals.questions }}</strong><span>questions</span></div>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if quizzes %}
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {% for quiz in quizzes %}
+        <article class="quiz-card">
+          <p class="eyebrow">{{ quiz.topic or "Practice" }}</p>
+          <h2 class="font-display mt-2 text-xl leading-tight">{{ quiz.title }}</h2>
+          <p class="mt-4 min-h-16 text-sm leading-6 text-[var(--color-text-2)]">{{ quiz.description }}</p>
+          <div class="mt-6 flex flex-wrap gap-2">
+            <span class="meta-chip">{{ quiz.questions|length }} questions</span>
+            <span class="meta-chip">{{ quiz.difficulty|display_label }}</span>
+          </div>
+          <a class="btn-primary mt-6 w-full" href="/quizzes/{{ quiz.id }}/take">Start quiz</a>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <section class="panel grid gap-6 sm:grid-cols-[auto_1fr] sm:items-start" aria-labelledby="empty-library-title">
+      <div class="grid size-14 place-items-center rounded-2xl bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]" aria-hidden="true">
+        <svg class="size-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"></path>
+          <path d="M4 5.5v16"></path>
+          <path d="M9 8h7"></path>
+          <path d="M9 12h5"></path>
+        </svg>
+      </div>
+      <div>
+        <p class="eyebrow">Nothing to practice yet</p>
+        <h2 id="empty-library-title" class="font-display mt-1 text-2xl">Your next quiz will appear here.</h2>
+        <p class="mt-3 max-w-2xl leading-7 text-[var(--color-text-2)]">
+          There are no published quizzes in this study space right now. When your parent or teacher shares one, you can start it from this page.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <a class="btn-secondary" href="/mastery">See my progress</a>
+          <a class="btn-secondary" href="/progress">View past results</a>
+        </div>
+      </div>
+    </section>
+  {% endif %}
 {% endblock %}
