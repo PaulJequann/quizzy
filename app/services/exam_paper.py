@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast
+from typing import TypedDict, TypeGuard
 
 from app.models import Question, Quiz
 from app.services.exam_errors import ExamError
@@ -29,16 +29,12 @@ class Paper:
     questions: tuple[PaperQuestion, ...]
 
 
-@dataclass(frozen=True)
-class RawQuestionFields:
-    choices: object
-    stem: object
-    explanation: object
-    key: object
-    correct_key: object
-
-    def validate(self) -> None:
-        _validate_raw_question_fields(self)
+class PaperQuestionPayload(TypedDict):
+    choices: list[object]
+    stem: str
+    explanation: str
+    key: int
+    correct_choice_key: int
 
 
 def paper_from_quiz(quiz: Quiz) -> Paper:
@@ -115,40 +111,33 @@ def _unique_question_keys(questions: list[PaperQuestion]) -> bool:
 
 
 def _parse_paper_question(raw: object) -> PaperQuestion:
-    if not isinstance(raw, dict):
+    if not _is_paper_question_payload(raw):
         raise ValueError
-    key, stem, explanation, correct_key, raw_choices = _question_fields(raw)
-    choices = tuple(_parse_paper_choice(choice) for choice in raw_choices)
-    _validate_question(key, stem, choices, correct_key)
-    return PaperQuestion(key, stem, explanation, choices, correct_key)
-
-
-def _question_fields(raw: dict) -> tuple[int, str, str, int, list[object]]:
-    fields = RawQuestionFields(
-        raw.get("choices"),
-        raw.get("stem"),
-        raw.get("explanation"),
-        raw.get("key"),
-        raw.get("correct_choice_key"),
-    )
-    fields.validate()
-    return cast(
-        tuple[int, str, str, int, list[object]],
-        (fields.key, fields.stem, fields.explanation, fields.correct_key, fields.choices),
+    return PaperQuestion(
+        raw["key"],
+        raw["stem"],
+        raw["explanation"],
+        _parse_question_choices(raw),
+        raw["correct_choice_key"],
     )
 
 
-def _validate_raw_question_fields(fields: RawQuestionFields) -> None:
-    if not all(
+def _parse_question_choices(raw: PaperQuestionPayload) -> tuple[PaperChoice, ...]:
+    choices = tuple(_parse_paper_choice(choice) for choice in raw["choices"])
+    _validate_question(raw["key"], raw["stem"], choices, raw["correct_choice_key"])
+    return choices
+
+
+def _is_paper_question_payload(raw: object) -> TypeGuard[PaperQuestionPayload]:
+    return isinstance(raw, dict) and all(
         (
-            isinstance(fields.choices, list),
-            isinstance(fields.stem, str),
-            isinstance(fields.explanation, str),
-            type(fields.key) is int,
-            type(fields.correct_key) is int,
+            isinstance(raw.get("choices"), list),
+            isinstance(raw.get("stem"), str),
+            isinstance(raw.get("explanation"), str),
+            type(raw.get("key")) is int,
+            type(raw.get("correct_choice_key")) is int,
         )
-    ):
-        raise ValueError
+    )
 
 
 def _validate_question(

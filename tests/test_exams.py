@@ -7,7 +7,17 @@ from sqlalchemy import func, select
 from app.auth.models import User
 from app.database import get_session_factory
 from app.main import create_app
-from app.models import Attempt, ExamAssignment, ExamSubmission, Quiz
+from app.models import (
+    Attempt,
+    Choice,
+    Difficulty,
+    ExamAssignment,
+    ExamSubmission,
+    Question,
+    QuestionStatus,
+    Quiz,
+    QuizQuestion,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -58,6 +68,24 @@ def assign_exam(browser: TestClient, learner_id: int) -> int:
     )
     assert response.status_code == 303
     return int(response.headers["location"].rsplit("/", 1)[1])
+
+
+def add_grading_questions(quiz: Quiz) -> None:
+    for order, stem in (
+        (2, "What should the learner review?"),
+        (3, "What can the learner skip?"),
+    ):
+        question = Question(
+            subject=quiz.primary_subject,
+            stem=stem,
+            difficulty=Difficulty.BEGINNER,
+            status=QuestionStatus.ACTIVE,
+            choices=[
+                Choice(text="Correct option", is_correct=True, order_index=1),
+                Choice(text="Wrong option", is_correct=False, order_index=2),
+            ],
+        )
+        quiz.question_links.append(QuizQuestion(question=question, order_index=order))
 
 
 def test_exam_release_hides_result_and_keeps_practice_records_separate(db_session):
@@ -122,6 +150,44 @@ def test_exam_release_hides_result_and_keeps_practice_records_separate(db_sessio
         assert learner_db.scalar(select(func.count(ExamAssignment.id))) == 1
         assert learner_db.scalar(select(func.count(ExamSubmission.id))) == 1
         assert learner_db.scalar(select(func.count(Attempt.id))) == 0
+
+
+def test_exam_grades_correct_incorrect_and_unanswered_responses(db_session):
+    learner_id = create_learner("child@example.com", "Child")
+    quiz = db_session.scalar(select(Quiz))
+    assert quiz is not None
+    add_grading_questions(quiz)
+    db_session.commit()
+
+    reviewer = reviewer_browser()
+    exam_id = assign_exam(reviewer, learner_id)
+    learner = learner_browser(learner_id)
+    submitted = learner.post(f"/exams/{exam_id}/submit", data={"answer_1": "1", "answer_2": "2"})
+    assert submitted.status_code == 303
+
+    review = reviewer.get(f"/exams/{exam_id}")
+    assert "33.33%" in review.text
+    assert "1 of 3 correct" in review.text
+    assert "Learner answer: Tests" in review.text
+    assert "Correct answer: Tests" in review.text
+    assert "Learner answer: Wrong option" in review.text
+    assert "Learner answer: No answer" in review.text
+    assert review.text.count("Incorrect") == 2
+
+
+def test_exam_submission_rejects_questions_and_choices_outside_paper(db_session):
+    learner_id = create_learner("child@example.com", "Child")
+    reviewer = reviewer_browser()
+    exam_id = assign_exam(reviewer, learner_id)
+    learner = learner_browser(learner_id)
+
+    unknown_question = learner.post(f"/exams/{exam_id}/submit", data={"answer_2": "1"})
+    assert unknown_question.status_code == 400
+    assert db_session.scalar(select(func.count(ExamSubmission.id))) == 0
+
+    invalid_choice = learner.post(f"/exams/{exam_id}/submit", data={"answer_1": "99"})
+    assert invalid_choice.status_code == 400
+    assert db_session.scalar(select(func.count(ExamSubmission.id))) == 0
 
 
 def test_exam_authority_workspace_isolation_and_submission_retry(db_session):
