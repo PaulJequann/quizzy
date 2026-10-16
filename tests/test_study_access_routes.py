@@ -96,11 +96,15 @@ def test_feedback_route_matrix_and_controls(study_browser, db_session):
     take_url = f"/quizzes/{quiz.id}/take"
     assert "data-quick-flag-button\n" in study_browser.get(take_url).text
     make_learner()
-    assert study_browser.post(f"/api/quizzes/{quiz.id}/attempts", json={}).status_code == 403
-    assert study_browser.post("/api/questions/1/report-issue", json={}).status_code == 403
-    assert study_browser.post("/questions/1/report-issue", data={}).json()["detail"] == (
-        "Report feedback from one of your answers"
+    assert (
+        study_browser.post(
+            f"/api/quizzes/{quiz.id}/attempts",
+            json={"answers": [{"question_id": 1, "selected_choice_id": None}]},
+        ).status_code
+        == 201
     )
+    assert study_browser.post("/api/questions/1/report-issue", json={}).status_code == 422
+    assert study_browser.post("/questions/1/report-issue", data={}).status_code == 422
     report = study_browser.post(
         "/questions/1/report-issue",
         data={
@@ -119,7 +123,7 @@ def test_feedback_route_matrix_and_controls(study_browser, db_session):
         ).status_code
         == 200
     )
-    assert "data-quick-flag-button\n" not in study_browser.get(take_url).text
+    assert "data-quick-flag-button\n" in study_browser.get(take_url).text
     assert "Reviewer preview" not in study_browser.get(take_url).text
 
 

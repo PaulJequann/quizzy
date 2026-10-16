@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from app.auth.boundary import request_access
 from app.auth.csrf import CookieBoundaryMiddleware
 from app.auth.users import auth_backend, fastapi_users
-from app.routes import accounts, api, pwa, scheduler_api, scheduler_web, teaching, web
+from app.routes import accounts, api, exams, pwa, scheduler_api, scheduler_web, teaching, web
 
 
 def create_app() -> FastAPI:
@@ -12,6 +12,7 @@ def create_app() -> FastAPI:
     app.add_middleware(CookieBoundaryMiddleware)
     app.include_router(accounts.router)
     app.include_router(teaching.router)
+    app.include_router(exams.router, dependencies=[Depends(request_access)])
     app.include_router(pwa.router)
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.include_router(fastapi_users.get_auth_router(auth_backend), prefix="/auth")

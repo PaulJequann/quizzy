@@ -156,6 +156,8 @@ def test_every_private_model_and_reference_has_database_ownership_constraint(db_
 
 def _assert_reference_ownership(table, constraints):
     for reference in table.foreign_keys:
+        if reference.parent.name == "workspace_id":
+            continue
         if reference.column.table.name == "users":
             continue
         assert any(

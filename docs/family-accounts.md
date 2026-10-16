@@ -56,13 +56,20 @@ Open that configured URL on both devices. Do not substitute `localhost` or a dif
 the mutation origin must match `APP_BASE_URL`. Restart the app after changing configuration.
 
 Open `/login`. The reviewer can use **Switch workspace** to choose their own study space or
-a learner's library. In the learner's workspace, the reviewer can manage material, inspect
-**Practice history**, open results, and view mastery. A reviewer preview cannot submit attempts
-or feedback for the learner.
+a learner's library. In the learner's workspace, the reviewer can manage study material, inspect
+**Practice history**, open results, view mastery, and review assigned exams. Reviewer preview
+cannot submit practice attempts or exams for the learner.
 
-Learners see their published quizzes, results, and progress. They cannot access the editor,
-management APIs, or another workspace. The results page can submit feedback for their own answers. Draft quizzes remain hidden until the reviewer publishes
-them on the quiz detail page. Past results remain available if a quiz is later archived.
+Learners can manage their own subjects, questions, quizzes, and practice sessions. Their material
+stays inside their workspace, and they cannot switch to another account or open account
+administration. Practice results remain immediate and appear in practice history and mastery.
+
+To assign a formal exam, open a published quiz in the reviewer's workspace and choose **Assign as
+exam**. Quizzy copies that paper to the learner's workspace, so later quiz edits do not change the
+assignment. The learner can submit once and then sees only a pending-review receipt. The reviewer
+opens the learner's workspace, reviews the answers, and releases the result with an optional note.
+The learner sees the score, answer feedback, explanations, and note only after release. Formal exam
+results remain separate from practice history and mastery.
 
 ## Prepare the next practice
 

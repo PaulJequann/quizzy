@@ -86,7 +86,7 @@ def test_learner_result_feedback_uses_actual_json_endpoint(client, db_session):
         client.post(
             "/api/questions/1/report-issue", json={"category": "unclear_wording"}
         ).status_code
-        == 403
+        == 200
     )
 
 

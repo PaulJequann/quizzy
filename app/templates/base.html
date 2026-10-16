@@ -30,6 +30,7 @@
       {% if request.state.access is defined and request.state.access.can_manage_study %}
         <a href="/progress">Practice history</a><a href="/teaching">Prepare next practice</a>
       {% endif %}
+      {% if request.state.access is defined %}<a href="/exams">Exams</a>{% endif %}
       {% if request.state.access is defined and request.state.access.is_preview %}
         <span>Reviewer preview · submissions disabled</span>
       {% endif %}
@@ -41,6 +42,7 @@
     {% set learner_quizzes_active = learner_path.startswith("/quizzes") %}
     {% set learner_mastery_active = learner_path.startswith("/mastery") %}
     {% set learner_results_active = learner_path.startswith("/progress") %}
+    {% set learner_exams_active = learner_path.startswith("/exams") %}
     <header class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
       <nav class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6" aria-label="Primary navigation">
         <a href="/quizzes" class="flex items-center gap-3">
@@ -54,14 +56,16 @@
           <a class="rounded-md px-3 py-2 text-sm font-semibold {% if learner_quizzes_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]{% endif %}" href="/quizzes" {% if learner_quizzes_active %}aria-current="page"{% endif %}>My quizzes</a>
           <a class="rounded-md px-3 py-2 text-sm font-semibold {% if learner_mastery_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]{% endif %}" href="/mastery" {% if learner_mastery_active %}aria-current="page"{% endif %}>My progress</a>
           <a class="rounded-md px-3 py-2 text-sm font-semibold {% if learner_results_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]{% endif %}" href="/progress" {% if learner_results_active %}aria-current="page"{% endif %}>My results</a>
+          <a class="rounded-md px-3 py-2 text-sm font-semibold {% if learner_exams_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]{% endif %}" href="/exams" {% if learner_exams_active %}aria-current="page"{% endif %}>Exams</a>
         </div>
       </nav>
     </header>
     <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_32px_rgba(34,30,24,0.08)] md:hidden" aria-label="Primary mobile navigation">
-      <div class="mx-auto grid max-w-md grid-cols-3 gap-1">
+      <div class="mx-auto grid max-w-md grid-cols-4 gap-1">
         <a class="grid min-h-14 place-items-center rounded-md px-2 text-center text-[0.72rem] font-semibold {% if learner_quizzes_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/quizzes" {% if learner_quizzes_active %}aria-current="page"{% endif %}>My quizzes</a>
         <a class="grid min-h-14 place-items-center rounded-md px-2 text-center text-[0.72rem] font-semibold {% if learner_mastery_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/mastery" {% if learner_mastery_active %}aria-current="page"{% endif %}>My progress</a>
         <a class="grid min-h-14 place-items-center rounded-md px-2 text-center text-[0.72rem] font-semibold {% if learner_results_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/progress" {% if learner_results_active %}aria-current="page"{% endif %}>My results</a>
+        <a class="grid min-h-14 place-items-center rounded-md px-2 text-center text-[0.72rem] font-semibold {% if learner_exams_active %}bg-[var(--color-accent-subtle)] text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/exams" {% if learner_exams_active %}aria-current="page"{% endif %}>Exams</a>
       </div>
     </nav>
     {% else %}
@@ -70,6 +74,7 @@
     {% set practice_active = current_path == "/quizzes/new" %}
     {% set quizzes_active = current_path.startswith("/quizzes") and not practice_active %}
     {% set mastery_active = current_path.startswith("/mastery") %}
+    {% set exams_active = current_path.startswith("/exams") %}
     <header class="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
       <nav class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6" aria-label="Primary navigation">
         <a href="/quizzes" class="flex items-center gap-3">
@@ -123,11 +128,12 @@
             <span>Practice</span>
             <span class="absolute inset-x-0 -bottom-4 h-0.5 rounded-full {% if practice_active %}bg-[var(--color-accent)]{% else %}bg-transparent group-hover:bg-[var(--color-border-strong)]{% endif %}"></span>
           </a>
+          <a class="group relative flex min-h-12 items-center gap-2 px-1 text-sm font-semibold {% if exams_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)] hover:text-[var(--color-text)]{% endif %}" href="/exams" {% if exams_active %}aria-current="page"{% endif %}>Exams</a>
         </div>
       </nav>
     </header>
     <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-12px_32px_rgba(34,30,24,0.08)] md:hidden" aria-label="Primary mobile navigation">
-      <div class="mx-auto grid max-w-md grid-cols-4 gap-1">
+      <div class="mx-auto grid max-w-md grid-cols-5 gap-1">
         <a class="relative grid min-h-14 place-items-center gap-1 rounded-md text-[0.72rem] font-semibold {% if subjects_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/subjects" {% if subjects_active %}aria-current="page"{% endif %}>
           <span class="absolute top-0 h-0.5 w-10 rounded-full {% if subjects_active %}bg-[var(--color-accent)]{% else %}bg-transparent{% endif %}"></span>
           <svg class="size-5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
@@ -171,6 +177,7 @@
           </svg>
           <span>Practice</span>
         </a>
+        <a class="relative grid min-h-14 place-items-center gap-1 rounded-md text-[0.72rem] font-semibold {% if exams_active %}text-[var(--color-accent-text)]{% else %}text-[var(--color-text-2)]{% endif %}" href="/exams" {% if exams_active %}aria-current="page"{% endif %}><span>Exams</span></a>
       </div>
     </nav>
     {% endif %}

@@ -1,0 +1,2 @@
+class ExamError(ValueError):
+    pass

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Exam result · Quizzy{% endblock %}
+{% block content %}
+  <section class="mx-auto max-w-3xl">
+    <div class="panel">
+      <p class="eyebrow">Released exam result</p>
+      <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
+      <p class="mt-4 text-2xl font-semibold">{{ page.score }}% <span class="text-base font-normal text-[var(--color-text-2)]">({{ page.correct_count }} of {{ page.total_questions }} correct)</span></p>
+      {% if page.review_note %}<div class="mt-4 rounded-lg bg-[var(--color-surface-2)] p-4"><p class="eyebrow">Reviewer note</p><p class="mt-2 whitespace-pre-wrap">{{ page.review_note }}</p></div>{% endif %}
+    </div>
+    <ol class="mt-5 grid gap-4">
+      {% for answer in page.feedback %}
+        <li class="panel">
+          <h2 class="font-semibold">{{ loop.index }}. {{ answer.question }}</h2>
+          <p class="mt-3">Your answer: {{ answer.selected_choice or "No answer" }}</p>
+          <p class="mt-1">Correct answer: {{ answer.correct_choice }}</p>
+          <p class="mt-1 font-semibold">{% if answer.is_correct %}Correct{% else %}Incorrect{% endif %}</p>
+          {% if answer.explanation %}<p class="mt-3 leading-7 text-[var(--color-text-2)]">{{ answer.explanation }}</p>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+    <a class="btn-secondary mt-6 inline-flex" href="/exams">Back to exams</a>
+  </section>
+{% endblock %}

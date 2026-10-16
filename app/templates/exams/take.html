@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title }} · Exam · Quizzy{% endblock %}
+{% block content %}
+  <section class="mx-auto max-w-3xl">
+    <p class="eyebrow">Exam · one submission</p>
+    <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
+    <p class="mt-3 leading-7 text-[var(--color-text-2)]">Submit when you are ready. Your results will be available after review.</p>
+    <form class="mt-7 grid gap-5" method="post" action="/exams/{{ page.id }}/submit">
+      {% for question in page.questions %}
+        <fieldset class="panel grid gap-3">
+          <legend class="font-display text-xl">{{ loop.index }}. {{ question.stem }}</legend>
+          {% for choice in question.choices %}
+            <label class="choice-chip flex cursor-pointer items-center gap-3">
+              <input type="radio" name="answer_{{ question.key }}" value="{{ choice.key }}">
+              <span>{{ choice.text }}</span>
+            </label>
+          {% endfor %}
+        </fieldset>
+      {% endfor %}
+      <button class="btn-primary justify-self-start" type="submit">Submit exam for review</button>
+    </form>
+  </section>
+{% endblock %}

@@ -76,7 +76,7 @@ def test_cookie_mutations_require_same_origin(db_session):
         assert browser.get("/api/quizzes").status_code == 401
 
 
-def test_learner_drafts_and_management_are_denied(db_session):
+def test_learner_can_manage_private_study_content(db_session):
     from fastapi_users.password import PasswordHelper
 
     from app.auth.models import User
@@ -108,12 +108,18 @@ def test_learner_drafts_and_management_are_denied(db_session):
             ).status_code
             == 204
         )
-        assert "Secret draft" not in browser.get("/quizzes").text
-        assert browser.get(f"/quizzes/{draft_id}/take").status_code == 404
-        assert browser.post(f"/quizzes/{draft_id}/submit").status_code == 404
-        assert browser.get("/subjects").status_code == 403
-        assert browser.get("/quizzes/new").status_code == 403
-        assert browser.get("/api/quizzes").status_code == 403
+        assert "Secret draft" in browser.get("/quizzes").text
+        assert browser.get(f"/quizzes/{draft_id}/take").status_code == 400
+        assert browser.get("/subjects").status_code == 200
+        assert browser.get("/quizzes/new").status_code == 200
+        assert browser.get("/api/quizzes").status_code == 200
+        created = browser.post(
+            "/api/quizzes",
+            json={"title": "Learner-made practice", "status": "published"},
+        )
+        assert created.status_code == 201
+        assert browser.get(f"/quizzes/{created.json()['id']}/questions/new").status_code == 200
+        assert browser.get("/accounts").status_code == 403
         browser.cookies.set("quizzy_workspace", "1")
         assert browser.get("/quizzes").status_code == 403
 
@@ -226,7 +232,7 @@ def test_historical_results_survive_archiving(client, db_session):
         assert parent is not None
         parent.is_superuser = False
         accounts.commit()
-    assert client.get(f"/quizzes/{quiz.id}/take").status_code == 404
+    assert client.get(f"/quizzes/{quiz.id}/take").status_code == 200
     assert client.get(f"/attempts/{attempt.id}/results").status_code == 200
     assert client.get("/progress").status_code == 200
 
