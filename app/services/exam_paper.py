@@ -113,18 +113,20 @@ def _unique_question_keys(questions: list[PaperQuestion]) -> bool:
 def _parse_paper_question(raw: object) -> PaperQuestion:
     if not _is_paper_question_payload(raw):
         raise ValueError
+    choices = _parse_question_choices(raw["choices"])
+    _validate_question(raw["key"], raw["stem"], choices, raw["correct_choice_key"])
     return PaperQuestion(
         raw["key"],
         raw["stem"],
         raw["explanation"],
-        _parse_question_choices(raw),
+        choices,
         raw["correct_choice_key"],
     )
 
 
-def _parse_question_choices(raw: PaperQuestionPayload) -> tuple[PaperChoice, ...]:
-    choices = tuple(_parse_paper_choice(choice) for choice in raw["choices"])
-    _validate_question(raw["key"], raw["stem"], choices, raw["correct_choice_key"])
+def _parse_question_choices(raw: list[object]) -> tuple[PaperChoice, ...]:
+    choices = tuple(_parse_paper_choice(choice) for choice in raw)
+    _validate_choice_set(choices)
     return choices
 
 
@@ -155,12 +157,14 @@ def _validate_question_identity(key: int, stem: str) -> None:
 
 
 def _validate_question_choices(choices: tuple[PaperChoice, ...], correct_key: int) -> None:
-    if len(choices) < 2:
-        raise ValueError
     choice_keys = {choice.key for choice in choices}
-    if len(choice_keys) != len(choices):
-        raise ValueError
     if correct_key not in choice_keys:
+        raise ValueError
+
+
+def _validate_choice_set(choices: tuple[PaperChoice, ...]) -> None:
+    choice_keys = {choice.key for choice in choices}
+    if len(choices) < 2 or len(choice_keys) != len(choices):
         raise ValueError
 
 
