@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Exam assigned · Quizzy{% endblock %}
+{% block content %}
+  <section class="mx-auto max-w-2xl panel">
+    <p class="eyebrow">Awaiting learner</p>
+    <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
+    <p class="mt-4 leading-7 text-[var(--color-text-2)]">This exam was assigned on {{ page.assigned_at }}. The learner has not submitted it yet.</p>
+    <a class="btn-secondary mt-6 inline-flex" href="/exams">Back to exams</a>
+  </section>
+{% endblock %}

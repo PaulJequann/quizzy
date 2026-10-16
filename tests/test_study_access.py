@@ -26,9 +26,9 @@ pytestmark = pytest.mark.unit
 @pytest.mark.parametrize(
     ("access", "allowed"),
     [
-        (StudyAccess(1, 1, True, "Teacher"), [True, True, True, True]),
-        (StudyAccess(1, 2, True, "Student"), [True, True, False, False]),
-        (StudyAccess(2, 2, False, "Student"), [True, False, True, False]),
+        (StudyAccess(1, 1, True, "Teacher", True), [True, True, True, True, True, False]),
+        (StudyAccess(1, 2, True, "Student", True), [True, True, False, False, False, True]),
+        (StudyAccess(2, 2, True, "Student"), [True, True, True, True, False, False]),
     ],
 )
 def test_operation_matrix(access, allowed):
@@ -40,9 +40,9 @@ def test_operation_matrix(access, allowed):
 
 @pytest.mark.parametrize("status", list(QuizStatus))
 def test_publication_does_not_gate_history(status):
-    learner = StudyAccess(2, 2, False, "Student")
-    reviewer = StudyAccess(1, 2, True, "Student")
-    assert learner.can_view_quiz(status) == (status == QuizStatus.PUBLISHED)
+    learner = StudyAccess(2, 2, True, "Student")
+    reviewer = StudyAccess(1, 2, True, "Student", True)
+    assert learner.can_view_quiz(status)
     assert reviewer.can_view_quiz(status)
     assert learner.allows(StudyOperation.VIEW)
 
@@ -50,9 +50,9 @@ def test_publication_does_not_gate_history(status):
 @pytest.mark.parametrize(
     ("access", "without_answer", "with_answer"),
     [
-        (StudyAccess(1, 1, True, "Teacher"), True, True),
-        (StudyAccess(1, 2, True, "Student"), False, False),
-        (StudyAccess(2, 2, False, "Student"), False, True),
+        (StudyAccess(1, 1, True, "Teacher", True), True, True),
+        (StudyAccess(1, 2, True, "Student", True), False, False),
+        (StudyAccess(2, 2, True, "Student"), True, True),
     ],
 )
 def test_question_reporting_needs_own_progress_and_learner_context(
@@ -87,7 +87,7 @@ def test_marker_preserves_handler_and_rejects_duplicate_intent():
 
 @pytest.mark.parametrize("preview", [False, True])
 def test_unmarked_route_fails_closed_before_endpoint(preview, monkeypatch):
-    access = StudyAccess(1, 2 if preview else 1, True, "Teacher")
+    access = StudyAccess(1, 2 if preview else 1, True, "Teacher", True)
     monkeypatch.setattr("app.auth.boundary.get_session_factory", MagicMock())
     monkeypatch.setattr("app.auth.boundary.resolve_study_access", lambda *args: access)
     app = FastAPI()
@@ -110,7 +110,7 @@ def test_unmarked_route_fails_closed_before_endpoint(preview, monkeypatch):
 
 
 def test_route_aliases_share_declared_intent(monkeypatch):
-    access = StudyAccess(2, 2, False, "Student")
+    access = StudyAccess(2, 2, True, "Student")
     monkeypatch.setattr("app.auth.boundary.get_session_factory", MagicMock())
     monkeypatch.setattr("app.auth.boundary.resolve_study_access", lambda *args: access)
     app = FastAPI()

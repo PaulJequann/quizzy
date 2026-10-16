@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Review exam · Quizzy{% endblock %}
+{% block content %}
+  <section class="mx-auto max-w-3xl">
+    <div class="panel">
+      <p class="eyebrow">{% if page.released %}Released exam{% else %}Pending review{% endif %} · submitted {{ page.submitted_at }}</p>
+      <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
+      <p class="mt-4 text-2xl font-semibold">{{ page.result.score }}% <span class="text-base font-normal text-[var(--color-text-2)]">({{ page.result.correct_count }} of {{ page.result.total_questions }} correct)</span></p>
+    </div>
+    <ol class="mt-5 grid gap-4">
+      {% for answer in page.result.feedback %}
+        <li class="panel">
+          <h2 class="font-semibold">{{ loop.index }}. {{ answer.question }}</h2>
+          <p class="mt-3">Learner answer: {{ answer.selected_choice or "No answer" }}</p>
+          <p class="mt-1">Correct answer: {{ answer.correct_choice }}</p>
+          <p class="mt-1 font-semibold">{% if answer.is_correct %}Correct{% else %}Incorrect{% endif %}</p>
+          {% if answer.explanation %}<p class="mt-3 leading-7 text-[var(--color-text-2)]">{{ answer.explanation }}</p>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+    {% if page.released %}
+      {% if page.result.review_note %}<div class="panel mt-5"><p class="eyebrow">Released reviewer note</p><p class="mt-2 whitespace-pre-wrap">{{ page.result.review_note }}</p></div>{% endif %}
+    {% else %}
+      <form class="panel mt-5 grid gap-4" method="post" action="/exams/{{ page.id }}/release">
+        <label class="grid gap-2 text-sm font-semibold" for="note">Reviewer note
+          <textarea class="form-input min-h-32" id="note" name="note" maxlength="4000" placeholder="Optional feedback for the learner."></textarea>
+        </label>
+        <button class="btn-primary justify-self-start" type="submit">Release result</button>
+      </form>
+    {% endif %}
+    <a class="btn-secondary mt-6 inline-flex" href="/exams">Back to exams</a>
+  </section>
+{% endblock %}

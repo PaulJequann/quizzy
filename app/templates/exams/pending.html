@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Submitted · Exam · Quizzy{% endblock %}
+{% block content %}
+  <section class="mx-auto max-w-2xl panel">
+    <p class="eyebrow">Submitted for review</p>
+    <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
+    <p class="mt-4 leading-7 text-[var(--color-text-2)]">Your exam was submitted on {{ page.submitted_at }}. Your reviewer will release the result when it has been reviewed.</p>
+    <a class="btn-secondary mt-6 inline-flex" href="/exams">Back to exams</a>
+  </section>
+{% endblock %}

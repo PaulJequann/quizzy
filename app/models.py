@@ -1,19 +1,23 @@
 from datetime import UTC, datetime
 from enum import StrEnum
+from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import User  # noqa: F401
@@ -735,3 +739,58 @@ class AttemptAnswer(WorkspaceOwned, Base):
     attempt: Mapped[Attempt] = relationship(back_populates="answers")
     question: Mapped[Question] = relationship(back_populates="attempt_answers")
     selected_choice: Mapped[Choice | None] = relationship(back_populates="selected_answers")
+
+
+class ExamAssignment(WorkspaceOwned, Base):
+    __tablename__ = "exam_assignments"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id", name="uq_exam_assignments_workspace_id"),
+        UniqueConstraint(
+            "assigned_by_id", "workspace_id", "request_key", name="uq_exam_assignment_request"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(paper_json) = 'array' AND jsonb_array_length(paper_json) > 0",
+            name="ck_exam_assignments_paper_array",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assigned_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    source_quiz_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    title_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    paper_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    paper_json: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    request_key: Mapped[UUID] = mapped_column(nullable=False)
+
+
+class ExamSubmission(WorkspaceOwned, Base):
+    __tablename__ = "exam_submissions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id", name="uq_exam_submissions_workspace_id"),
+        UniqueConstraint("assignment_id", name="uq_exam_submission_assignment"),
+        ForeignKeyConstraint(
+            ["workspace_id", "assignment_id"],
+            ["exam_assignments.workspace_id", "exam_assignments.id"],
+            ondelete="CASCADE",
+            name="fk_exam_submissions_assignment_workspace",
+        ),
+        CheckConstraint("jsonb_typeof(responses_json) = 'object'", name="ck_exam_responses_object"),
+        CheckConstraint(
+            "(released_at IS NULL AND reviewed_by_id IS NULL) OR "
+            "(released_at IS NOT NULL AND reviewed_by_id IS NOT NULL)",
+            name="ck_exam_submission_release_pair",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    assignment_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    responses_json: Mapped[dict[str, int | None]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    review_note: Mapped[str | None] = mapped_column(Text)

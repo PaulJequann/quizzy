@@ -8,8 +8,8 @@ Agents should create and maintain the durable question bank. Quizzy should assem
 sessions from that bank without requiring an agent. Ordinary quizzes should be disposable practice
 containers. Durable learning history should attach to question attempts and roll up through concepts.
 
-Formal exams should be a separate future model for fixed assessments, durable scores, averages, and
-retake history.
+Formal exams use reviewer-assigned snapshots of published quizzes. Learners submit once, and the
+reviewer releases the score and answer feedback. Averages and retake history remain future work.
 
 ## Terminology
 
@@ -30,8 +30,9 @@ retake history.
   - Aggregated from question attempts through question-concept links.
 
 - Exam
-  - A future fixed assessment object.
-  - Exams are not disposable. Exams own formal scoring and attempt history.
+  - A reviewer-assigned snapshot of a published quiz.
+  - Exams keep submissions and scores separate from practice history until the reviewer releases
+    the result.
 
 ## Current State
 
@@ -82,7 +83,8 @@ The main issue is not relational capability. The issue is product and service or
     created.
 
 - Exam owns formal assessment.
-  - Fixed question set, durable scores, averages, retakes, and history.
+  - A fixed question set, one learner submission, and reviewer-controlled result release.
+  - Averages and retake history remain future work.
   - Exams are intentionally separate from ordinary practice.
 
 ## Product Workflow
@@ -308,7 +310,9 @@ Interpretation:
 Add to `attempts`:
 
 - `session_type text not null default "practice"`
-  - Future values: `practice`, `exam`
+  - Practice attempts use `practice`.
+
+Exam submissions remain in the separate `exam_assignments` and `exam_submissions` tables.
 
 Add to `attempt_answers`:
 
@@ -318,18 +322,12 @@ Do not create a separate `question_attempts` table in the first implementation. 
 `attempt_answers` as the question attempt table. Do not rename attempt tables in the first
 implementation.
 
-### Future Exam Model
+### Current Exam Model
 
-Do not implement exams in the question-first MVP.
-
-When ready, add:
-
-- `exams`
-- `exam_questions`
-- `exam_attempts`
-
-Exam attempts can reuse `attempt_answers` or a renamed `question_attempts` table by linking through
-`exam_attempt_id`.
+The app assigns a snapshot of a published quiz through `exam_assignments` and stores the learner's
+single submission in `exam_submissions`. The reviewer controls when the score and answer feedback
+become visible to the learner. A future question-first design can decide whether exams need a link
+to durable question-level attempts, averages, or retake history.
 
 ## Service Changes
 
@@ -560,7 +558,6 @@ Phase 5: Domain language cleanup
 
 ## Non-Goals
 
-- Do not implement formal exams in the MVP.
 - Do not remove existing generated quiz MCP tools immediately.
 - Do not force all practice sessions to be saved permanently.
 - Do not duplicate questions per practice session.
@@ -588,4 +585,4 @@ Phase 5: Domain language cleanup
 
 Agents create durable learning material. The app assembles fresh practice. Question attempts carry
 learning history. Question health turns that history into automatic quality control and bounded
-repair work. Exams, when added, handle formal assessment.
+repair work. Reviewer-assigned exams handle formal assessment and release results after review.

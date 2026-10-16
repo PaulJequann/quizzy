@@ -26,6 +26,9 @@
             hx-swap="outerHTML"
           >Publish</button>
         {% endif %}
+        {% if request.state.actor.is_superuser and not request.state.access.is_preview and quiz.status.value == "published" %}
+          <a class="btn-secondary text-center" href="/quizzes/{{ quiz.id }}/exam">Assign as exam</a>
+        {% endif %}
       </div>
     </div>
   </section>
