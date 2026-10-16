@@ -18,6 +18,7 @@ from app.models import (
     Quiz,
     QuizQuestion,
 )
+from app.services.exam_paper import paper_from_quiz
 
 pytestmark = pytest.mark.integration
 
@@ -229,3 +230,40 @@ def test_exam_authority_workspace_isolation_and_submission_retry(db_session):
         ).status_code
         == 403
     )
+
+
+def test_exam_paper_preserves_source_quiz_question_order(db_session):
+    quiz = db_session.scalar(select(Quiz))
+    assert quiz is not None
+    source_question = quiz.questions[0]
+    source_question.stem = "Source quiz second question"
+    quiz.question_links[0].order_index = 1
+    first_question = Question(
+        subject=quiz.primary_subject,
+        stem="Source quiz first question",
+        difficulty=Difficulty.BEGINNER,
+        status=QuestionStatus.ACTIVE,
+        choices=[
+            Choice(text="Correct option", is_correct=True, order_index=1),
+            Choice(text="Wrong option", is_correct=False, order_index=2),
+        ],
+    )
+    quiz.question_links.append(QuizQuestion(question=first_question, order_index=0))
+    other_quiz = Quiz(
+        title="Other quiz",
+        primary_subject=quiz.primary_subject,
+        question_links=[
+            QuizQuestion(question=source_question, order_index=0),
+            QuizQuestion(question=first_question, order_index=1),
+        ],
+    )
+    db_session.add(other_quiz)
+    db_session.commit()
+    db_session.expire(quiz, ["questions"])
+
+    paper = paper_from_quiz(quiz)
+
+    assert [question.stem for question in paper.questions] == [
+        "Source quiz first question",
+        "Source quiz second question",
+    ]

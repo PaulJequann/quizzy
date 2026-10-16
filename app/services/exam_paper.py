@@ -38,7 +38,7 @@ class PaperQuestionPayload(TypedDict):
 
 
 def paper_from_quiz(quiz: Quiz) -> Paper:
-    ordered = sorted(quiz.questions, key=lambda item: (item.order_index, item.id))
+    ordered = quiz.questions
     if not ordered:
         raise ExamError("A published quiz needs at least one question before it can be assigned")
     questions = tuple(
