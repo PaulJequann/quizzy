@@ -226,12 +226,14 @@ def test_open_ended_exam_migration_round_trips(test_database_url, monkeypatch) -
         assert {"question_type", "exam_only", "model_answer", "grading_notes"}.issubset(
             _column_names(inspector, "questions")
         )
-        assert "question_key_points" in inspector.get_table_names()
+        assert {"question_key_points", "exam_response_grades"}.issubset(inspector.get_table_names())
 
         command.downgrade(config, "202610160001")
         clear_database_caches()
         inspector = inspect(get_engine())
-        assert "question_key_points" not in inspector.get_table_names()
+        assert not {"question_key_points", "exam_response_grades"} & set(
+            inspector.get_table_names()
+        )
         assert "model_answer" not in _column_names(inspector, "questions")
 
         command.upgrade(config, "head")

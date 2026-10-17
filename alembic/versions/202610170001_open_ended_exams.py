@@ -42,6 +42,7 @@ def upgrade() -> None:
         "question_type != 'open_ended' OR exam_only",
     )
     _create_key_points()
+    _create_response_grades()
 
 
 def _create_key_points() -> None:
@@ -68,7 +69,41 @@ def _create_key_points() -> None:
     op.create_index("ix_question_key_points_workspace_id", "question_key_points", ["workspace_id"])
 
 
+def _create_response_grades() -> None:
+    op.create_table(
+        "exam_response_grades",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("workspace_id", sa.Integer(), nullable=False),
+        sa.Column("submission_id", sa.Integer(), nullable=False),
+        sa.Column("question_key", sa.Integer(), nullable=False),
+        sa.Column("key_points_met", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("feedback", sa.Text(), nullable=False),
+        sa.Column("misconception", sa.String(length=200), nullable=True),
+        sa.CheckConstraint(
+            "jsonb_typeof(key_points_met) = 'array'", name="ck_exam_response_grades_met_array"
+        ),
+        sa.ForeignKeyConstraint(
+            ["workspace_id", "submission_id"],
+            ["exam_submissions.workspace_id", "exam_submissions.id"],
+            ondelete="CASCADE",
+            name="fk_exam_response_grades_submission_workspace",
+        ),
+        sa.ForeignKeyConstraint(
+            ["workspace_id"], ["users.id"], name="fk_exam_response_grades_workspace"
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "submission_id", "question_key", name="uq_exam_response_grade_question"
+        ),
+    )
+    op.create_index(
+        "ix_exam_response_grades_workspace_id", "exam_response_grades", ["workspace_id"]
+    )
+
+
 def downgrade() -> None:
+    op.drop_index("ix_exam_response_grades_workspace_id", table_name="exam_response_grades")
+    op.drop_table("exam_response_grades")
     op.drop_index("ix_question_key_points_workspace_id", table_name="question_key_points")
     op.drop_table("question_key_points")
     op.drop_constraint("ck_questions_open_ended_exam_only", "questions", type_="check")

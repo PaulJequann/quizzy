@@ -16,14 +16,27 @@ from app.models import (
     QuizType,
     utc_now,
 )
+from app.services import exam_grades
 from app.services.exam_errors import ExamError
+from app.services.exam_grades import ExamGrading
 from app.services.exam_paper import (
+    MultipleChoicePaperQuestion,
+    OpenEndedPaperQuestion,
     Paper,
+    PaperChoice,
+    PaperQuestion,
     paper_from_quiz,
     paper_json,
     parse_paper,
 )
-from app.services.exam_responses import normalize_responses
+from app.services.exam_responses import ResponseValue, normalize_responses, read_form_answers
+from app.services.exam_results import (
+    ExamRecord,
+    ExamResultView,
+    ReviewItem,
+    exam_result,
+    review_items,
+)
 from app.study_access import StudyAccess, StudyAccessDenied
 from app.workspace_database import WorkspaceSession
 
@@ -41,6 +54,7 @@ class ExamQuestion:
     key: int
     stem: str
     choices: tuple[ExamChoice, ...]
+    written: bool
 
 
 @dataclass(frozen=True)
@@ -65,32 +79,13 @@ class ExamAwaitingView:
 
 
 @dataclass(frozen=True)
-class ExamAnswerFeedback:
-    question: str
-    selected_choice: str | None
-    correct_choice: str
-    is_correct: bool
-    explanation: str
-
-
-@dataclass(frozen=True)
-class ExamResultView:
-    id: int
-    title: str
-    score: float
-    correct_count: int
-    total_questions: int
-    feedback: tuple[ExamAnswerFeedback, ...]
-    review_note: str
-
-
-@dataclass(frozen=True)
 class ExamReviewView:
     id: int
     title: str
     submitted_at: datetime
     released: bool
     result: ExamResultView
+    items: tuple[ReviewItem, ...]
 
 
 @dataclass(frozen=True)
@@ -153,7 +148,10 @@ def _find_assignment(db: WorkspaceSession, reviewer_id: int, request_key: UUID):
 def assignable_exam_quiz(db: WorkspaceSession, quiz_id: int) -> Quiz:
     quiz = db.scalar(
         select(Quiz)
-        .options(selectinload(Quiz.questions).selectinload(Question.choices))
+        .options(
+            selectinload(Quiz.questions).selectinload(Question.choices),
+            selectinload(Quiz.questions).selectinload(Question.key_points),
+        )
         .where(
             Quiz.id == quiz_id,
             Quiz.quiz_type == QuizType.EXAM,
@@ -222,32 +220,33 @@ def exam_page(db: WorkspaceSession, access: StudyAccess, exam_id: int) -> ExamPa
             return ExamAwaitingView(
                 assignment.id, assignment.title_snapshot, assignment.assigned_at
             )
-        result = _result(assignment, submission)
+        record = _record(db, assignment, submission)
         return ExamReviewView(
             assignment.id,
             assignment.title_snapshot,
             submission.submitted_at,
             submission.released_at is not None,
-            result,
+            exam_result(record),
+            review_items(record),
         )
     if submission is None:
         return _take_view(assignment)
     if submission.released_at is None:
         return ExamPendingView(assignment.id, assignment.title_snapshot, submission.submitted_at)
-    return _result(assignment, submission)
+    return exam_result(_record(db, assignment, submission))
 
 
 def submit_exam(
     db: WorkspaceSession,
     access: StudyAccess,
     exam_id: int,
-    responses: Mapping[int, int | None],
+    answers: Mapping[int, str],
 ) -> ExamReceipt:
     if not access.can_record_progress:
         raise StudyAccessDenied("Preview cannot change learner progress")
     assignment = _locked_assignment(db, exam_id)
     paper = parse_paper(assignment.paper_version, assignment.paper_json)
-    normalized = normalize_responses(paper, responses)
+    normalized = normalize_responses(paper, read_form_answers(paper, answers))
     existing = _find_submission(db, assignment.id)
     if existing is not None:
         return _retry_receipt(assignment, existing, normalized)
@@ -270,7 +269,7 @@ def _find_submission(db: WorkspaceSession, assignment_id: int) -> ExamSubmission
 def _retry_receipt(
     assignment: ExamAssignment,
     existing: ExamSubmission,
-    normalized: dict[str, int | None],
+    normalized: dict[str, ResponseValue],
 ) -> ExamReceipt:
     if existing.responses_json != normalized:
         raise ExamAlreadySubmitted("This exam has already been submitted")
@@ -278,7 +277,7 @@ def _retry_receipt(
 
 
 def _record_submission(
-    db: WorkspaceSession, assignment: ExamAssignment, normalized: dict[str, int | None]
+    db: WorkspaceSession, assignment: ExamAssignment, normalized: dict[str, ResponseValue]
 ) -> ExamReceipt:
     submission = ExamSubmission(assignment_id=assignment.id, responses_json=normalized)
     db.add(submission)
@@ -291,16 +290,24 @@ def _record_submission(
 
 
 def release_exam(
-    db: WorkspaceSession, access: StudyAccess, exam_id: int, *, note: str
+    db: WorkspaceSession,
+    access: StudyAccess,
+    exam_id: int,
+    grading: ExamGrading,
 ) -> ExamResultView:
     if not access.can_manage_exams:
         raise StudyAccessDenied("Only a reviewer can release exam results")
-    if len(note) > MAX_REVIEW_NOTE_LENGTH:
+    if len(grading.note) > MAX_REVIEW_NOTE_LENGTH:
         raise ExamError(f"Review note must be at most {MAX_REVIEW_NOTE_LENGTH} characters")
     assignment = _get_assignment(db, exam_id)
     submission = _locked_submission(db, assignment.id)
-    _release_submission(db, submission, access.actor_id, note)
-    return _result(assignment, submission)
+    if submission.released_at is None:
+        paper = parse_paper(assignment.paper_version, assignment.paper_json)
+        checked = exam_grades.validated_grades(paper, grading.grades, complete=True)
+        exam_grades.save_grades(db, submission.id, checked)
+        _release_submission(submission, access.actor_id, grading.note)
+        db.commit()
+    return exam_result(_record(db, assignment, submission))
 
 
 def _get_assignment(db: WorkspaceSession, exam_id: int) -> ExamAssignment:
@@ -321,14 +328,10 @@ def _locked_submission(db: WorkspaceSession, assignment_id: int) -> ExamSubmissi
     return submission
 
 
-def _release_submission(
-    db: WorkspaceSession, submission: ExamSubmission, reviewer_id: int, note: str
-) -> None:
-    if submission.released_at is None:
-        submission.reviewed_by_id = reviewer_id
-        submission.review_note = note.strip()
-        submission.released_at = utc_now()
-        db.commit()
+def _release_submission(submission: ExamSubmission, reviewer_id: int, note: str) -> None:
+    submission.reviewed_by_id = reviewer_id
+    submission.review_note = note.strip()
+    submission.released_at = utc_now()
 
 
 def _require_exam_view_access(access: StudyAccess) -> None:
@@ -366,50 +369,33 @@ def _take_view(assignment: ExamAssignment) -> ExamTakeView:
             ExamQuestion(
                 question.key,
                 question.stem,
-                tuple(ExamChoice(choice.key, choice.text) for choice in question.choices),
+                tuple(ExamChoice(choice.key, choice.text) for choice in _choices(question)),
+                isinstance(question, OpenEndedPaperQuestion),
             )
             for question in paper.questions
         ),
     )
 
 
-def _result(assignment: ExamAssignment, submission: ExamSubmission) -> ExamResultView:
+def _choices(question: PaperQuestion) -> tuple[PaperChoice, ...]:
+    return question.choices if isinstance(question, MultipleChoicePaperQuestion) else ()
+
+
+def _record(
+    db: WorkspaceSession, assignment: ExamAssignment, submission: ExamSubmission
+) -> ExamRecord:
     paper = parse_paper(assignment.paper_version, assignment.paper_json)
-    responses = _decode_responses(paper, submission.responses_json)
-    feedback: list[ExamAnswerFeedback] = []
-    correct_count = 0
-    for question in paper.questions:
-        selected_key = responses[question.key]
-        selected_choice = next(
-            (choice for choice in question.choices if choice.key == selected_key), None
-        )
-        correct_choice = next(
-            choice for choice in question.choices if choice.key == question.correct_choice_key
-        )
-        is_correct = selected_key == question.correct_choice_key
-        correct_count += is_correct
-        feedback.append(
-            ExamAnswerFeedback(
-                question.stem,
-                selected_choice.text if selected_choice else None,
-                correct_choice.text,
-                is_correct,
-                question.explanation,
-            )
-        )
-    total = len(paper.questions)
-    return ExamResultView(
+    return ExamRecord(
         assignment.id,
         assignment.title_snapshot,
-        round(correct_count / total * 100, 2),
-        correct_count,
-        total,
-        tuple(feedback),
+        paper,
+        _decode_responses(paper, submission.responses_json),
+        exam_grades.load_grades(db, submission.id),
         submission.review_note or "",
     )
 
 
-def _decode_responses(paper: Paper, raw: object) -> dict[int, int | None]:
+def _decode_responses(paper: Paper, raw: object) -> dict[int, ResponseValue]:
     try:
         decoded = _response_map(raw)
         normalized = normalize_responses(paper, decoded)
@@ -418,10 +404,10 @@ def _decode_responses(paper: Paper, raw: object) -> dict[int, int | None]:
         raise ExamError("This exam response is invalid") from exc
 
 
-def _response_map(raw: object) -> dict[int, int | None]:
+def _response_map(raw: object) -> dict[int, ResponseValue]:
     if not isinstance(raw, dict):
         raise ValueError
-    decoded: dict[int, int | None] = {}
+    decoded: dict[int, ResponseValue] = {}
     for key, value in raw.items():
         decoded[_decode_response_key(key)] = _decode_response_value(value)
     return decoded
@@ -433,7 +419,7 @@ def _decode_response_key(raw: object) -> int:
     return int(raw)
 
 
-def _decode_response_value(raw: object) -> int | None:
-    if raw is not None and type(raw) is not int:
+def _decode_response_value(raw: object) -> ResponseValue:
+    if isinstance(raw, bool) or not isinstance(raw, int | str | None):
         raise ValueError
     return raw

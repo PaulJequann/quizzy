@@ -1,6 +1,7 @@
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-from app.models import Question, Quiz, QuizQuestion, QuizType
+from app.models import ExamResponseGrade, ExamSubmission, Question, Quiz, QuizQuestion, QuizType
 
 
 def require_exam_separation(session: Session, row) -> None:
@@ -19,3 +20,19 @@ def _link_ends(session: Session, link: QuizQuestion) -> tuple[Quiz, Question]:
 def _require_matching_exam_flags(quiz: Quiz, question: Question) -> None:
     if (quiz.quiz_type == QuizType.EXAM) != bool(question.exam_only):
         raise ValueError("Exam quizzes hold only exam questions, and other quizzes hold none")
+
+
+def require_unreleased_result(session: Session, row) -> None:
+    if isinstance(row, ExamResponseGrade):
+        submission = session.get(ExamSubmission, row.submission_id)
+        if submission is None:
+            raise ValueError("Exam grade refers to a submission that cannot be read")
+        _require_unreleased(submission)
+    elif isinstance(row, ExamSubmission) and row not in session.new:
+        _require_unreleased(row)
+
+
+def _require_unreleased(submission: ExamSubmission) -> None:
+    history = inspect(submission).attrs.released_at.load_history()
+    if any(value is not None for value in (*history.unchanged, *history.deleted)):
+        raise ValueError("Released exam results cannot change")

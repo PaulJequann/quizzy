@@ -5,7 +5,7 @@ from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 
 from app.database import get_engine
 from app.draft_policy import require_draft_content
-from app.exam_policy import require_exam_separation
+from app.exam_policy import require_exam_separation, require_unreleased_result
 from app.models import Question, Quiz, QuizStatus, QuizType, WorkspaceOwned
 from app.study_access import StudyAccess
 
@@ -46,6 +46,7 @@ def scope_reads(state: ORMExecuteState) -> None:
 def scope_writes(session: WorkspaceSession, flush_context, instances) -> None:
     for row in session.new | session.dirty | session.deleted:
         _guard_write(session, row)
+        require_unreleased_result(session, row)
     for row in session.new | session.dirty:
         require_exam_separation(session, row)
     if not session.drafts_only:

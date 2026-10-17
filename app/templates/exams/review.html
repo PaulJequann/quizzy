@@ -6,28 +6,58 @@
       <p class="eyebrow">{% if page.released %}Released exam{% else %}Pending review{% endif %} · submitted {{ page.submitted_at }}</p>
       <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
       <p class="mt-4 text-2xl font-semibold">{{ page.result.score }}% <span class="text-base font-normal text-[var(--color-text-2)]">({{ page.result.correct_count }} of {{ page.result.total_questions }} correct)</span></p>
+      {% if not page.released %}<p class="mt-2 text-sm text-[var(--color-text-2)]">Written answers count with the grades shown below. Releasing saves them as final.</p>{% endif %}
     </div>
-    <ol class="mt-5 grid gap-4">
-      {% for answer in page.result.feedback %}
-        <li class="panel">
-          <h2 class="font-semibold">{{ loop.index }}. {{ answer.question }}</h2>
-          <p class="mt-3">Learner answer: {{ answer.selected_choice or "No answer" }}</p>
-          <p class="mt-1">Correct answer: {{ answer.correct_choice }}</p>
-          <p class="mt-1 font-semibold">{% if answer.is_correct %}Correct{% else %}Incorrect{% endif %}</p>
-          {% if answer.explanation %}<p class="mt-3 leading-7 text-[var(--color-text-2)]">{{ answer.explanation }}</p>{% endif %}
-        </li>
-      {% endfor %}
-    </ol>
-    {% if page.released %}
-      {% if page.result.review_note %}<div class="panel mt-5"><p class="eyebrow">Released reviewer note</p><p class="mt-2 whitespace-pre-wrap">{{ page.result.review_note }}</p></div>{% endif %}
-    {% else %}
-      <form class="panel mt-5 grid gap-4" method="post" action="/exams/{{ page.id }}/release">
-        <label class="grid gap-2 text-sm font-semibold" for="note">Reviewer note
-          <textarea class="form-input min-h-32" id="note" name="note" maxlength="4000" placeholder="Optional feedback for the learner."></textarea>
-        </label>
-        <button class="btn-primary justify-self-start" type="submit">Release result</button>
-      </form>
-    {% endif %}
+    <form class="mt-5 grid gap-4" method="post" action="/exams/{{ page.id }}/release">
+      <fieldset class="grid gap-4" {% if page.released %}disabled{% endif %}>
+        <ol class="grid gap-4">
+          {% for item in page.items %}
+            <li class="panel">
+              {% if item.kind == "open_ended" %}
+                {% set answer = item.result %}
+                <h2 class="font-semibold">{{ loop.index }}. {{ answer.question }}</h2>
+                <p class="eyebrow mt-3">Learner answer</p>
+                <p class="mt-1 whitespace-pre-wrap">{{ answer.answer or "No answer" }}</p>
+                <div class="question-preview mt-4">
+                  <p class="eyebrow">Model answer</p>
+                  <p class="mt-1 whitespace-pre-wrap">{{ item.model_answer }}</p>
+                  {% if item.grading_notes %}
+                    <p class="eyebrow mt-3">Grading notes</p>
+                    <p class="mt-1 whitespace-pre-wrap">{{ item.grading_notes }}</p>
+                  {% endif %}
+                </div>
+                <fieldset class="mt-4 grid gap-2">
+                  <legend class="field-label mb-2">Key points met · {{ answer.met_count }} of {{ answer.key_points | length }}{% if not answer.graded %} · not graded yet{% endif %}</legend>
+                  {% for mark in answer.key_points %}
+                    <label class="choice-chip flex cursor-pointer items-center gap-3">
+                      <input type="checkbox" name="grade_{{ answer.key }}_met" value="{{ mark.number }}" {% if mark.met %}checked{% endif %}>
+                      <span>{{ mark.text }}</span>
+                    </label>
+                  {% endfor %}
+                </fieldset>
+                <label class="field-label mt-4">Feedback for the learner
+                  <textarea class="field min-h-24" name="grade_{{ answer.key }}_feedback" maxlength="2000" required>{{ answer.feedback }}</textarea>
+                </label>
+                <label class="field-label mt-4">Misconception
+                  <input class="field" name="grade_{{ answer.key }}_misconception" maxlength="200" value="{{ item.misconception or '' }}" placeholder="Only for a specific wrong idea">
+                </label>
+                {% if answer.explanation %}<p class="mt-3 leading-7 text-[var(--color-text-2)]">{{ answer.explanation }}</p>{% endif %}
+              {% else %}
+                {% with answer = item, number = loop.index, answer_label = "Learner answer" %}{% include "exams/_choice_answer.html" %}{% endwith %}
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+        {% if page.released %}
+          {% if page.result.review_note %}<div class="panel"><p class="eyebrow">Released reviewer note</p><p class="mt-2 whitespace-pre-wrap">{{ page.result.review_note }}</p></div>{% endif %}
+        {% else %}
+          <label class="panel field-label" for="note">Reviewer note
+            <textarea class="field min-h-32" id="note" name="note" maxlength="4000" placeholder="Optional feedback for the learner.">{{ page.result.review_note }}</textarea>
+          </label>
+        {% endif %}
+      </fieldset>
+      {% if not page.released %}<button class="btn-primary justify-self-start" type="submit">Release result</button>{% endif %}
+    </form>
     <a class="btn-secondary mt-6 inline-flex" href="/exams">Back to exams</a>
   </section>
 {% endblock %}

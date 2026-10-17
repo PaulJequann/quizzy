@@ -833,10 +833,35 @@ class ExamSubmission(WorkspaceOwned, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     assignment_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    responses_json: Mapped[dict[str, int | None]] = mapped_column(
+    responses_json: Mapped[dict[str, int | str | None]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False
     )
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     review_note: Mapped[str | None] = mapped_column(Text)
+
+
+class ExamResponseGrade(WorkspaceOwned, Base):
+    __tablename__ = "exam_response_grades"
+    __table_args__ = (
+        UniqueConstraint("submission_id", "question_key", name="uq_exam_response_grade_question"),
+        ForeignKeyConstraint(
+            ["workspace_id", "submission_id"],
+            ["exam_submissions.workspace_id", "exam_submissions.id"],
+            ondelete="CASCADE",
+            name="fk_exam_response_grades_submission_workspace",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(key_points_met) = 'array'", name="ck_exam_response_grades_met_array"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    submission_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_key: Mapped[int] = mapped_column(Integer, nullable=False)
+    key_points_met: Mapped[list[int]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    feedback: Mapped[str] = mapped_column(Text, nullable=False)
+    misconception: Mapped[str | None] = mapped_column(String(200))
