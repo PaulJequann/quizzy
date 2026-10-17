@@ -68,7 +68,8 @@ administration. Practice results remain immediate and appear in practice history
 
 Formal exams are authored in the learner's workspace and stay hidden from the learner. An agent
 creates an exam quiz through `create_generated_quiz` or `create_generated_quiz_with_questions`
-with `exam` set to true. The reviewer can add questions to that quiz in the browser. An exam quiz
+with `exam` set to true. The reviewer can add questions to that quiz in the browser and
+edit any of them with **Edit** on the quiz page. An edit keeps the question type. An exam quiz
 holds only exam questions and can include open-ended questions. Each open-ended question has a
 model answer, two to four key points, and optional grading notes. Learner pages never show exam
 quizzes or exam questions.
@@ -87,7 +88,10 @@ After release, the learner sees the score, the key points met and missed, answer
 explanations, and note. The model answer, grading notes, and misconception stay with the
 reviewer. Released results feed mastery and question health
 by score, and an open-ended success counts 1.5 times as much as a multiple-choice success.
-Released exams do not appear in the learner's practice history.
+Released exams do not appear in the learner's practice history. The learner reads a released
+result only on its exam page, not through practice results or retrieval feedback. Mastery
+offers a review only for concepts that have practice questions, because exam questions never
+appear in practice.
 
 ## Prepare the next practice
 
