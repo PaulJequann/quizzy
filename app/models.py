@@ -671,7 +671,7 @@ class QuestionKeyPoint(WorkspaceOwned, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     question_id: Mapped[int] = mapped_column(
-        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

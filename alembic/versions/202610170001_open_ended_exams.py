@@ -68,6 +68,7 @@ def _create_key_points() -> None:
         sa.UniqueConstraint("workspace_id", "id", name="uq_question_key_points_workspace_id"),
     )
     op.create_index("ix_question_key_points_workspace_id", "question_key_points", ["workspace_id"])
+    op.create_index("ix_question_key_points_question_id", "question_key_points", ["question_id"])
 
 
 def _create_response_grades() -> None:
@@ -126,6 +127,13 @@ def _add_exam_attempts() -> None:
 
 def downgrade() -> None:
     op.execute("DELETE FROM attempts WHERE exam_submission_id IS NOT NULL")
+    # The previous paper parser cannot read open-ended papers, so exams drawn from exam quizzes go.
+    op.execute(
+        "DELETE FROM exam_assignments WHERE source_quiz_id IN "
+        "(SELECT id FROM quizzes WHERE quiz_type = 'exam')"
+    )
+    op.execute("DELETE FROM quizzes WHERE quiz_type = 'exam'")
+    op.execute("DELETE FROM questions WHERE exam_only OR question_type = 'open_ended'")
     op.drop_column("attempt_answers", "misconception")
     op.drop_constraint("ck_attempt_answers_score_range", "attempt_answers", type_="check")
     op.drop_column("attempt_answers", "score")
@@ -134,6 +142,7 @@ def downgrade() -> None:
     op.drop_column("attempts", "exam_submission_id")
     op.drop_index("ix_exam_response_grades_workspace_id", table_name="exam_response_grades")
     op.drop_table("exam_response_grades")
+    op.drop_index("ix_question_key_points_question_id", table_name="question_key_points")
     op.drop_index("ix_question_key_points_workspace_id", table_name="question_key_points")
     op.drop_table("question_key_points")
     op.drop_constraint("ck_questions_open_ended_exam_only", "questions", type_="check")

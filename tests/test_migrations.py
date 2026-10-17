@@ -227,6 +227,9 @@ def test_open_ended_exam_migration_round_trips(test_database_url, monkeypatch) -
             _column_names(inspector, "questions")
         )
         assert {"question_key_points", "exam_response_grades"}.issubset(inspector.get_table_names())
+        assert "ix_question_key_points_question_id" in {
+            index["name"] for index in inspector.get_indexes("question_key_points")
+        }
         assert "exam_submission_id" in _column_names(inspector, "attempts")
         assert {"score", "misconception"}.issubset(_column_names(inspector, "attempt_answers"))
 
@@ -247,6 +250,36 @@ def test_open_ended_exam_migration_round_trips(test_database_url, monkeypatch) -
         clear_database_caches()
         command.upgrade(config, "head")
         clear_database_caches()
+
+
+def test_open_ended_exam_downgrade_removes_exam_content_and_keeps_practice(
+    db_session, test_database_url
+) -> None:
+    from tests.test_open_ended_exam_grading import submitted_exam
+
+    submitted_exam()
+    db_session.close()
+    config = Config("alembic.ini")
+    try:
+        command.downgrade(config, "202610160001")
+        clear_database_caches()
+
+        assert _rows("SELECT title, quiz_type::text FROM quizzes") == [("Test quiz", "standard")]
+        assert _rows("SELECT stem, workspace_id FROM questions") == [("What does pytest run?", 1)]
+        assert _rows("SELECT count(*) FROM choices") == [(4,)]
+        assert _rows("SELECT count(*) FROM quiz_questions") == [(1,)]
+        assert _rows("SELECT count(*) FROM exam_assignments") == [(0,)]
+        assert _rows("SELECT count(*) FROM exam_submissions") == [(0,)]
+        assert _rows("SELECT count(*) FROM attempts") == [(0,)]
+    finally:
+        clear_database_caches()
+        command.upgrade(config, "head")
+        clear_database_caches()
+
+
+def _rows(query: str) -> list[tuple]:
+    with get_engine().connect() as connection:
+        return [tuple(row) for row in connection.execute(text(query))]
 
 
 def test_open_ended_exam_migration_backfills_answer_scores(test_database_url, monkeypatch) -> None:
