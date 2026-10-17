@@ -257,3 +257,30 @@ def test_exam_paper_preserves_source_quiz_question_order(db_session):
         "Source quiz first question",
         "Source quiz second question",
     ]
+
+
+def test_reviewer_cannot_assign_published_practice_quiz_as_exam(db_session):
+    learner_id = create_learner("child@example.com", "Child")
+    subject = Subject(name="testing", slug="testing")
+    question = exam_question(subject, "What does pytest run?", ["Tests", "Backups"])
+    question.exam_only = False
+    quiz = Quiz(
+        title="Practice quiz",
+        primary_subject=subject,
+        difficulty=Difficulty.BEGINNER,
+        quiz_type=QuizType.STANDARD,
+        status=QuizStatus.PUBLISHED,
+        question_links=[QuizQuestion(question=question, order_index=1)],
+    )
+    with reviewer_session(learner_id) as db:
+        db.add(quiz)
+        db.commit()
+        quiz_id = quiz.id
+    reviewer = reviewer_browser(learner_id)
+
+    assert reviewer.get(f"/quizzes/{quiz_id}/exam").status_code == 404
+    response = reviewer.post(f"/quizzes/{quiz_id}/exam", data={"request_key": str(uuid4())})
+
+    assert response.status_code == 404
+    with reviewer_session(learner_id) as db:
+        assert db.scalar(select(func.count()).select_from(ExamAssignment)) == 0
