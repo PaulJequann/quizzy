@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.models import (
+    Attempt,
     Difficulty,
     ExamResponseGrade,
     ExamSubmission,
@@ -353,3 +354,56 @@ def test_written_answer_counts_as_correct_only_above_half(
     result = exam_result(record)
 
     assert (result.score, result.correct_count) == (score, correct_count)
+
+
+def attempt_count(learner_id: int) -> int:
+    with reviewer_session(learner_id) as db:
+        return db.scalar(select(func.count(Attempt.id)))
+
+
+def test_release_rolls_back_when_mastery_evidence_fails(db_session, monkeypatch):
+    exam = submitted_exam()
+
+    def fail(*_args):
+        raise RuntimeError("question health unavailable")
+
+    monkeypatch.setattr("app.services.question_health_service.score_question_health", fail)
+    with pytest.raises(RuntimeError, match="question health unavailable"):
+        exam.reviewer.post(f"/exams/{exam.exam_id}/release", data=RELEASE_FORM)
+
+    assert (released_count(exam.learner_id), attempt_count(exam.learner_id)) == (0, 0)
+    assert stored_grades(exam.learner_id) == []
+
+
+def delete_source_quiz(learner_id: int) -> None:
+    with reviewer_session(learner_id) as db:
+        db.delete(db.scalars(select(Quiz)).one())
+        db.commit()
+
+
+def delete_written_question(learner_id: int) -> None:
+    with reviewer_session(learner_id) as db:
+        db.delete(db.scalars(select(Question).where(Question.stem == WRITTEN_STEM)).one())
+        db.commit()
+
+
+@pytest.mark.parametrize(
+    ("delete", "detail"),
+    [
+        (delete_source_quiz, "This exam's quiz was deleted, so its result cannot be released"),
+        (
+            delete_written_question,
+            "A question on this exam was deleted, so its result cannot be released",
+        ),
+    ],
+)
+def test_release_refuses_when_exam_source_was_deleted(db_session, delete, detail):
+    exam = submitted_exam()
+    delete(exam.learner_id)
+
+    response = exam.reviewer.post(f"/exams/{exam.exam_id}/release", data=RELEASE_FORM)
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": detail}
+    assert (released_count(exam.learner_id), attempt_count(exam.learner_id)) == (0, 0)
+    assert stored_grades(exam.learner_id) == []

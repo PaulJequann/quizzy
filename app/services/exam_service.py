@@ -309,14 +309,26 @@ def release_exam(
     if submission.released_at is None:
         paper = parse_paper(assignment.paper_version, assignment.paper_json)
         checked = exam_grades.validated_grades(paper, grading.grades, complete=True)
+        _require_sources(db, assignment.source_quiz_id, paper)
         exam_grades.save_grades(db, submission.id, checked)
         _release_submission(submission, access.actor_id, grading.note)
         db.flush()
         attempt = exam_attempt(_record(db, assignment, submission), assignment, submission)
         db.add(attempt)
+        db.flush()
+        for answer in attempt.answers:
+            question_health_service.score_question_health(db, answer.question_id)
         db.commit()
-        question_health_service.record_attempt_evidence(db, attempt.id)
     return exam_result(_record(db, assignment, submission))
+
+
+def _require_sources(db: WorkspaceSession, quiz_id: int, paper: Paper) -> None:
+    if db.scalar(select(Quiz.id).where(Quiz.id == quiz_id)) is None:
+        raise ExamError("This exam's quiz was deleted, so its result cannot be released")
+    question_ids = {question.question_id for question in paper.questions}
+    found = set(db.scalars(select(Question.id).where(Question.id.in_(question_ids))))
+    if found != question_ids:
+        raise ExamError("A question on this exam was deleted, so its result cannot be released")
 
 
 def record_grades(
