@@ -147,7 +147,8 @@ def test_exam_release_hides_result_and_keeps_practice_records_separate(db_sessio
             (answer.question_stem_snapshot, answer.score, answer.is_correct)
             for answer in attempt.answers
         ] == [("What does pytest run?", 1.0, True)]
-    attempt_page = learner.get(f"/attempts/{attempt.id}/results")
+    assert learner.get(f"/attempts/{attempt.id}/results").status_code == 404
+    attempt_page = reviewer.get(f"/attempts/{attempt.id}/results")
     assert attempt_page.status_code == 303
     assert attempt_page.headers["location"] == f"/exams/{exam_id}"
 

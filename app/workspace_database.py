@@ -1,13 +1,25 @@
 from contextlib import contextmanager
 
-from sqlalchemy import Select, event, inspect
+from sqlalchemy import Select, event, inspect, select
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 
 from app.database import get_engine
 from app.draft_policy import require_draft_content
 from app.exam_policy import require_exam_separation, require_unreleased_result
-from app.models import Question, Quiz, QuizStatus, QuizType, WorkspaceOwned
+from app.models import (
+    Attempt,
+    AttemptAnswer,
+    Question,
+    Quiz,
+    QuizStatus,
+    QuizType,
+    WorkspaceOwned,
+)
 from app.study_access import StudyAccess
+
+_attempts = Attempt.__table__
+# Core columns keep the learner Attempt criterion from applying inside its own subquery.
+EXAM_ATTEMPT_IDS = select(_attempts.c.id).where(_attempts.c.exam_submission_id.is_not(None))
 
 
 class WorkspaceSession(Session):
@@ -39,6 +51,14 @@ def scope_reads(state: ORMExecuteState) -> None:
         state.statement = state.statement.options(
             with_loader_criteria(Quiz, Quiz.quiz_type != QuizType.EXAM, include_aliases=True),
             with_loader_criteria(Question, Question.exam_only.is_(False), include_aliases=True),
+            with_loader_criteria(
+                Attempt, Attempt.exam_submission_id.is_(None), include_aliases=True
+            ),
+            with_loader_criteria(
+                AttemptAnswer,
+                AttemptAnswer.attempt_id.not_in(EXAM_ATTEMPT_IDS),
+                include_aliases=True,
+            ),
         )
 
 

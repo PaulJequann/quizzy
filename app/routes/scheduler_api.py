@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.boundary import study_operation
 from app.database import get_db
-from app.models import Question
+from app.models import AttemptAnswer, Question
 from app.schemas import QuestionIssueReportRequest, RetrievalFeedbackRequest
 from app.services import concept_scheduler_service, question_health_service
 from app.services.question_health_service import QuestionIssueReport
@@ -22,6 +22,8 @@ def api_record_retrieval_feedback(
     payload: RetrievalFeedbackRequest,
     db: Annotated[Session, Depends(get_db)],
 ):
+    if db.get(AttemptAnswer, answer_id) is None:
+        raise HTTPException(status_code=404, detail="Attempt answer not found")
     try:
         updates = concept_scheduler_service.record_retrieval_feedback(
             db,

@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.models import (
+    Attempt,
+    AttemptAnswer,
     Concept,
     ConceptAssignmentRole,
     ConceptStatus,
@@ -181,3 +183,31 @@ def test_correct_answer_without_misconception_is_not_a_recent_miss(db_session):
 
     with reviewer_session(study.learner_id) as db:
         assert prepare_next_practice(db, study.learner_id)["recent_misses"] == []
+
+
+def test_learner_cannot_load_exam_attempts_but_keeps_mastery_and_result(db_session):
+    study = linked_study()
+    exam_id = submit(study)
+    release(study, exam_id, ALL_KEY_POINTS)
+    with reviewer_session(study.learner_id) as db:
+        answer_ids = sorted(db.scalars(select(AttemptAnswer.id)))
+    assert len(answer_ids) == 2
+
+    with learner_session(study.learner_id) as db:
+        assert list(db.scalars(select(Attempt))) == []
+        assert list(db.scalars(select(AttemptAnswer))) == []
+        assert db.get(AttemptAnswer, answer_ids[0]) is None
+    feedback = {"retrieval_friction_rating": 1}
+    for answer_id in answer_ids:
+        api = study.learner.post(
+            f"/api/attempt-answers/{answer_id}/retrieval-feedback", json=feedback
+        )
+        web = study.learner.post(f"/attempt-answers/{answer_id}/retrieval-feedback", data=feedback)
+        assert (api.status_code, web.status_code) == (404, 404)
+    assert mastery(study) == {
+        "Photosynthesis": (50.13, 1, 1, 0),
+        "Tests": (43.1, 1, 1, 0),
+    }
+    result = study.learner.get(f"/exams/{exam_id}")
+    assert result.status_code == 200
+    assert "Well done." in result.text
