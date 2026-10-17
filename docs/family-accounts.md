@@ -83,8 +83,9 @@ browser, edits the key points met, feedback, misconception, and note, then choos
 result**. A written answer's score is the share of key points met. The answer counts as correct
 when it meets more than half of them. A released result cannot change.
 
-After release, the learner sees the score, answer feedback, explanations, and note. The rubric
-and the misconception stay with the reviewer. Released results feed mastery and question health
+After release, the learner sees the score, the key points met and missed, answer feedback,
+explanations, and note. The model answer, grading notes, and misconception stay with the
+reviewer. Released results feed mastery and question health
 by score, and an open-ended success counts 1.5 times as much as a multiple-choice success.
 Released exams do not appear in the learner's practice history.
 
