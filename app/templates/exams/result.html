@@ -11,11 +11,24 @@
     <ol class="mt-5 grid gap-4">
       {% for answer in page.feedback %}
         <li class="panel">
-          <h2 class="font-semibold">{{ loop.index }}. {{ answer.question }}</h2>
-          <p class="mt-3">Your answer: {{ answer.selected_choice or "No answer" }}</p>
-          <p class="mt-1">Correct answer: {{ answer.correct_choice }}</p>
-          <p class="mt-1 font-semibold">{% if answer.is_correct %}Correct{% else %}Incorrect{% endif %}</p>
-          {% if answer.explanation %}<p class="mt-3 leading-7 text-[var(--color-text-2)]">{{ answer.explanation }}</p>{% endif %}
+          {% if answer.kind == "open_ended" %}
+            <h2 class="font-semibold">{{ loop.index }}. {{ answer.question }}</h2>
+            <p class="eyebrow mt-3">Your answer</p>
+            <p class="mt-1 whitespace-pre-wrap">{{ answer.answer or "No answer" }}</p>
+            <p class="mt-3 font-semibold">{{ answer.met_count }} of {{ answer.key_points | length }} key points</p>
+            <ul class="mt-2 grid gap-2">
+              {% for mark in answer.key_points %}
+                <li class="flex items-center gap-3">
+                  <span class="{% if mark.met %}badge-correct{% else %}badge-incorrect{% endif %}">{% if mark.met %}Met{% else %}Missed{% endif %}</span>
+                  <span>{{ mark.text }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+            <p class="mt-3 leading-7">{{ answer.feedback }}</p>
+            {% if answer.explanation %}<p class="mt-3 leading-7 text-[var(--color-text-2)]">{{ answer.explanation }}</p>{% endif %}
+          {% else %}
+            {% with number = loop.index, answer_label = "Your answer" %}{% include "exams/_choice_answer.html" %}{% endwith %}
+          {% endif %}
         </li>
       {% endfor %}
     </ol>

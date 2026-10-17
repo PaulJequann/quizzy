@@ -35,10 +35,8 @@ from app.services.grading_service import (
     passed,
     submit_attempt,
 )
+from app.services.question_scope import reviewable_rows
 from app.services.quiz_service import (
-    QuestionFormInput,
-    create_question,
-    form_question_create,
     get_quiz,
     list_quizzes,
     update_quiz_status,
@@ -182,7 +180,7 @@ def mastery(request: Request, db: Annotated[Session, Depends(get_db)]):
         "mastery/index.html",
         {
             "mastery_rows": mastery_rows,
-            "queue_items": build_concept_queue_items(mastery_rows),
+            "queue_items": build_concept_queue_items(reviewable_rows(mastery_rows)),
             "mastery_groups": mastery_groups,
         },
     )
@@ -553,66 +551,6 @@ def publish_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(
     return templates.TemplateResponse(request, "quizzes/_status_badge.html", {"quiz": quiz})
 
 
-@router.get("/quizzes/{quiz_id}/questions/new", response_class=HTMLResponse)
-@study_operation(StudyOperation.MANAGE)
-def new_question(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
-    quiz = get_quiz(db, quiz_id)
-    if quiz is None:
-        raise HTTPException(status_code=404, detail="Quiz not found")
-    return templates.TemplateResponse(
-        request,
-        "quizzes/question_form.html",
-        {"quiz": quiz, "error": None},
-    )
-
-
-@router.post("/quizzes/{quiz_id}/questions", response_class=HTMLResponse)
-@study_operation(StudyOperation.MANAGE)
-async def post_question(
-    request: Request,
-    quiz_id: int,
-    db: Annotated[Session, Depends(get_db)],
-):
-    quiz = get_quiz(db, quiz_id)
-    if quiz is None:
-        raise HTTPException(status_code=404, detail="Quiz not found")
-
-    form = await request.form()
-    try:
-        question_data = form_question_create(
-            QuestionFormInput(
-                stem=form_text(form, "stem"),
-                choices=[
-                    form_text(form, "choice_1"),
-                    form_text(form, "choice_2"),
-                    form_text(form, "choice_3"),
-                    form_text(form, "choice_4"),
-                ],
-                correct_choice=form_int(form, "correct_choice"),
-                explanation=form_text(form, "explanation"),
-                source_reference=form_text(form, "source_reference"),
-                concepts=form_text(form, "concepts"),
-            )
-        )
-    except ValueError as error:
-        return templates.TemplateResponse(
-            request,
-            "quizzes/question_form.html",
-            {"quiz": quiz, "error": str(error)},
-            status_code=422,
-        )
-
-    create_question(db, quiz, question_data)
-    if request.headers.get("HX-Request"):
-        refreshed_quiz = get_quiz(db, quiz_id)
-        return templates.TemplateResponse(
-            request,
-            "quizzes/_question_workspace.html",
-            {"quiz": refreshed_quiz, "error": None},
-        )
-    return redirect(f"/quizzes/{quiz_id}")
-
-
 @router.get("/quizzes/{quiz_id}/take", response_class=HTMLResponse)
 @study_operation(StudyOperation.VIEW)
 def take_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
@@ -668,6 +606,8 @@ def attempt_results(request: Request, attempt_id: int, db: Annotated[Session, De
     )
     if attempt is None:
         raise HTTPException(status_code=404, detail="Attempt not found")
+    if attempt.exam_submission is not None:
+        return redirect(f"/exams/{attempt.exam_submission.assignment_id}")
     return templates.TemplateResponse(
         request,
         "attempts/results.html",

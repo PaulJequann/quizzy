@@ -35,6 +35,12 @@ class QuizType(StrEnum):
     REVIEW = "review"
     GENERATED = "generated"
     PRACTICE = "practice"
+    EXAM = "exam"
+
+
+class QuestionType(StrEnum):
+    MULTIPLE_CHOICE = "multiple_choice"
+    OPEN_ENDED = "open_ended"
 
 
 class QuestionStatus(StrEnum):
@@ -524,13 +530,35 @@ class ConceptReviewItem(WorkspaceOwned, TimestampMixin, Base):
 
 class Question(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "questions"
+    __table_args__ = (
+        CheckConstraint(
+            "(question_type = 'open_ended') = (model_answer IS NOT NULL)",
+            name="ck_questions_model_answer_type",
+        ),
+        CheckConstraint(
+            "question_type != 'open_ended' OR exam_only",
+            name="ck_questions_open_ended_exam_only",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int] = mapped_column(
         ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=False
     )
+    question_type: Mapped[QuestionType] = mapped_column(
+        Enum(
+            QuestionType,
+            name="question_type",
+            values_callable=lambda enum_class: [member.value for member in enum_class],
+        ),
+        nullable=False,
+        default=QuestionType.MULTIPLE_CHOICE,
+    )
+    exam_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     stem: Mapped[str] = mapped_column(Text, nullable=False)
     explanation: Mapped[str | None] = mapped_column(Text)
+    model_answer: Mapped[str | None] = mapped_column(Text)
+    grading_notes: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[Difficulty] = mapped_column(
         Enum(
             Difficulty,
@@ -590,6 +618,11 @@ class Question(WorkspaceOwned, TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="Choice.order_index",
     )
+    key_points: Mapped[list["QuestionKeyPoint"]] = relationship(
+        back_populates="question",
+        cascade="all, delete-orphan",
+        order_by="QuestionKeyPoint.order_index",
+    )
     attempt_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="question")
     concept_links: Mapped[list[QuestionConcept]] = relationship(
         back_populates="question",
@@ -631,6 +664,19 @@ class Choice(WorkspaceOwned, Base):
 
     question: Mapped[Question] = relationship(back_populates="choices")
     selected_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="selected_choice")
+
+
+class QuestionKeyPoint(WorkspaceOwned, Base):
+    __tablename__ = "question_key_points"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    question: Mapped[Question] = relationship(back_populates="key_points")
 
 
 class QuestionReviewItem(WorkspaceOwned, TimestampMixin, Base):
@@ -688,6 +734,15 @@ class QuestionFeedbackEvent(WorkspaceOwned, TimestampMixin, Base):
 
 class Attempt(WorkspaceOwned, Base):
     __tablename__ = "attempts"
+    __table_args__ = (
+        UniqueConstraint("exam_submission_id", name="uq_attempts_exam_submission"),
+        ForeignKeyConstraint(
+            ["workspace_id", "exam_submission_id"],
+            ["exam_submissions.workspace_id", "exam_submissions.id"],
+            ondelete="CASCADE",
+            name="fk_attempts_exam_submission_workspace",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     quiz_id: Mapped[int] = mapped_column(
@@ -699,12 +754,14 @@ class Attempt(WorkspaceOwned, Base):
     session_type: Mapped[str] = mapped_column(String(40), nullable=False, default="standard")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exam_submission_id: Mapped[int | None] = mapped_column(Integer)
 
     quiz: Mapped[Quiz] = relationship(back_populates="attempts")
     answers: Mapped[list["AttemptAnswer"]] = relationship(
         back_populates="attempt",
         cascade="all, delete-orphan",
     )
+    exam_submission: Mapped["ExamSubmission | None"] = relationship(viewonly=True)
 
 
 class AttemptAnswer(WorkspaceOwned, Base):
@@ -714,6 +771,7 @@ class AttemptAnswer(WorkspaceOwned, Base):
             "retrieval_friction_rating IS NULL OR retrieval_friction_rating IN (1, 2, 3)",
             name="ck_attempt_answers_retrieval_friction_rating",
         ),
+        CheckConstraint("score >= 0 AND score <= 1", name="ck_attempt_answers_score_range"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -727,6 +785,8 @@ class AttemptAnswer(WorkspaceOwned, Base):
         ForeignKey("choices.id", ondelete="SET NULL")
     )
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    misconception: Mapped[str | None] = mapped_column(String(200))
     question_stem_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     selected_choice_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     correct_choice_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -787,10 +847,35 @@ class ExamSubmission(WorkspaceOwned, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     assignment_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    responses_json: Mapped[dict[str, int | None]] = mapped_column(
+    responses_json: Mapped[dict[str, int | str | None]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False
     )
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     review_note: Mapped[str | None] = mapped_column(Text)
+
+
+class ExamResponseGrade(WorkspaceOwned, Base):
+    __tablename__ = "exam_response_grades"
+    __table_args__ = (
+        UniqueConstraint("submission_id", "question_key", name="uq_exam_response_grade_question"),
+        ForeignKeyConstraint(
+            ["workspace_id", "submission_id"],
+            ["exam_submissions.workspace_id", "exam_submissions.id"],
+            ondelete="CASCADE",
+            name="fk_exam_response_grades_submission_workspace",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(key_points_met) = 'array'", name="ck_exam_response_grades_met_array"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    submission_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_key: Mapped[int] = mapped_column(Integer, nullable=False)
+    key_points_met: Mapped[list[int]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    feedback: Mapped[str] = mapped_column(Text, nullable=False)
+    misconception: Mapped[str | None] = mapped_column(String(200))

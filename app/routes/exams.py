@@ -3,15 +3,12 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from starlette.datastructures import FormData
 
 from app.auth.boundary import study_operation
-from app.auth.models import User
-from app.config import get_settings
-from app.database import get_db, get_session_factory
-from app.models import QuizStatus
+from app.database import get_db
 from app.services import exam_service
-from app.services.quiz_service import get_quiz
+from app.services.exam_grades import ExamGrading, Grade
 from app.study_access import StudyAccessDenied, StudyOperation
 from app.templating import templates
 from app.workspace_database import WorkspaceSession
@@ -35,19 +32,42 @@ def _exam_template(page: exam_service.ExamPage) -> str:
     return "exams/result.html"
 
 
-def _exam_responses(form) -> dict[int, int | None]:
-    responses: dict[int, int | None] = {}
-    for field, raw in form.items():
-        if not field.startswith("answer_"):
-            continue
-        if not isinstance(raw, str):
-            raise HTTPException(400, "Invalid exam response")
-        try:
-            question_key = int(field.removeprefix("answer_"))
-            responses[question_key] = int(raw) if raw else None
-        except ValueError as exc:
-            raise HTTPException(400, "Invalid exam response") from exc
-    return responses
+def _exam_answers(form: FormData) -> dict[int, str]:
+    return {
+        _form_int(field.removeprefix("answer_")): _form_text(raw)
+        for field, raw in form.items()
+        if field.startswith("answer_")
+    }
+
+
+def _exam_grades(form: FormData) -> dict[int, Grade]:
+    keys = [
+        _form_int(field.removeprefix("grade_").removesuffix("_feedback"))
+        for field in form
+        if field.startswith("grade_") and field.endswith("_feedback")
+    ]
+    return {key: _form_grade(form, key) for key in keys}
+
+
+def _form_grade(form: FormData, key: int) -> Grade:
+    return Grade(
+        tuple(_form_int(_form_text(raw)) for raw in form.getlist(f"grade_{key}_met")),
+        _form_text(form.get(f"grade_{key}_feedback")),
+        _form_text(form.get(f"grade_{key}_misconception", "")),
+    )
+
+
+def _form_text(raw: object) -> str:
+    if not isinstance(raw, str):
+        raise HTTPException(400, "Invalid exam form")
+    return raw
+
+
+def _form_int(raw: str) -> int:
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid exam form") from exc
 
 
 def _call_exam(operation):
@@ -74,53 +94,30 @@ def exams_list(request: Request, db: Annotated[WorkspaceSession, Depends(get_db)
 
 
 @router.get("/quizzes/{quiz_id}/exam", response_class=HTMLResponse)
-@study_operation(StudyOperation.ASSIGN_EXAM)
+@study_operation(StudyOperation.MANAGE_EXAMS)
 def exam_assignment_form(
     request: Request, quiz_id: int, db: Annotated[WorkspaceSession, Depends(get_db)]
 ):
-    quiz = get_quiz(db, quiz_id)
-    if quiz is None or quiz.status != QuizStatus.PUBLISHED:
-        raise HTTPException(404, "Published quiz not found")
-    with get_session_factory()() as accounts:
-        learners = list(
-            accounts.scalars(
-                select(User)
-                .filter_by(is_active=True, is_superuser=False)
-                .order_by(User.display_name, User.id)
-            )
-        )
+    quiz = _call_exam(lambda: exam_service.assignable_exam_quiz(db, quiz_id))
     return templates.TemplateResponse(
-        request,
-        "exams/assign.html",
-        {"quiz": quiz, "learners": learners, "request_key": uuid4()},
+        request, "exams/assign.html", {"quiz": quiz, "request_key": uuid4()}
     )
 
 
 @router.post("/quizzes/{quiz_id}/exam")
-@study_operation(StudyOperation.ASSIGN_EXAM)
+@study_operation(StudyOperation.MANAGE_EXAMS)
 def assign_exam(
     request: Request,
     quiz_id: int,
-    learner_id: Annotated[int, Form()],
+    db: Annotated[WorkspaceSession, Depends(get_db)],
     request_key: Annotated[str, Form()],
 ):
     assignment = _call_exam(
         lambda: exam_service.assign_exam(
-            access=request.state.access,
-            learner_id=learner_id,
-            source_quiz_id=quiz_id,
-            request_key=UUID(request_key),
+            db, request.state.access, source_quiz_id=quiz_id, request_key=UUID(request_key)
         )
     )
-    response = redirect(f"/exams/{assignment.id}")
-    response.set_cookie(
-        "quizzy_workspace",
-        str(learner_id),
-        httponly=True,
-        samesite="lax",
-        secure=get_settings().app_base_url.startswith("https://"),
-    )
-    return response
+    return redirect(f"/exams/{assignment.id}")
 
 
 @router.get("/exams/{exam_id}", response_class=HTMLResponse)
@@ -135,18 +132,17 @@ def exam_detail(request: Request, exam_id: int, db: Annotated[WorkspaceSession, 
 async def submit_exam(
     request: Request, exam_id: int, db: Annotated[WorkspaceSession, Depends(get_db)]
 ):
-    responses = _exam_responses(await request.form())
-    _call_exam(lambda: exam_service.submit_exam(db, request.state.access, exam_id, responses))
+    answers = _exam_answers(await request.form())
+    _call_exam(lambda: exam_service.submit_exam(db, request.state.access, exam_id, answers))
     return redirect(f"/exams/{exam_id}")
 
 
 @router.post("/exams/{exam_id}/release")
-@study_operation(StudyOperation.REVIEW_EXAM)
-def release_exam(
-    request: Request,
-    exam_id: int,
-    db: Annotated[WorkspaceSession, Depends(get_db)],
-    note: Annotated[str, Form()] = "",
+@study_operation(StudyOperation.MANAGE_EXAMS)
+async def release_exam(
+    request: Request, exam_id: int, db: Annotated[WorkspaceSession, Depends(get_db)]
 ):
-    _call_exam(lambda: exam_service.release_exam(db, request.state.access, exam_id, note=note))
+    form = await request.form()
+    grading = ExamGrading(_form_text(form.get("note", "")), _exam_grades(form))
+    _call_exam(lambda: exam_service.release_exam(db, request.state.access, exam_id, grading))
     return redirect(f"/exams/{exam_id}")

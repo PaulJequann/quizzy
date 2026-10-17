@@ -13,8 +13,7 @@ class StudyOperation(Enum):
     MANAGE = auto()
     RECORD_PROGRESS = auto()
     MANAGE_AND_RECORD = auto()
-    ASSIGN_EXAM = auto()
-    REVIEW_EXAM = auto()
+    MANAGE_EXAMS = auto()
 
 
 @dataclass(frozen=True)
@@ -38,12 +37,12 @@ class StudyAccess:
         return self.can_manage_study and self.can_record_progress
 
     @property
-    def can_assign_exams(self) -> bool:
-        return self.actor_is_superuser and not self.is_preview
+    def can_manage_exams(self) -> bool:
+        return self.actor_is_superuser and self.is_preview
 
     @property
-    def can_review_exams(self) -> bool:
-        return self.actor_is_superuser and self.is_preview
+    def sees_exam_content(self) -> bool:
+        return self.actor_is_superuser or self.is_preview
 
     def allows(self, operation: StudyOperation) -> bool:
         return {
@@ -51,8 +50,7 @@ class StudyAccess:
             StudyOperation.MANAGE: self.can_manage_study,
             StudyOperation.RECORD_PROGRESS: self.can_record_progress,
             StudyOperation.MANAGE_AND_RECORD: self.can_manage_and_record,
-            StudyOperation.ASSIGN_EXAM: self.can_assign_exams,
-            StudyOperation.REVIEW_EXAM: self.can_review_exams,
+            StudyOperation.MANAGE_EXAMS: self.can_manage_exams,
         }.get(operation, False)
 
     def can_view_quiz(self, status: QuizStatus) -> bool:

@@ -16,8 +16,10 @@ from app.models import (
     QuestionHealthState,
     QuestionReviewItem,
     QuestionStatus,
+    QuestionType,
     SourceDocument,
 )
+from app.services.question_content import rubric_to_dict
 
 REVIEW_STATUS_OPEN = "open"
 QUESTION_FLAG_ACTIONS = {
@@ -99,8 +101,8 @@ def score_question_health(db: Session, question_id: int) -> QuestionHealthSummar
     if question is None:
         raise ValueError(f"Unknown question id {question_id}")
 
-    attempt_count, correct_count = _attempt_counts(db, question.id)
-    accuracy = _accuracy(attempt_count, correct_count)
+    attempt_count, correct_count, mean_score = _attempt_counts(db, question.id)
+    accuracy = None if mean_score is None else round(mean_score * 100, 2)
     state, score, reason, action = _classify_question(question, attempt_count, accuracy)
 
     question.health_state = state
@@ -276,6 +278,7 @@ def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, 
         .options(
             selectinload(Question.subject),
             selectinload(Question.choices),
+            selectinload(Question.key_points),
             selectinload(Question.concepts),
             selectinload(Question.source_document).selectinload(SourceDocument.current_snapshot),
             selectinload(Question.source_snapshot),
@@ -323,14 +326,15 @@ def resolve_question_review_item(
     return _review_item_to_dict(item)
 
 
-def _attempt_counts(db: Session, question_id: int) -> tuple[int, int]:
+def _attempt_counts(db: Session, question_id: int) -> tuple[int, int, float | None]:
     row = db.execute(
         select(
             func.count(AttemptAnswer.id),
             func.coalesce(func.sum(AttemptAnswer.is_correct.cast(Integer)), 0),
+            func.avg(AttemptAnswer.score),
         ).where(AttemptAnswer.question_id == question_id)
     ).one()
-    return int(row[0]), int(row[1])
+    return int(row[0]), int(row[1]), row[2]
 
 
 def _accuracy(attempt_count: int, correct_count: int) -> float | None:
@@ -479,6 +483,8 @@ def _review_evidence_json(evidence: ReviewEvidence) -> str:
 
 
 def _choice_distribution(db: Session, question: Question) -> list[dict[str, Any]]:
+    if question.question_type == QuestionType.OPEN_ENDED:
+        return []
     selected_counts = {
         choice_id: int(count)
         for choice_id, count in (
@@ -536,7 +542,9 @@ def _question_to_dict(question: Question) -> dict[str, Any]:
     return {
         "id": question.id,
         "subject": question.subject.name,
+        "question_type": question.question_type.value,
         "stem": question.stem,
+        **rubric_to_dict(question),
         "choices": [
             {"id": choice.id, "text": choice.text, "is_correct": choice.is_correct}
             for choice in question.choices

@@ -4,22 +4,13 @@
   <section class="mx-auto max-w-2xl">
     <p class="eyebrow">Formal assessment</p>
     <h1 class="font-display mt-1 text-3xl leading-tight">Assign {{ quiz.title }}</h1>
-    <p class="mt-3 leading-7 text-[var(--color-text-2)]">Quizzy will copy this published quiz into the learner's exam workspace. Later changes to this quiz will not change the assigned exam.</p>
-    {% if learners %}
-      <form class="panel mt-6 grid gap-5" method="post" action="/quizzes/{{ quiz.id }}/exam">
-        <input type="hidden" name="request_key" value="{{ request_key }}">
-        <label class="grid gap-2 text-sm font-semibold" for="learner_id">Learner
-          <select class="form-input" id="learner_id" name="learner_id" required>
-            {% for learner in learners %}<option value="{{ learner.id }}">{{ learner.display_name }}</option>{% endfor %}
-          </select>
-        </label>
-        <div class="flex flex-wrap gap-3">
-          <button class="btn-primary" type="submit">Assign exam</button>
-          <a class="btn-secondary" href="/quizzes/{{ quiz.id }}">Cancel</a>
-        </div>
-      </form>
-    {% else %}
-      <div class="empty-state mt-6">There are no active learner accounts to assign this exam to.</div>
-    {% endif %}
+    <p class="mt-3 leading-7 text-[var(--color-text-2)]">Quizzy will assign this exam to {{ request.state.access.workspace_name }}. Later changes to this quiz will not change the assigned exam.</p>
+    <form class="panel mt-6 grid gap-5" method="post" action="/quizzes/{{ quiz.id }}/exam">
+      <input type="hidden" name="request_key" value="{{ request_key }}">
+      <div class="flex flex-wrap gap-3">
+        <button class="btn-primary" type="submit">Assign exam</button>
+        <a class="btn-secondary" href="/quizzes/{{ quiz.id }}">Cancel</a>
+      </div>
+    </form>
   </section>
 {% endblock %}

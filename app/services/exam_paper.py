@@ -1,178 +1,154 @@
-from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import TypedDict, TypeGuard
+from typing import Annotated, Literal, Self
 
-from app.models import Question, Quiz
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    model_validator,
+)
+
+from app.models import Choice, Question, QuestionType, Quiz
+from app.schemas import MAX_KEY_POINTS, MIN_KEY_POINTS
 from app.services.exam_errors import ExamError
 
 PAPER_VERSION = 1
+INCOMPLETE_QUESTION = "Every exam question needs a stem and a complete answer key"
+
+PositiveKey = Annotated[StrictInt, Field(gt=0)]
+FilledText = Annotated[StrictStr, Field(pattern=r"\S")]
 
 
-@dataclass(frozen=True)
-class PaperChoice:
-    key: int
-    text: str
+class PaperPart(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-@dataclass(frozen=True)
-class PaperQuestion:
-    key: int
-    stem: str
-    explanation: str
-    choices: tuple[PaperChoice, ...]
-    correct_choice_key: int
+class PaperChoice(PaperPart):
+    key: PositiveKey
+    text: StrictStr
 
 
-@dataclass(frozen=True)
-class Paper:
-    version: int
-    questions: tuple[PaperQuestion, ...]
+class MultipleChoicePaperQuestion(PaperPart):
+    type: Literal["multiple_choice"] = "multiple_choice"
+    key: PositiveKey
+    question_id: PositiveKey
+    stem: FilledText
+    explanation: StrictStr
+    choices: tuple[PaperChoice, ...] = Field(min_length=2)
+    correct_choice_key: StrictInt
+
+    @model_validator(mode="after")
+    def _one_correct_choice_among_unique_keys(self) -> Self:
+        keys = _unique_keys([choice.key for choice in self.choices], "Choice keys must be unique")
+        if self.correct_choice_key not in keys:
+            raise ValueError("The correct choice key must name a choice")
+        return self
 
 
-class PaperQuestionPayload(TypedDict):
-    choices: list[object]
-    stem: str
-    explanation: str
-    key: int
-    correct_choice_key: int
+class OpenEndedPaperQuestion(PaperPart):
+    type: Literal["open_ended"] = "open_ended"
+    key: PositiveKey
+    question_id: PositiveKey
+    stem: FilledText
+    explanation: StrictStr
+    model_answer: FilledText
+    grading_notes: StrictStr
+    key_points: tuple[FilledText, ...] = Field(min_length=MIN_KEY_POINTS, max_length=MAX_KEY_POINTS)
+
+
+PaperQuestion = MultipleChoicePaperQuestion | OpenEndedPaperQuestion
+
+
+class Paper(PaperPart):
+    version: StrictInt
+    questions: tuple[
+        Annotated[PaperQuestion, Field(discriminator="type")],
+        ...,
+    ] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _unique_question_keys(self) -> Self:
+        _unique_keys([question.key for question in self.questions], "Question keys must be unique")
+        return self
+
+
+def _unique_keys(keys: list[int], message: str) -> set[int]:
+    unique = set(keys)
+    if len(unique) != len(keys):
+        raise ValueError(message)
+    return unique
 
 
 def paper_from_quiz(quiz: Quiz) -> Paper:
-    ordered = quiz.questions
-    if not ordered:
+    if not quiz.questions:
         raise ExamError("A published quiz needs at least one question before it can be assigned")
-    questions = tuple(
-        _question_from_quiz(key, question) for key, question in enumerate(ordered, start=1)
-    )
-    return Paper(PAPER_VERSION, questions)
+    return Paper(version=PAPER_VERSION, questions=_snapshot_questions(quiz.questions))
 
 
-def _question_from_quiz(key: int, question: Question) -> PaperQuestion:
+def _snapshot_questions(questions: list[Question]) -> tuple[PaperQuestion, ...]:
+    try:
+        return tuple(
+            _QUESTION_BUILDERS[question.question_type](key, question)
+            for key, question in enumerate(questions, start=1)
+        )
+    except ValidationError as exc:
+        raise ExamError(INCOMPLETE_QUESTION) from exc
+
+
+def _multiple_choice(key: int, question: Question) -> MultipleChoicePaperQuestion:
     ordered = sorted(question.choices, key=lambda item: (item.order_index, item.id))
-    choices = tuple(
-        PaperChoice(choice_key, choice.text) for choice_key, choice in enumerate(ordered, start=1)
+    return MultipleChoicePaperQuestion(
+        key=key,
+        question_id=question.id,
+        stem=question.stem,
+        explanation=_text(question.explanation),
+        choices=tuple(
+            PaperChoice(key=index, text=choice.text)
+            for index, choice in enumerate(ordered, start=1)
+        ),
+        correct_choice_key=_correct_choice_key(ordered),
     )
-    correct = tuple(
-        paper_choice.key
-        for paper_choice, quiz_choice in zip(choices, ordered, strict=True)
-        if quiz_choice.is_correct
-    )
-    _validate_quiz_question(question.stem, choices, correct)
-    return PaperQuestion(key, question.stem, question.explanation or "", choices, correct[0])
 
 
-def _validate_quiz_question(
-    stem: str, choices: tuple[PaperChoice, ...], correct: tuple[int, ...]
-) -> None:
-    if not stem.strip():
-        raise ExamError("Every exam question needs a stem, choices, and one correct answer")
-    if len(choices) < 2 or len(correct) != 1:
-        raise ExamError("Every exam question needs a stem, choices, and one correct answer")
+def _correct_choice_key(ordered: list[Choice]) -> int:
+    correct = [index for index, choice in enumerate(ordered, start=1) if choice.is_correct]
+    if len(correct) != 1:
+        raise ExamError(INCOMPLETE_QUESTION)
+    return correct[0]
+
+
+def _open_ended(key: int, question: Question) -> OpenEndedPaperQuestion:
+    return OpenEndedPaperQuestion(
+        key=key,
+        question_id=question.id,
+        stem=question.stem,
+        explanation=_text(question.explanation),
+        model_answer=_text(question.model_answer),
+        grading_notes=_text(question.grading_notes),
+        key_points=tuple(key_point.text for key_point in question.key_points),
+    )
+
+
+def _text(value: str | None) -> str:
+    return value or ""
+
+
+_QUESTION_BUILDERS = {
+    QuestionType.MULTIPLE_CHOICE: _multiple_choice,
+    QuestionType.OPEN_ENDED: _open_ended,
+}
 
 
 def paper_json(paper: Paper) -> list[dict[str, object]]:
-    return [
-        {
-            "key": question.key,
-            "stem": question.stem,
-            "explanation": question.explanation,
-            "choices": [{"key": choice.key, "text": choice.text} for choice in question.choices],
-            "correct_choice_key": question.correct_choice_key,
-        }
-        for question in paper.questions
-    ]
+    return [question.model_dump(mode="json") for question in paper.questions]
 
 
 def parse_paper(version: int, raw: object) -> Paper:
     if version != PAPER_VERSION:
         raise ExamError("This exam paper format is not supported")
-    if not isinstance(raw, list) or not raw:
-        raise ExamError("This exam paper format is not supported")
-    questions = _parse_questions_safely(raw)
-    if not _unique_question_keys(questions):
-        raise ExamError("This exam paper is invalid")
-    return Paper(version, tuple(questions))
-
-
-def _parse_questions_safely(raw: Sequence[object]) -> list[PaperQuestion]:
     try:
-        return _parse_questions(raw)
-    except (KeyError, TypeError, ValueError) as exc:
+        return Paper.model_validate({"version": version, "questions": raw})
+    except ValidationError as exc:
         raise ExamError("This exam paper is invalid") from exc
-
-
-def _parse_questions(raw: Sequence[object]) -> list[PaperQuestion]:
-    return [_parse_paper_question(item) for item in raw]
-
-
-def _unique_question_keys(questions: list[PaperQuestion]) -> bool:
-    keys = [question.key for question in questions]
-    return len(set(keys)) == len(keys)
-
-
-def _parse_paper_question(raw: object) -> PaperQuestion:
-    if not _is_paper_question_payload(raw):
-        raise ValueError
-    choices = _parse_question_choices(raw["choices"])
-    _validate_question(raw["key"], raw["stem"], choices, raw["correct_choice_key"])
-    return PaperQuestion(
-        raw["key"],
-        raw["stem"],
-        raw["explanation"],
-        choices,
-        raw["correct_choice_key"],
-    )
-
-
-def _parse_question_choices(raw: list[object]) -> tuple[PaperChoice, ...]:
-    choices = tuple(_parse_paper_choice(choice) for choice in raw)
-    _validate_choice_set(choices)
-    return choices
-
-
-def _is_paper_question_payload(raw: object) -> TypeGuard[PaperQuestionPayload]:
-    return isinstance(raw, dict) and all(
-        (
-            isinstance(raw.get("choices"), list),
-            isinstance(raw.get("stem"), str),
-            isinstance(raw.get("explanation"), str),
-            type(raw.get("key")) is int,
-            type(raw.get("correct_choice_key")) is int,
-        )
-    )
-
-
-def _validate_question(
-    key: int, stem: str, choices: tuple[PaperChoice, ...], correct_key: int
-) -> None:
-    _validate_question_identity(key, stem)
-    _validate_question_choices(choices, correct_key)
-
-
-def _validate_question_identity(key: int, stem: str) -> None:
-    if key <= 0:
-        raise ValueError
-    if not stem.strip():
-        raise ValueError
-
-
-def _validate_question_choices(choices: tuple[PaperChoice, ...], correct_key: int) -> None:
-    choice_keys = {choice.key for choice in choices}
-    if correct_key not in choice_keys:
-        raise ValueError
-
-
-def _validate_choice_set(choices: tuple[PaperChoice, ...]) -> None:
-    choice_keys = {choice.key for choice in choices}
-    if len(choices) < 2 or len(choice_keys) != len(choices):
-        raise ValueError
-
-
-def _parse_paper_choice(raw: object) -> PaperChoice:
-    if not isinstance(raw, dict):
-        raise ValueError
-    key = raw.get("key")
-    text = raw.get("text")
-    if type(key) is not int or not isinstance(text, str):
-        raise ValueError
-    return PaperChoice(key, text)

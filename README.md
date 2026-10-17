@@ -182,7 +182,9 @@ Recommended generation flow:
 1. Ingest the note content into Quizzy as a source document.
 2. Ask Quizzy for existing subject, concept, and generation context.
 3. Have the agent create a small concept plan before writing questions.
-4. Persist source-grounded questions with exactly four choices and one correct answer.
+4. Persist source-grounded questions. A multiple-choice question has exactly four choices and
+   one correct answer. Open-ended questions belong to exams only: pass `exam=true` when creating
+   the quiz. See [Study account setup](docs/family-accounts.md) for exam authoring and grading.
 5. Review proposed concepts or unresolved assignments in the subject workspace.
 6. Assemble practice or review quizzes from the durable question bank.
 

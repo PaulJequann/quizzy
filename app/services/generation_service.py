@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -14,13 +14,20 @@ from app.models import (
     Difficulty,
     Question,
     QuestionConcept,
+    QuestionType,
     Quiz,
     QuizQuestion,
     QuizStatus,
     QuizType,
     Subject,
 )
-from app.services import concept_planning_service, concept_service, question_bank_service
+from app.schemas import MultipleChoiceFields, OpenEndedFields, question_type_tag
+from app.services import (
+    concept_planning_service,
+    concept_service,
+    question_bank_service,
+    question_content,
+)
 from app.services.question_bank_service import BatchMetadata, QuestionBankCreateInput
 from app.services.quiz_service import get_or_create_subject, validate_quiz_title
 from app.services.settings_service import get_default_difficulty
@@ -46,7 +53,9 @@ class GeneratedConceptProposal(BaseModel):
     rationale: str = ""
 
 
-class GeneratedQuestionInput(BaseModel):
+class GeneratedQuestionBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     stem: str = Field(
         min_length=1,
         description=(
@@ -54,7 +63,6 @@ class GeneratedQuestionInput(BaseModel):
             "artifacts such as notes, source documents, excerpts, study guides, or Obsidian."
         ),
     )
-    choices: list[GeneratedChoiceInput] = Field(min_length=4, max_length=4)
     explanation: str | None = Field(
         default=None,
         description=(
@@ -91,6 +99,21 @@ class GeneratedQuestionInput(BaseModel):
     source_excerpt: str | None = None
 
 
+class GeneratedMultipleChoiceInput(MultipleChoiceFields, GeneratedQuestionBase):
+    choices: list[GeneratedChoiceInput] = Field(min_length=4, max_length=4)
+
+
+class GeneratedOpenEndedInput(OpenEndedFields, GeneratedQuestionBase):
+    pass
+
+
+type GeneratedQuestionInput = Annotated[
+    Annotated[GeneratedMultipleChoiceInput, Tag(QuestionType.MULTIPLE_CHOICE)]
+    | Annotated[GeneratedOpenEndedInput, Tag(QuestionType.OPEN_ENDED)],
+    Discriminator(question_type_tag),
+]
+
+
 @dataclass(frozen=True)
 class GeneratedQuizCreateInput:
     title: str
@@ -98,6 +121,7 @@ class GeneratedQuizCreateInput:
     description: str = ""
     difficulty: Difficulty | None = None
     status: QuizStatus = QuizStatus.DRAFT
+    exam: bool = False
 
 
 @dataclass(frozen=True)
@@ -195,7 +219,7 @@ def create_generated_quiz(
         description=quiz_input.description.strip(),
         primary_subject=subject,
         difficulty=quiz_input.difficulty or default_difficulty(db),
-        quiz_type=QuizType.GENERATED,
+        quiz_type=QuizType.EXAM if quiz_input.exam else QuizType.GENERATED,
         status=quiz_input.status,
     )
     db.add(quiz)
@@ -211,6 +235,7 @@ def create_generated_quiz_with_questions(
     *,
     options: GeneratedQuestionWriteOptions = DEFAULT_WRITE_OPTIONS,
 ) -> dict[str, Any]:
+    _require_questions_fit_quiz(questions, exam=quiz_input.exam)
     question_bank_service.validate_question_batch(db, questions)
     quiz = create_generated_quiz(db, quiz_input)
     add_questions_to_quiz(
@@ -239,6 +264,8 @@ def add_questions_to_quiz(
     if subject is None:
         raise ValueError("Generated questions require a quiz with a primary subject.")
 
+    exam = quiz.quiz_type == QuizType.EXAM
+    _require_questions_fit_quiz(data.questions, exam=exam)
     prepared_questions = _questions_with_default_difficulty(data.questions, quiz.difficulty)
     question_bank_service.validate_question_batch(db, prepared_questions)
     starting_order = db.scalar(
@@ -261,6 +288,7 @@ def add_questions_to_quiz(
             draft_review_reason=data.options.draft_review_reason,
             draft_suggested_action=data.options.draft_suggested_action,
             draft_review_evidence=data.options.draft_review_evidence,
+            exam_only=exam,
         ),
     )
     inserted = db.scalars(
@@ -289,6 +317,7 @@ def generated_quiz_to_dict(db: Session, quiz_id: int) -> dict[str, Any]:
         .options(
             selectinload(Quiz.primary_subject),
             selectinload(Quiz.questions).selectinload(Question.choices),
+            selectinload(Quiz.questions).selectinload(Question.key_points),
             selectinload(Quiz.questions)
             .selectinload(Question.concept_links)
             .selectinload(QuestionConcept.concept),
@@ -308,6 +337,13 @@ def generated_quiz_to_dict(db: Session, quiz_id: int) -> dict[str, Any]:
     }
 
 
+def _require_questions_fit_quiz(questions: list[GeneratedQuestionInput], *, exam: bool) -> None:
+    if exam:
+        return
+    if any(isinstance(question, GeneratedOpenEndedInput) for question in questions):
+        raise ValueError("Open-ended questions belong only in exam quizzes.")
+
+
 def _quiz_subject_name(quiz: Quiz) -> str | None:
     return quiz.primary_subject.name if quiz.primary_subject else None
 
@@ -315,7 +351,10 @@ def _quiz_subject_name(quiz: Quiz) -> str | None:
 def _generated_question_to_dict(question: Question) -> dict[str, Any]:
     return {
         "id": question.id,
+        "question_type": question.question_type.value,
+        "exam_only": question.exam_only,
         "stem": question.stem,
+        **question_content.rubric_to_dict(question),
         "difficulty": question.difficulty.value,
         "status": question.status.value,
         "source_reference": question.source_reference,

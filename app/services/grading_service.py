@@ -16,20 +16,22 @@ from app.models import (
     QuestionConcept,
     QuestionHealthState,
     QuestionStatus,
+    QuestionType,
     Quiz,
 )
 from app.services.mastery_evidence_service import (
     MasteryEvidenceInput,
+    answer_evidence_weight,
     capped_family_evidence,
     summarize_mastery_evidence,
 )
+from app.services.question_scope import scope_mastery_rows
 
-SUCCESS_FRICTION_WEIGHT = {1: 0.45, 2: 0.85, 3: 1.15, None: 1.0}
-FAILURE_FRICTION_WEIGHT = {1: 1.25, 2: 0.90, 3: 0.80, None: 1.0}
 ROLE_WEIGHT = {
     ConceptAssignmentRole.PRIMARY: 1.0,
     ConceptAssignmentRole.SECONDARY: 0.30,
 }
+
 HEALTH_WEIGHT = {
     QuestionHealthState.HEALTHY: 1.0,
     QuestionHealthState.UNTESTED: 0.8,
@@ -70,6 +72,7 @@ class ConceptMastery:
     rolled_up_question_ids: list[int] = field(default_factory=list)
     missed_question_ids: list[int] = field(default_factory=list)
     source_references: list[str] = field(default_factory=list)
+    practice_question_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -98,9 +101,11 @@ class _AnswerEvidence:
     answer_id: int | None
     question_id: int
     is_correct: bool | None
+    score: float | None
     submitted_at: datetime | None
     role: ConceptAssignmentRole
     health_state: QuestionHealthState
+    question_type: QuestionType
     retrieval_friction_rating: int | None
 
 
@@ -119,6 +124,7 @@ class _RollupAccumulator:
     family_failure_weight: defaultdict[int, float] = field(
         default_factory=lambda: defaultdict(float)
     )
+    family_question_type: dict[int, QuestionType] = field(default_factory=dict)
     healthy_primary_question_ids: set[int] = field(default_factory=set)
     primary_seen_question_ids: set[int] = field(default_factory=set)
     latest_primary_answer_by_question: dict[int, _AnswerEvidence] = field(default_factory=dict)
@@ -161,6 +167,7 @@ def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | N
                 question_id=question.id,
                 selected_choice_id=selected_choice_id,
                 is_correct=is_correct,
+                score=1.0 if is_correct else 0.0,
                 question_stem_snapshot=question.stem,
                 selected_choice_text_snapshot=selected_choice.text if selected_choice else "",
                 correct_choice_text_snapshot=correct_choice.text if correct_choice else "",
@@ -176,14 +183,6 @@ def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | N
     return attempt
 
 
-def mastery_status(accuracy: float) -> str:
-    if accuracy >= 90:
-        return "strong"
-    if accuracy >= 70:
-        return "improving"
-    return "weak"
-
-
 def get_mastery_rows(db: Session, *, subject_id: int | None = None) -> list[ConceptMastery]:
     concepts = _active_concepts(db, subject_id=subject_id)
     accumulators = {concept.id: _RollupAccumulator() for concept in concepts}
@@ -191,7 +190,7 @@ def get_mastery_rows(db: Session, *, subject_id: int | None = None) -> list[Conc
     ancestors_by_concept_id = _ancestors_by_concept_id(concepts)
     _accumulate_assignment_rows(db, accumulators, ancestors_by_concept_id, subject_id=subject_id)
     review_states = _review_states_by_concept_id(db, subject_id=subject_id)
-    return [
+    rows = [
         _mastery_row(
             concept,
             accumulator=accumulators[concept.id],
@@ -200,6 +199,7 @@ def get_mastery_rows(db: Session, *, subject_id: int | None = None) -> list[Conc
         )
         for concept in concepts
     ]
+    return scope_mastery_rows(db, rows)
 
 
 def build_concept_queue_items(rows: list[ConceptMastery]) -> list[ConceptQueueItem]:
@@ -365,8 +365,10 @@ def _accumulate_assignment_rows(
             QuestionConcept.role,
             Question.source_reference,
             Question.health_state,
+            Question.question_type,
             AttemptAnswer.id,
             AttemptAnswer.is_correct,
+            AttemptAnswer.score,
             AttemptAnswer.retrieval_friction_rating,
             Attempt.submitted_at,
         )
@@ -377,6 +379,7 @@ def _accumulate_assignment_rows(
             Question.status == QuestionStatus.ACTIVE,
             QuestionConcept.concept_id.in_(accumulators.keys()),
         )
+        .execution_options(include_exam_content=True)
     )
     if subject_id is not None:
         statement = statement.where(Question.subject_id == subject_id)
@@ -395,8 +398,10 @@ def _accumulate_assignment_row(
         role,
         source_reference,
         health_state,
+        question_type,
         answer_id,
         is_correct,
+        score,
         retrieval_friction_rating,
         submitted_at,
     ) = row
@@ -412,9 +417,11 @@ def _accumulate_assignment_row(
             answer_id=answer_id,
             question_id=question_id,
             is_correct=is_correct,
+            score=score,
             submitted_at=submitted_at,
             role=role,
             health_state=health_state,
+            question_type=question_type,
             retrieval_friction_rating=retrieval_friction_rating,
         )
         _accumulate_role(accumulator, evidence)
@@ -514,14 +521,12 @@ def _accumulate_weighted_evidence(
     if base_weight == 0:
         accumulator.suspect_evidence_ignored = True
         return
-    if evidence.is_correct:
-        accumulator.family_success_weight[evidence.question_id] += (
-            base_weight * SUCCESS_FRICTION_WEIGHT[evidence.retrieval_friction_rating]
-        )
-        return
-    accumulator.family_failure_weight[evidence.question_id] += (
-        base_weight * FAILURE_FRICTION_WEIGHT[evidence.retrieval_friction_rating]
+    weight = answer_evidence_weight(
+        evidence.question_type, evidence.score or 0.0, evidence.retrieval_friction_rating
     )
+    accumulator.family_success_weight[evidence.question_id] += base_weight * weight.success
+    accumulator.family_failure_weight[evidence.question_id] += base_weight * weight.failure
+    accumulator.family_question_type[evidence.question_id] = evidence.question_type
 
 
 def _accumulate_latest_primary_answer(
@@ -567,6 +572,7 @@ def _mastery_row(
     effective_success, effective_failure = capped_family_evidence(
         accumulator.family_success_weight,
         accumulator.family_failure_weight,
+        accumulator.family_question_type,
     )
     evidence_summary = summarize_mastery_evidence(
         MasteryEvidenceInput(

@@ -64,18 +64,40 @@ Learners can manage their own subjects, questions, quizzes, and practice session
 stays inside their workspace, and they cannot switch to another account or open account
 administration. Practice results remain immediate and appear in practice history and mastery.
 
-To assign a formal exam, open a published quiz in the reviewer's workspace and choose **Assign as
-exam**. Quizzy copies that paper to the learner's workspace, so later quiz edits do not change the
-assignment. The learner can submit once and then sees only a pending-review receipt. The reviewer
-opens the learner's workspace, reviews the answers, and releases the result with an optional note.
-The learner sees the score, answer feedback, explanations, and note only after release. Formal exam
-results remain separate from practice history and mastery.
+## Formal exams
+
+Formal exams are authored in the learner's workspace and stay hidden from the learner. An agent
+creates an exam quiz through `create_generated_quiz` or `create_generated_quiz_with_questions`
+with `exam` set to true. The reviewer can add questions to that quiz in the browser and
+edit any of them with **Edit** on the quiz page. An edit keeps the question type. An exam quiz
+holds only exam questions and can include open-ended questions. Each open-ended question has a
+model answer, two to four key points, and optional grading notes. Learner pages never show exam
+quizzes or exam questions.
+
+To assign an exam, switch to the learner's workspace, open a published exam quiz, and choose
+**Assign as exam**. Quizzy snapshots the paper, so later quiz edits do not change the assignment.
+The learner can submit once and then sees only a pending-review receipt.
+
+An agent can propose grades for written answers through `list_pending_exam_submissions`,
+`get_exam_submission_for_grading`, and `record_exam_grades`. The reviewer opens the exam in the
+browser, edits the key points met, feedback, misconception, and note, then chooses **Release
+result**. A written answer's score is the share of key points met. The answer counts as correct
+when it meets more than half of them. A released result cannot change.
+
+After release, the learner sees the score, the key points met and missed, answer feedback,
+explanations, and note. The model answer, grading notes, and misconception stay with the
+reviewer. Released results feed mastery and question health
+by score, and an open-ended success counts 1.5 times as much as a multiple-choice success.
+Released exams do not appear in the learner's practice history. The learner reads a released
+result only on its exam page, not through practice results or retrieval feedback. Mastery
+offers a review only for concepts that have practice questions, because exam questions never
+appear in practice.
 
 ## Prepare the next practice
 
 In the learner's workspace, open **Prepare next practice**. Copy the teaching brief to your
-agent. It includes bounded mastery evidence, due state, recent wrong answers, and source
-references. Thin evidence is marked explicitly. The app does not run an AI model.
+agent. It includes bounded mastery evidence, due state, recent wrong answers, misconceptions the
+reviewer recorded on released exams, and source references. Thin evidence is marked explicitly. The app does not run an AI model.
 
 The agent can request the same brief through `prepare_next_practice`. Every MCP tool requires
 an explicit `workspace_id`, including reads. `list_workspaces` is the one exception: it takes

@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models import AttemptAnswer, Question
@@ -46,7 +46,8 @@ def prepare_next_practice(db: Session, workspace_id: int, subject_id: int | None
             objectives,
             recent_misses(db, subject_id),
             "Create a short draft quiz in this workspace. Ground questions in the listed sources, "
-            "address misses and due concepts, and vary retrieval. Thin evidence is uncertain. "
+            "address misses and due concepts, and vary retrieval. Target each listed "
+            "misconception and use it as a wrong answer option. Thin evidence is uncertain. "
             "If no evidence exists, ask the workspace reviewer for a subject and source. "
             "The workspace reviewer reviews and publishes.",
         )
@@ -54,7 +55,11 @@ def prepare_next_practice(db: Session, workspace_id: int, subject_id: int | None
 
 
 def recent_misses(db: Session, subject_id: int | None) -> list[dict]:
-    statement = select(AttemptAnswer).join(Question).where(AttemptAnswer.is_correct.is_(False))
+    statement = (
+        select(AttemptAnswer)
+        .join(Question)
+        .where(or_(AttemptAnswer.is_correct.is_(False), AttemptAnswer.misconception.is_not(None)))
+    )
     if subject_id is not None:
         statement = statement.where(Question.subject_id == subject_id)
     answers = db.scalars(
@@ -69,6 +74,7 @@ def recent_misses(db: Session, subject_id: int | None) -> list[dict]:
             else "current_question",
             "selected_answer": answer.selected_choice_text_snapshot[:1000],
             "correct_answer": answer.correct_choice_text_snapshot[:1000],
+            "misconception": answer.misconception,
             "attempt_id": answer.attempt_id,
             "answered_at": answer.answered_at.isoformat() if answer.answered_at else None,
             "source_document_id": answer.question.source_document_id,

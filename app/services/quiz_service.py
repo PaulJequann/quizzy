@@ -1,23 +1,33 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
-    Choice,
     Concept,
     ConceptAssignmentRole,
     Difficulty,
     Question,
     QuestionStatus,
+    QuestionType,
     Quiz,
     QuizQuestion,
     QuizStatus,
     QuizType,
     Subject,
 )
-from app.schemas import ChoiceCreate, ConceptProposalInput, QuestionCreate, QuizCreate
+from app.schemas import (
+    MAX_KEY_POINTS,
+    MIN_KEY_POINTS,
+    ChoiceCreate,
+    ConceptProposalInput,
+    MultipleChoiceQuestionCreate,
+    OpenEndedQuestionCreate,
+    QuestionCreate,
+    QuizCreate,
+)
 from app.services import concept_service
+from app.services.question_content import apply_content, is_open_ended
 from app.services.text_service import slugify
 
 SUBJECT_NAME_MAX_LENGTH = 160
@@ -32,12 +42,17 @@ class QuestionFormInput:
     explanation: str | None
     source_reference: str | None
     concepts: str | None = None
+    question_type: QuestionType = QuestionType.MULTIPLE_CHOICE
+    model_answer: str = ""
+    grading_notes: str | None = None
+    key_points: list[str] = field(default_factory=list)
 
 
 def quiz_query() -> Select[tuple[Quiz]]:
     return select(Quiz).options(
         selectinload(Quiz.primary_subject),
         selectinload(Quiz.questions).selectinload(Question.choices),
+        selectinload(Quiz.questions).selectinload(Question.key_points),
         selectinload(Quiz.questions).selectinload(Question.subject),
         selectinload(Quiz.questions).selectinload(Question.concepts).selectinload(Concept.subject),
         selectinload(Quiz.questions).selectinload(Question.quiz_links),
@@ -118,11 +133,15 @@ def validate_quiz_title(title: str) -> str:
 
 
 def create_question(db: Session, quiz: Quiz, data: QuestionCreate) -> Question:
+    exam = quiz.quiz_type == QuizType.EXAM
+    if is_open_ended(data) and not exam:
+        raise ValueError("Open-ended questions belong only in exam quizzes.")
     subject = quiz.primary_subject or get_or_create_subject(db, "General")
     assignments = _manual_assignments(db, subject, data)
     question = _question_from_create_input(subject, quiz, data)
+    question.exam_only = exam
+    apply_content(question, data)
     db.add(question)
-    _attach_choices(question, data.choices)
     concept_service.apply_question_assignments(question, assignments)
     db.flush()
     _record_manual_assignments(db, subject, question, assignments)
@@ -132,6 +151,50 @@ def create_question(db: Session, quiz: Quiz, data: QuestionCreate) -> Question:
     db.commit()
     db.refresh(question)
     return question
+
+
+def update_question(db: Session, question: Question, data: QuestionCreate) -> Question:
+    proposed = [proposal.name for proposal in data.concept_proposals]
+    # Unchanged tags stay as they are, so a proposed concept awaiting review does not block edits.
+    if proposed != _concept_names_primary_first(question):
+        _reassign_concepts(db, question, data)
+    question.stem = data.stem.strip()
+    question.explanation = (data.explanation or "").strip() or None
+    question.source_reference = (data.source_reference or "").strip() or None
+    apply_content(question, data)
+    db.commit()
+    return question
+
+
+def _reassign_concepts(db: Session, question: Question, data: QuestionCreate) -> None:
+    assignments = _manual_assignments(db, question.subject, data)
+    concept_service.apply_question_assignments(question, assignments)
+    db.flush()
+    _record_manual_assignments(db, question.subject, question, assignments)
+
+
+def question_form_values(question: Question) -> QuestionFormInput:
+    choices = [choice.text for choice in question.choices]
+    correct = [choice.is_correct for choice in question.choices]
+    return QuestionFormInput(
+        stem=question.stem,
+        choices=(choices + [""] * 4)[:4],
+        correct_choice=correct.index(True) if True in correct else 0,
+        explanation=question.explanation,
+        source_reference=question.source_reference,
+        concepts=", ".join(_concept_names_primary_first(question)),
+        question_type=question.question_type,
+        model_answer=question.model_answer or "",
+        grading_notes=question.grading_notes,
+        key_points=[point.text for point in question.key_points],
+    )
+
+
+def _concept_names_primary_first(question: Question) -> list[str]:
+    links = sorted(
+        question.concept_links, key=lambda link: link.role != ConceptAssignmentRole.PRIMARY
+    )
+    return [link.concept.name for link in links]
 
 
 def create_review_quiz_from_concepts(db: Session, concept_ids: list[int]) -> Quiz:
@@ -193,7 +256,7 @@ def _append_unseen_questions(
 
 def _ordered_concept_questions(concept: Concept) -> list[Question]:
     return sorted(
-        concept.questions,
+        (question for question in concept.questions if not question.exam_only),
         key=lambda question: (question.order_index, question.id),
     )
 
@@ -228,17 +291,15 @@ def form_quiz_create(title: str, description: str, topic: str, difficulty: str) 
     )
 
 
-def form_question_create(
-    data: QuestionFormInput,
-) -> QuestionCreate:
-    if len(data.choices) != 4:
-        raise ValueError("Exactly four choices are required.")
-    if data.correct_choice not in range(4):
-        raise ValueError("Correct choice must be one of the four answer options.")
-    if any(not choice.strip() for choice in data.choices):
-        raise ValueError("Every answer choice needs text.")
+def form_question_create(data: QuestionFormInput) -> QuestionCreate:
+    if data.question_type == QuestionType.OPEN_ENDED:
+        return _form_open_ended(data)
+    return _form_multiple_choice(data)
 
-    return QuestionCreate(
+
+def _form_multiple_choice(data: QuestionFormInput) -> MultipleChoiceQuestionCreate:
+    _require_choice_form(data)
+    return MultipleChoiceQuestionCreate(
         stem=data.stem,
         explanation=data.explanation,
         source_reference=data.source_reference,
@@ -247,6 +308,33 @@ def form_question_create(
             ChoiceCreate(text=choice, is_correct=index == data.correct_choice)
             for index, choice in enumerate(data.choices)
         ],
+    )
+
+
+def _require_choice_form(data: QuestionFormInput) -> None:
+    if len(data.choices) != 4:
+        raise ValueError("Exactly four choices are required.")
+    if data.correct_choice not in range(4):
+        raise ValueError("Correct choice must be one of the four answer options.")
+    if any(not choice.strip() for choice in data.choices):
+        raise ValueError("Every answer choice needs text.")
+
+
+def _form_open_ended(data: QuestionFormInput) -> OpenEndedQuestionCreate:
+    key_points = [text.strip() for text in data.key_points if text.strip()]
+    if not data.model_answer.strip():
+        raise ValueError("Open-ended questions need a model answer.")
+    if not MIN_KEY_POINTS <= len(key_points) <= MAX_KEY_POINTS:
+        raise ValueError("Open-ended questions need two to four key points.")
+    return OpenEndedQuestionCreate(
+        question_type=QuestionType.OPEN_ENDED,
+        stem=data.stem,
+        explanation=data.explanation,
+        source_reference=data.source_reference,
+        concept_proposals=_form_concept_proposals(data.concepts),
+        model_answer=data.model_answer,
+        grading_notes=data.grading_notes,
+        key_points=key_points,
     )
 
 
@@ -276,17 +364,6 @@ def _question_from_create_input(subject: Subject, quiz: Quiz, data: QuestionCrea
         status=QuestionStatus.ACTIVE,
         source_reference=(data.source_reference or "").strip() or None,
     )
-
-
-def _attach_choices(question: Question, choices: list[ChoiceCreate]) -> None:
-    question.choices = [
-        Choice(
-            text=choice_data.text.strip(),
-            is_correct=choice_data.is_correct,
-            order_index=index,
-        )
-        for index, choice_data in enumerate(choices, start=1)
-    ]
 
 
 def _record_manual_assignments(

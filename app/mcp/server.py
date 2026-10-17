@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.draft_policy import require_draft_content
-from app.mcp import concept_approval, question_first_tools, read_tools, source_tools
+from app.mcp import concept_approval, exam_tools, question_first_tools, read_tools, source_tools
 from app.mcp.access import list_accessible_workspaces, workspace_tool
 from app.mcp.access import session_scope as _session_scope
 from app.models import (
@@ -184,6 +184,7 @@ def build_server(auth: AuthProvider | None = None) -> FastMCP:
     _register_read_tools(server)
     _register_source_tools(server)
     _register_write_tools(server)
+    _register_exam_tools(server)
     return server
 
 
@@ -417,6 +418,27 @@ def _register_read_tools(server: FastMCP) -> None:
     register_tool(server, "list_question_bank", list_question_bank, annotations=READ_ONLY)
 
 
+def _register_exam_tools(server: FastMCP) -> None:
+    register_tool(
+        server,
+        "list_pending_exam_submissions",
+        exam_tools.list_pending_exam_submissions,
+        annotations=READ_ONLY,
+    )
+    register_tool(
+        server,
+        "get_exam_submission_for_grading",
+        exam_tools.get_exam_submission_for_grading,
+        annotations=READ_ONLY,
+    )
+    register_tool(
+        server,
+        "record_exam_grades",
+        exam_tools.record_exam_grades,
+        annotations={"idempotentHint": True},
+    )
+
+
 def _register_source_tools(server: FastMCP) -> None:
     source_tools.register_source_tools(server)
 
@@ -511,6 +533,21 @@ def _register_concept_maintenance_tools(server: FastMCP) -> None:
     register_tool(server, "merge_concepts", merge_concepts, annotations=write)
 
 
+QUESTION_TYPE_GUIDANCE = (
+    "Each question is multiple_choice (the default) or open_ended. A multiple_choice question "
+    "has exactly four choices with one correct answer. An open_ended question has no choices. "
+    "It carries a model_answer, optional grading_notes for the grader, and two to four "
+    "key_points. Write each key point as one atomic, child-friendly idea a grader can mark met "
+    "or not met. Open-ended questions belong only in exam quizzes."
+)
+EXAM_QUIZ_FIELD = Field(
+    description=(
+        "Create an exam quiz. Exam quizzes hold only exam questions, may include open_ended "
+        "questions, and stay hidden from learner practice."
+    )
+)
+
+
 def _register_generated_quiz_tools(server: FastMCP) -> None:
     def create_generated_quiz(
         title: Annotated[str, Field(description="Quiz title.")],
@@ -524,6 +561,7 @@ def _register_generated_quiz_tools(server: FastMCP) -> None:
             QuizStatus,
             Field(description="Initial quiz status. Draft is the recommended default."),
         ] = QuizStatus.DRAFT,
+        exam: Annotated[bool, EXAM_QUIZ_FIELD] = False,
     ) -> dict[str, Any]:
         """Create an empty generated quiz. Use add_questions_to_quiz afterward."""
         with _session_scope() as db:
@@ -535,6 +573,7 @@ def _register_generated_quiz_tools(server: FastMCP) -> None:
                     description=description,
                     difficulty=difficulty,
                     status=status,
+                    exam=exam,
                 ),
             )
             return generation_service.generated_quiz_to_dict(db, quiz.id)
@@ -557,8 +596,9 @@ def _register_question_bank_tools(server: FastMCP) -> None:
             list[GeneratedQuestionInput],
             Field(
                 description=(
-                    "Durable question-bank questions. The agent must provide exactly four "
-                    "choices, one correct answer, structured concept proposals, difficulty when "
+                    "Durable question-bank questions. "
+                    + QUESTION_TYPE_GUIDANCE
+                    + " The agent must provide structured concept proposals, difficulty when "
                     "needed using beginner/intermediate/advanced/mixed, and source grounding via "
                     "source_document_id or source_reference. Learner-visible text must stand "
                     "alone and must not refer to source artifacts such as notes, source "
@@ -620,9 +660,10 @@ def _register_add_questions_tool(server: FastMCP) -> None:
             list[GeneratedQuestionInput],
             Field(
                 description=(
-                    "Generated questions. The agent must provide exactly four choices, one "
-                    "correct answer, structured concept proposals, difficulty when needed, and "
-                    "source grounding via source_document_id or source_reference. "
+                    "Generated questions. "
+                    + QUESTION_TYPE_GUIDANCE
+                    + " The agent must provide structured concept proposals, difficulty when "
+                    "needed, and source grounding via source_document_id or source_reference. "
                     "Learner-visible text must stand alone and must not refer to source "
                     "artifacts such as notes, source documents, excerpts, study guides, or "
                     "Obsidian."
@@ -669,7 +710,9 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
             list[GeneratedQuestionInput],
             Field(
                 description=(
-                    "Questions generated by the agent. Distractors must be plausible common "
+                    "Questions generated by the agent. "
+                    + QUESTION_TYPE_GUIDANCE
+                    + " Distractors must be plausible common "
                     "misconceptions about the same concept, not random false statements. Concepts "
                     "must be structured concept proposals. Use difficulty values "
                     "beginner/intermediate/advanced/mixed and source_document_id or "
@@ -692,6 +735,7 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
             bool,
             Field(description="Save unresolved proposals as draft questions and concept reviews."),
         ] = False,
+        exam: Annotated[bool, EXAM_QUIZ_FIELD] = False,
     ) -> dict[str, Any]:
         """Create a generated quiz and questions in one call."""
         with _session_scope() as db:
@@ -711,6 +755,7 @@ def _register_generated_quiz_with_questions_tool(server: FastMCP) -> None:
                     description=description,
                     difficulty=difficulty,
                     status=status,
+                    exam=exam,
                 ),
                 questions=questions,
                 options=options,

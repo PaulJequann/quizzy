@@ -26,7 +26,7 @@
             hx-swap="outerHTML"
           >Publish</button>
         {% endif %}
-        {% if request.state.actor.is_superuser and not request.state.access.is_preview and quiz.status.value == "published" %}
+        {% if request.state.access.can_manage_exams and quiz.quiz_type.value == "exam" and quiz.status.value == "published" %}
           <a class="btn-secondary text-center" href="/quizzes/{{ quiz.id }}/exam">Assign as exam</a>
         {% endif %}
       </div>
@@ -41,7 +41,10 @@
       <ol class="space-y-5">
         {% for question in quiz.questions %}
           <li class="question-preview">
-            <p class="text-sm font-medium text-[var(--color-text-3)]">Question {{ loop.index }}</p>
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-sm font-medium text-[var(--color-text-3)]">Question {{ loop.index }}</p>
+              <a class="text-sm font-medium text-[var(--color-accent)] hover:underline" href="/quizzes/{{ quiz.id }}/questions/{{ question.id }}/edit">Edit</a>
+            </div>
             <p class="mt-1 text-lg font-medium">{{ question.stem }}</p>
             {% include "questions/_metadata.html" %}
             <div class="mt-4 grid gap-2 sm:grid-cols-2">
@@ -52,6 +55,7 @@
             {% if question.explanation %}
               <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-text-2)]">{{ question.explanation }}</p>
             {% endif %}
+            {% include "questions/_rubric.html" %}
             {% include "questions/_details.html" %}
           </li>
         {% endfor %}

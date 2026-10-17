@@ -26,9 +26,9 @@ pytestmark = pytest.mark.unit
 @pytest.mark.parametrize(
     ("access", "allowed"),
     [
-        (StudyAccess(1, 1, True, "Teacher", True), [True, True, True, True, True, False]),
-        (StudyAccess(1, 2, True, "Student", True), [True, True, False, False, False, True]),
-        (StudyAccess(2, 2, True, "Student"), [True, True, True, True, False, False]),
+        (StudyAccess(1, 1, True, "Teacher", True), [True, True, True, True, False]),
+        (StudyAccess(1, 2, True, "Student", True), [True, True, False, False, True]),
+        (StudyAccess(2, 2, True, "Student"), [True, True, True, True, False]),
     ],
 )
 def test_operation_matrix(access, allowed):

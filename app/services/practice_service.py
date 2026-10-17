@@ -16,14 +16,14 @@ from app.models import (
     Question,
     QuestionConcept,
     QuestionHealthState,
-    QuestionStatus,
     Quiz,
     QuizQuestion,
     QuizStatus,
     QuizType,
     Subject,
 )
-from app.services.grading_service import get_concept_queue_items
+from app.services.grading_service import build_concept_queue_items, get_mastery_rows
+from app.services.question_scope import PRACTICE_ELIGIBLE, reviewable_rows
 
 DEFAULT_PRACTICE_COUNT = 10
 QUESTION_DIFFICULTIES = (Difficulty.BEGINNER, Difficulty.INTERMEDIATE, Difficulty.ADVANCED)
@@ -97,7 +97,7 @@ def assemble_mastery_review(
 ) -> Quiz:
     queue_items = [
         item
-        for item in get_concept_queue_items(db)
+        for item in build_concept_queue_items(reviewable_rows(get_mastery_rows(db)))
         if subject_id is None or item.subject_id == subject_id
     ]
     concept_ids = [item.concept_id for item in queue_items]
@@ -155,9 +155,7 @@ def _candidate_questions(
         select(Question)
         .where(
             Question.subject_id == data.subject_id,
-            Question.status == QuestionStatus.ACTIVE,
-            Question.health_state != QuestionHealthState.ARCHIVED,
-            Question.health_state != QuestionHealthState.SUSPECT,
+            *PRACTICE_ELIGIBLE,
         )
         .options(
             selectinload(Question.choices),

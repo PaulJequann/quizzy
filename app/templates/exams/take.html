@@ -9,6 +9,11 @@
       {% for question in page.questions %}
         <fieldset class="panel grid gap-3">
           <legend class="font-display text-xl">{{ loop.index }}. {{ question.stem }}</legend>
+          {% if question.written %}
+            <label class="field-label" for="answer_{{ question.key }}">Your answer
+              <textarea class="field min-h-40" id="answer_{{ question.key }}" name="answer_{{ question.key }}" maxlength="4000"></textarea>
+            </label>
+          {% endif %}
           {% for choice in question.choices %}
             <label class="choice-chip flex cursor-pointer items-center gap-3">
               <input type="radio" name="answer_{{ question.key }}" value="{{ choice.key }}">

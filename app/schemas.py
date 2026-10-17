@@ -1,6 +1,15 @@
 from datetime import datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    StringConstraints,
+    Tag,
+    model_validator,
+)
 
 from app.models import (
     ConceptAssignmentRole,
@@ -8,9 +17,54 @@ from app.models import (
     Difficulty,
     QuestionHealthState,
     QuestionStatus,
+    QuestionType,
     QuizStatus,
     QuizType,
 )
+
+MIN_KEY_POINTS = 2
+MAX_KEY_POINTS = 4
+RUBRIC_TEXT_MAX_LENGTH = 4000
+
+type KeyPointText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+]
+type RubricText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=RUBRIC_TEXT_MAX_LENGTH)
+]
+
+
+def question_type_tag(value: object) -> str:
+    raw = (
+        value.get("question_type")
+        if isinstance(value, dict)
+        else getattr(value, "question_type", None)
+    )
+    return str(raw or QuestionType.MULTIPLE_CHOICE)
+
+
+class MultipleChoiceFields(BaseModel):
+    question_type: Literal[QuestionType.MULTIPLE_CHOICE] = QuestionType.MULTIPLE_CHOICE
+
+
+class OpenEndedFields(BaseModel):
+    question_type: Literal[QuestionType.OPEN_ENDED]
+    model_answer: RubricText = Field(
+        description="A complete answer a strong learner could give, in plain words."
+    )
+    grading_notes: str | None = Field(
+        default=None,
+        max_length=RUBRIC_TEXT_MAX_LENGTH,
+        description="Acceptable variations and common misconceptions, for the grader only.",
+    )
+    key_points: list[KeyPointText] = Field(
+        min_length=MIN_KEY_POINTS,
+        max_length=MAX_KEY_POINTS,
+        description=(
+            "Two to four atomic ideas a correct answer must contain. Each key point is one "
+            "checkable idea a grader can mark met or not met."
+        ),
+    )
 
 
 class ChoiceCreate(BaseModel):
@@ -91,19 +145,53 @@ class ConceptProposalInput(BaseModel):
     rationale: str = ""
 
 
-class QuestionCreate(BaseModel):
+class QuestionCreateBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     stem: str = Field(min_length=1)
-    choices: list[ChoiceCreate] = Field(min_length=4, max_length=4)
     explanation: str | None = None
     source_reference: str | None = None
     concept_proposals: list[ConceptProposalInput] = Field(default_factory=list)
 
 
+class MultipleChoiceQuestionCreate(MultipleChoiceFields, QuestionCreateBase):
+    choices: list[ChoiceCreate] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def _one_correct_choice(self):
+        if sum(choice.is_correct for choice in self.choices) != 1:
+            raise ValueError("Exactly one choice must be correct")
+        return self
+
+
+class OpenEndedQuestionCreate(OpenEndedFields, QuestionCreateBase):
+    pass
+
+
+type QuestionCreate = Annotated[
+    Annotated[MultipleChoiceQuestionCreate, Tag(QuestionType.MULTIPLE_CHOICE)]
+    | Annotated[OpenEndedQuestionCreate, Tag(QuestionType.OPEN_ENDED)],
+    Discriminator(question_type_tag),
+]
+
+
+class KeyPointRead(BaseModel):
+    id: int
+    text: str
+    order_index: int
+
+    model_config = {"from_attributes": True}
+
+
 class QuestionRead(BaseModel):
     id: int
     subject_id: int
+    question_type: QuestionType
+    exam_only: bool
     stem: str
     explanation: str | None
+    model_answer: str | None
+    grading_notes: str | None
     difficulty: Difficulty
     status: QuestionStatus
     health_state: QuestionHealthState
@@ -116,6 +204,7 @@ class QuestionRead(BaseModel):
     order_index: int
     subject: SubjectRead
     choices: list[ChoiceRead]
+    key_points: list[KeyPointRead] = Field(default_factory=list)
     concepts: list[ConceptRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

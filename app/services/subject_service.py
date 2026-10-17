@@ -10,6 +10,7 @@ from app.services.grading_service import (
     ConceptQueueItem,
     build_concept_queue_items,
 )
+from app.services.question_scope import reviewable_rows
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,7 @@ def _subject_mastery_group(
         subject=subject,
         mastery_rows=_hierarchical_mastery_rows(subject_rows),
         root_rows=_root_mastery_rows(subject_rows),
-        queue_items=build_concept_queue_items(subject_rows),
+        queue_items=build_concept_queue_items(reviewable_rows(subject_rows)),
         parent_concept_ids=_parent_concept_ids(subject_rows),
         total_attempts=total_attempts,
         correct_attempts=correct_attempts,

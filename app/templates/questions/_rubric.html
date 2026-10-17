@@ -1,0 +1,20 @@
+{% if question.question_type.value == "open_ended" %}
+  <div class="mt-4 grid gap-3 rounded-md bg-[var(--color-surface-2)] px-3 py-3 text-sm">
+    <div>
+      <p class="font-semibold">Model answer</p>
+      <p class="mt-1 whitespace-pre-line text-[var(--color-text-2)]">{{ question.model_answer }}</p>
+    </div>
+    <div>
+      <p class="font-semibold">Key points</p>
+      <ol class="mt-1 list-decimal space-y-1 pl-5 text-[var(--color-text-2)]">
+        {% for key_point in question.key_points %}<li>{{ key_point.text }}</li>{% endfor %}
+      </ol>
+    </div>
+    {% if question.grading_notes %}
+      <div>
+        <p class="font-semibold">Grading notes</p>
+        <p class="mt-1 whitespace-pre-line text-[var(--color-text-2)]">{{ question.grading_notes }}</p>
+      </div>
+    {% endif %}
+  </div>
+{% endif %}

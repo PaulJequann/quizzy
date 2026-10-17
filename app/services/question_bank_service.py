@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
-    Choice,
     ConceptAssignmentRole,
     Question,
     QuestionConcept,
@@ -19,6 +18,7 @@ from app.models import (
     Subject,
 )
 from app.services import concept_proposal_service, concept_service, question_health_service
+from app.services.question_content import apply_content, is_open_ended, rubric_to_dict
 from app.services.quiz_service import get_or_create_subject
 from app.services.settings_service import get_default_difficulty
 
@@ -45,6 +45,7 @@ class QuestionBankCreateInput:
     draft_review_reason: str = ""
     draft_suggested_action: str = "approve_or_reject_concept"
     draft_review_evidence: dict[str, Any] | None = None
+    exam_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class QuestionBuildInput:
     draft_review_reason: str
     draft_suggested_action: str
     draft_review_evidence: dict[str, Any] | None
+    exam_only: bool
 
 
 def validate_question_batch(
@@ -104,6 +106,7 @@ def create_generated_questions(
                 draft_review_reason=data.draft_review_reason,
                 draft_suggested_action=data.draft_suggested_action,
                 draft_review_evidence=data.draft_review_evidence,
+                exam_only=data.exam_only,
             ),
         )
         for question_input in data.questions
@@ -124,6 +127,7 @@ def list_question_bank(
         .options(
             selectinload(Question.subject),
             selectinload(Question.choices),
+            selectinload(Question.key_points),
             selectinload(Question.concept_links).selectinload(QuestionConcept.concept),
             selectinload(Question.source_document),
         )
@@ -151,8 +155,9 @@ def _build_question(
     data: QuestionBuildInput,
 ) -> Question:
     question = _question_from_build_input(db, data)
+    question.exam_only = data.exam_only
+    apply_content(question, data.question_input)
     db.add(question)
-    _attach_choices(question, data.question_input.choices)
     db.flush()
     assignments = _resolve_build_assignments(db, data, question)
     concept_service.apply_question_assignments(question, assignments)
@@ -189,17 +194,6 @@ def _question_from_build_input(db: Session, data: QuestionBuildInput) -> Questio
 
 def _question_status(data: QuestionBuildInput) -> QuestionStatus:
     return QuestionStatus.DRAFT if data.save_unresolved_as_draft else QuestionStatus.ACTIVE
-
-
-def _attach_choices(question: Question, choices: list[Any]) -> None:
-    question.choices = [
-        Choice(
-            text=choice_input.text.strip(),
-            is_correct=choice_input.is_correct,
-            order_index=index,
-        )
-        for index, choice_input in enumerate(choices, start=1)
-    ]
 
 
 def _resolve_build_assignments(
@@ -264,6 +258,8 @@ def _validate_question(
 
 
 def _validate_choices(question_input: Any) -> None:
+    if is_open_ended(question_input):
+        return
     if len(question_input.choices) != 4:
         raise ValueError("Generated questions must have exactly four choices.")
     if sum(choice.is_correct for choice in question_input.choices) != 1:
@@ -402,7 +398,10 @@ def _question_to_dict(question: Question) -> dict[str, Any]:
         "id": question.id,
         "subject_id": question.subject_id,
         "subject": question.subject.name,
+        "question_type": question.question_type.value,
+        "exam_only": question.exam_only,
         "stem": question.stem,
+        **rubric_to_dict(question),
         "difficulty": question.difficulty.value,
         "status": question.status.value,
         "health_state": question.health_state.value,

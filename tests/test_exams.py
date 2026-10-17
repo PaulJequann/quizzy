@@ -3,10 +3,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
-from app.auth.models import User
-from app.database import get_session_factory
-from app.main import create_app
 from app.models import (
     Attempt,
     Choice,
@@ -17,90 +15,89 @@ from app.models import (
     QuestionStatus,
     Quiz,
     QuizQuestion,
+    QuizStatus,
+    QuizType,
+    Subject,
 )
 from app.services.exam_paper import paper_from_quiz
+from tests.workspace_clients import (
+    create_learner,
+    learner_browser,
+    reviewer_browser,
+    reviewer_session,
+)
 
 pytestmark = pytest.mark.integration
 
 
-def create_learner(email: str, name: str) -> int:
-    with get_session_factory()() as accounts:
-        learner = User(
-            email=email,
-            hashed_password="!",
-            display_name=name,
-            is_active=True,
-            is_superuser=False,
+def exam_question(subject: Subject, stem: str, choices: list[str], explanation: str | None = None):
+    return Question(
+        subject=subject,
+        stem=stem,
+        explanation=explanation,
+        difficulty=Difficulty.BEGINNER,
+        status=QuestionStatus.ACTIVE,
+        exam_only=True,
+        choices=[
+            Choice(text=text, is_correct=index == 1, order_index=index)
+            for index, text in enumerate(choices, start=1)
+        ],
+    )
+
+
+def seed_exam_quiz(learner_id: int, *, grading_questions: bool = False) -> int:
+    subject = Subject(name="testing", slug="testing")
+    questions = [
+        exam_question(
+            subject,
+            "What does pytest run?",
+            ["Tests", "Backups", "Migrations", "Containers"],
+            "Secret explanation",
         )
-        accounts.add(learner)
-        accounts.commit()
-        return learner.id
-
-
-def reviewer_browser():
-    browser = TestClient(
-        create_app(), headers={"origin": "http://testserver"}, follow_redirects=False
+    ]
+    if grading_questions:
+        questions += [
+            exam_question(subject, stem, ["Correct option", "Wrong option"])
+            for stem in ("What should the learner review?", "What can the learner skip?")
+        ]
+    quiz = Quiz(
+        title="Unit exam",
+        primary_subject=subject,
+        difficulty=Difficulty.BEGINNER,
+        quiz_type=QuizType.EXAM,
+        status=QuizStatus.PUBLISHED,
+        question_links=[
+            QuizQuestion(question=question, order_index=index)
+            for index, question in enumerate(questions, start=1)
+        ],
     )
-    assert (
-        browser.post(
-            "/auth/login", data={"username": "parent@example.com", "password": "test-password"}
-        ).status_code
-        == 204
-    )
-    return browser
+    with reviewer_session(learner_id) as db:
+        db.add(quiz)
+        db.commit()
+        return quiz.id
 
 
-def learner_browser(learner_id: int):
-    from app.auth.users import current_user
-
-    app = create_app()
-    app.dependency_overrides[current_user] = lambda: User(
-        id=learner_id, is_active=True, is_superuser=False
-    )
-    return TestClient(app, headers={"origin": "http://testserver"}, follow_redirects=False)
-
-
-def assign_exam(browser: TestClient, learner_id: int) -> int:
-    form = browser.get("/quizzes/1/exam")
+def assign_exam(browser: TestClient, quiz_id: int, request_key: str | None = None) -> int:
+    form = browser.get(f"/quizzes/{quiz_id}/exam")
     assert form.status_code == 200
     response = browser.post(
-        "/quizzes/1/exam",
-        data={"learner_id": str(learner_id), "request_key": str(uuid4())},
+        f"/quizzes/{quiz_id}/exam", data={"request_key": request_key or str(uuid4())}
     )
     assert response.status_code == 303
     return int(response.headers["location"].rsplit("/", 1)[1])
 
 
-def add_grading_questions(quiz: Quiz) -> None:
-    for order, stem in (
-        (2, "What should the learner review?"),
-        (3, "What can the learner skip?"),
-    ):
-        question = Question(
-            subject=quiz.primary_subject,
-            stem=stem,
-            difficulty=Difficulty.BEGINNER,
-            status=QuestionStatus.ACTIVE,
-            choices=[
-                Choice(text="Correct option", is_correct=True, order_index=1),
-                Choice(text="Wrong option", is_correct=False, order_index=2),
-            ],
-        )
-        quiz.question_links.append(QuizQuestion(question=question, order_index=order))
-
-
 def test_exam_release_hides_result_and_keeps_practice_records_separate(db_session):
     learner_id = create_learner("child@example.com", "Child")
-    quiz_row = db_session.scalar(select(Quiz))
-    assert quiz_row is not None
-    quiz_row.questions[0].explanation = "Secret explanation"
-    db_session.commit()
-    baseline_attempts = db_session.scalar(select(func.count(Attempt.id)))
+    quiz_id = seed_exam_quiz(learner_id)
 
-    reviewer = reviewer_browser()
-    exam_id = assign_exam(reviewer, learner_id)
-    quiz_row.questions[0].stem = "Changed source after assignment"
-    db_session.commit()
+    reviewer = reviewer_browser(learner_id)
+    exam_id = assign_exam(reviewer, quiz_id)
+    with reviewer_session(learner_id) as db:
+        quiz_row = db.get(Quiz, quiz_id)
+        assert quiz_row is not None
+        quiz_row.questions[0].stem = "Changed source after assignment"
+        db.commit()
     assert reviewer.get(f"/exams/{exam_id}").status_code == 200
 
     learner = learner_browser(learner_id)
@@ -138,30 +135,30 @@ def test_exam_release_hides_result_and_keeps_practice_records_separate(db_sessio
     assert "Tests" in result.text
     assert "Secret explanation" in result.text
     assert "Nice work." in result.text
-    assert "Test quiz" not in learner.get("/progress").text
-    assert db_session.scalar(select(func.count(Attempt.id))) == baseline_attempts
-    with get_session_factory()() as accounts:
-        from app.study_access import resolve_study_access
-        from app.workspace_database import workspace_session
-
-        learner = accounts.get(User, learner_id)
-        assert learner is not None
-        access = resolve_study_access(accounts, learner)
-    with workspace_session(access) as learner_db:
+    assert "Unit exam" not in learner.get("/progress").text
+    with reviewer_session(learner_id) as learner_db:
         assert learner_db.scalar(select(func.count(ExamAssignment.id))) == 1
         assert learner_db.scalar(select(func.count(ExamSubmission.id))) == 1
-        assert learner_db.scalar(select(func.count(Attempt.id))) == 0
+        assert learner_db.scalar(select(func.count(Attempt.id))) == 1
+        attempt = learner_db.scalar(select(Attempt).options(selectinload(Attempt.answers)))
+        assert attempt is not None
+        assert (attempt.session_type, attempt.score, attempt.correct_count) == ("exam", 100.0, 1)
+        assert [
+            (answer.question_stem_snapshot, answer.score, answer.is_correct)
+            for answer in attempt.answers
+        ] == [("What does pytest run?", 1.0, True)]
+    assert learner.get(f"/attempts/{attempt.id}/results").status_code == 404
+    attempt_page = reviewer.get(f"/attempts/{attempt.id}/results")
+    assert attempt_page.status_code == 303
+    assert attempt_page.headers["location"] == f"/exams/{exam_id}"
 
 
 def test_exam_grades_correct_incorrect_and_unanswered_responses(db_session):
     learner_id = create_learner("child@example.com", "Child")
-    quiz = db_session.scalar(select(Quiz))
-    assert quiz is not None
-    add_grading_questions(quiz)
-    db_session.commit()
+    quiz_id = seed_exam_quiz(learner_id, grading_questions=True)
 
-    reviewer = reviewer_browser()
-    exam_id = assign_exam(reviewer, learner_id)
+    reviewer = reviewer_browser(learner_id)
+    exam_id = assign_exam(reviewer, quiz_id)
     learner = learner_browser(learner_id)
     submitted = learner.post(f"/exams/{exam_id}/submit", data={"answer_1": "1", "answer_2": "2"})
     assert submitted.status_code == 303
@@ -178,35 +175,25 @@ def test_exam_grades_correct_incorrect_and_unanswered_responses(db_session):
 
 def test_exam_submission_rejects_questions_and_choices_outside_paper(db_session):
     learner_id = create_learner("child@example.com", "Child")
-    reviewer = reviewer_browser()
-    exam_id = assign_exam(reviewer, learner_id)
+    exam_id = assign_exam(reviewer_browser(learner_id), seed_exam_quiz(learner_id))
     learner = learner_browser(learner_id)
 
     unknown_question = learner.post(f"/exams/{exam_id}/submit", data={"answer_2": "1"})
     assert unknown_question.status_code == 400
-    assert db_session.scalar(select(func.count(ExamSubmission.id))) == 0
-
     invalid_choice = learner.post(f"/exams/{exam_id}/submit", data={"answer_1": "99"})
     assert invalid_choice.status_code == 400
-    assert db_session.scalar(select(func.count(ExamSubmission.id))) == 0
+    with reviewer_session(learner_id) as learner_db:
+        assert learner_db.scalar(select(func.count(ExamSubmission.id))) == 0
 
 
 def test_exam_authority_workspace_isolation_and_submission_retry(db_session):
     learner_id = create_learner("child@example.com", "Child")
     other_id = create_learner("other@example.com", "Other")
-    reviewer = reviewer_browser()
+    quiz_id = seed_exam_quiz(learner_id)
+    reviewer = reviewer_browser(learner_id)
     request_key = str(uuid4())
-    first_assignment = reviewer.post(
-        "/quizzes/1/exam",
-        data={"learner_id": str(learner_id), "request_key": request_key},
-    )
-    assert first_assignment.status_code == 303
-    exam_id = int(first_assignment.headers["location"].rsplit("/", 1)[1])
-    reviewer.cookies.delete("quizzy_workspace")
-    retry_assignment = reviewer.post(
-        "/quizzes/1/exam",
-        data={"learner_id": str(learner_id), "request_key": request_key},
-    )
+    exam_id = assign_exam(reviewer, quiz_id, request_key)
+    retry_assignment = reviewer.post(f"/quizzes/{quiz_id}/exam", data={"request_key": request_key})
     assert retry_assignment.status_code == 303
     assert retry_assignment.headers["location"] == f"/exams/{exam_id}"
 
@@ -216,20 +203,23 @@ def test_exam_authority_workspace_isolation_and_submission_retry(db_session):
     assert learner.post(f"/exams/{exam_id}/submit", data={"answer_1": "1"}).status_code == 303
     assert learner.post(f"/exams/{exam_id}/submit", data={"answer_1": "2"}).status_code == 409
     assert learner.get("/accounts").status_code == 303
+    assert learner.get(f"/quizzes/{quiz_id}/exam").status_code == 403
+    assert (
+        learner.post(f"/quizzes/{quiz_id}/exam", data={"request_key": request_key}).status_code
+        == 403
+    )
 
     other = learner_browser(other_id)
     assert other.get(f"/exams/{exam_id}").status_code == 404
     assert other.post(f"/exams/{exam_id}/submit", data={"answer_1": "1"}).status_code == 404
 
-    reviewer.cookies.set("quizzy_workspace", str(learner_id))
     assert reviewer.post(f"/exams/{exam_id}/submit", data={"answer_1": "1"}).status_code == 403
+    assert reviewer.get("/quizzes/1/exam").status_code == 404
+    own_workspace = reviewer_browser()
+    assert own_workspace.get(f"/quizzes/{quiz_id}/exam").status_code == 403
     assert (
-        reviewer.post(
-            "/quizzes/1/exam",
-            data={"learner_id": str(learner_id), "request_key": str(uuid4())},
-        ).status_code
-        == 403
-    )
+        own_workspace.post(f"/quizzes/{quiz_id}/exam", data={"request_key": str(uuid4())})
+    ).status_code == 403
 
 
 def test_exam_paper_preserves_source_quiz_question_order(db_session):
@@ -267,3 +257,30 @@ def test_exam_paper_preserves_source_quiz_question_order(db_session):
         "Source quiz first question",
         "Source quiz second question",
     ]
+
+
+def test_reviewer_cannot_assign_published_practice_quiz_as_exam(db_session):
+    learner_id = create_learner("child@example.com", "Child")
+    subject = Subject(name="testing", slug="testing")
+    question = exam_question(subject, "What does pytest run?", ["Tests", "Backups"])
+    question.exam_only = False
+    quiz = Quiz(
+        title="Practice quiz",
+        primary_subject=subject,
+        difficulty=Difficulty.BEGINNER,
+        quiz_type=QuizType.STANDARD,
+        status=QuizStatus.PUBLISHED,
+        question_links=[QuizQuestion(question=question, order_index=1)],
+    )
+    with reviewer_session(learner_id) as db:
+        db.add(quiz)
+        db.commit()
+        quiz_id = quiz.id
+    reviewer = reviewer_browser(learner_id)
+
+    assert reviewer.get(f"/quizzes/{quiz_id}/exam").status_code == 404
+    response = reviewer.post(f"/quizzes/{quiz_id}/exam", data={"request_key": str(uuid4())})
+
+    assert response.status_code == 404
+    with reviewer_session(learner_id) as db:
+        assert db.scalar(select(func.count()).select_from(ExamAssignment)) == 0
