@@ -35,6 +35,12 @@ class QuizType(StrEnum):
     REVIEW = "review"
     GENERATED = "generated"
     PRACTICE = "practice"
+    EXAM = "exam"
+
+
+class QuestionType(StrEnum):
+    MULTIPLE_CHOICE = "multiple_choice"
+    OPEN_ENDED = "open_ended"
 
 
 class QuestionStatus(StrEnum):
@@ -524,13 +530,35 @@ class ConceptReviewItem(WorkspaceOwned, TimestampMixin, Base):
 
 class Question(WorkspaceOwned, TimestampMixin, Base):
     __tablename__ = "questions"
+    __table_args__ = (
+        CheckConstraint(
+            "(question_type = 'open_ended') = (model_answer IS NOT NULL)",
+            name="ck_questions_model_answer_type",
+        ),
+        CheckConstraint(
+            "question_type != 'open_ended' OR exam_only",
+            name="ck_questions_open_ended_exam_only",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int] = mapped_column(
         ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=False
     )
+    question_type: Mapped[QuestionType] = mapped_column(
+        Enum(
+            QuestionType,
+            name="question_type",
+            values_callable=lambda enum_class: [member.value for member in enum_class],
+        ),
+        nullable=False,
+        default=QuestionType.MULTIPLE_CHOICE,
+    )
+    exam_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     stem: Mapped[str] = mapped_column(Text, nullable=False)
     explanation: Mapped[str | None] = mapped_column(Text)
+    model_answer: Mapped[str | None] = mapped_column(Text)
+    grading_notes: Mapped[str | None] = mapped_column(Text)
     difficulty: Mapped[Difficulty] = mapped_column(
         Enum(
             Difficulty,
@@ -590,6 +618,11 @@ class Question(WorkspaceOwned, TimestampMixin, Base):
         cascade="all, delete-orphan",
         order_by="Choice.order_index",
     )
+    key_points: Mapped[list["QuestionKeyPoint"]] = relationship(
+        back_populates="question",
+        cascade="all, delete-orphan",
+        order_by="QuestionKeyPoint.order_index",
+    )
     attempt_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="question")
     concept_links: Mapped[list[QuestionConcept]] = relationship(
         back_populates="question",
@@ -631,6 +664,19 @@ class Choice(WorkspaceOwned, Base):
 
     question: Mapped[Question] = relationship(back_populates="choices")
     selected_answers: Mapped[list["AttemptAnswer"]] = relationship(back_populates="selected_choice")
+
+
+class QuestionKeyPoint(WorkspaceOwned, Base):
+    __tablename__ = "question_key_points"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    question: Mapped[Question] = relationship(back_populates="key_points")
 
 
 class QuestionReviewItem(WorkspaceOwned, TimestampMixin, Base):

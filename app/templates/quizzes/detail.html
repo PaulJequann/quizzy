@@ -26,7 +26,7 @@
             hx-swap="outerHTML"
           >Publish</button>
         {% endif %}
-        {% if request.state.actor.is_superuser and not request.state.access.is_preview and quiz.status.value == "published" %}
+        {% if request.state.access.can_manage_exams and quiz.quiz_type.value == "exam" and quiz.status.value == "published" %}
           <a class="btn-secondary text-center" href="/quizzes/{{ quiz.id }}/exam">Assign as exam</a>
         {% endif %}
       </div>
@@ -52,6 +52,7 @@
             {% if question.explanation %}
               <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-text-2)]">{{ question.explanation }}</p>
             {% endif %}
+            {% include "questions/_rubric.html" %}
             {% include "questions/_details.html" %}
           </li>
         {% endfor %}

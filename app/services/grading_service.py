@@ -377,6 +377,7 @@ def _accumulate_assignment_rows(
             Question.status == QuestionStatus.ACTIVE,
             QuestionConcept.concept_id.in_(accumulators.keys()),
         )
+        .execution_options(include_exam_content=True)
     )
     if subject_id is not None:
         statement = statement.where(Question.subject_id == subject_id)

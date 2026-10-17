@@ -27,6 +27,7 @@ from app.services import (
 from app.services.generation_service import (
     GeneratedChoiceInput,
     GeneratedConceptProposal,
+    GeneratedMultipleChoiceInput,
     GeneratedQuestionInput,
     GeneratedQuizCreateInput,
 )
@@ -200,7 +201,7 @@ def _seed_active_generated_questions(questions: list[dict]) -> dict:
             generation_service.QuestionBankCreateInput(
                 subject_name="AWS",
                 questions=[
-                    generation_service.GeneratedQuestionInput.model_validate(question)
+                    generation_service.GeneratedMultipleChoiceInput.model_validate(question)
                     for question in questions
                 ],
                 approve_new_concepts=True,
@@ -213,7 +214,7 @@ def test_generated_quiz_uses_default_difficulty_and_source_document(db_session: 
     note = _ingest_note_content(
         db_session, write_note(tmp_path / "s3.md"), source_key="aws/s3.md"
     ).document
-    question = GeneratedQuestionInput(
+    question = GeneratedMultipleChoiceInput(
         stem="Which S3 storage class is best aligned with archival access?",
         choices=[
             GeneratedChoiceInput(text="S3 Glacier", is_correct=True),
@@ -279,7 +280,7 @@ def test_generated_quiz_rejects_overlong_title(db_session: Session):
 
 
 def test_generated_questions_reject_overlong_subject_name(db_session: Session):
-    question = GeneratedQuestionInput(
+    question = GeneratedMultipleChoiceInput(
         stem="Which S3 storage class is intended for archival data?",
         choices=[
             GeneratedChoiceInput(text="S3 Glacier", is_correct=True),
@@ -312,7 +313,7 @@ def test_generated_questions_require_one_correct_choice_and_source(db_session: S
     quiz = generation_service.create_generated_quiz(
         db_session, GeneratedQuizCreateInput(title="Generated", subject_name="AWS")
     )
-    invalid_question = GeneratedQuestionInput(
+    invalid_question = GeneratedMultipleChoiceInput(
         stem="What is S3?",
         choices=[
             GeneratedChoiceInput(text="Object storage"),
@@ -336,7 +337,7 @@ def test_generated_questions_require_one_correct_choice_and_source(db_session: S
 def test_create_generated_quiz_with_questions_validates_before_creating_quiz(
     db_session: Session,
 ):
-    invalid_question = GeneratedQuestionInput(
+    invalid_question = GeneratedMultipleChoiceInput(
         stem="What is S3?",
         choices=[
             GeneratedChoiceInput(text="Object storage", is_correct=True),
@@ -373,7 +374,7 @@ def test_generated_questions_require_one_or_two_concepts(db_session: Session):
             generation_service.AddQuestionsToQuizInput(
                 quiz_id=quiz.id,
                 questions=[
-                    GeneratedQuestionInput(
+                    GeneratedMultipleChoiceInput(
                         stem="What is S3?",
                         choices=choices,
                         source_reference="aws/s3.md",
@@ -388,7 +389,7 @@ def test_generated_questions_require_one_or_two_concepts(db_session: Session):
             generation_service.AddQuestionsToQuizInput(
                 quiz_id=quiz.id,
                 questions=[
-                    GeneratedQuestionInput(
+                    GeneratedMultipleChoiceInput(
                         stem="What is S3?",
                         choices=choices,
                         concept_proposals=[
@@ -413,8 +414,8 @@ def test_generated_questions_require_one_or_two_concepts(db_session: Session):
 
 
 def test_generated_quiz_reuses_concepts_within_one_batch(db_session: Session):
-    questions = [
-        GeneratedQuestionInput(
+    questions: list[GeneratedQuestionInput] = [
+        GeneratedMultipleChoiceInput(
             stem="What does a Route 53 health check influence?",
             choices=[
                 GeneratedChoiceInput(text="Whether a DNS record stays in answers", is_correct=True),
@@ -431,7 +432,7 @@ def test_generated_quiz_reuses_concepts_within_one_batch(db_session: Session):
             ],
             source_reference="aws/route53-health-checks.md",
         ),
-        GeneratedQuestionInput(
+        GeneratedMultipleChoiceInput(
             stem="What can Route 53 stop returning when a health check is unhealthy?",
             choices=[
                 GeneratedChoiceInput(text="The associated DNS record", is_correct=True),

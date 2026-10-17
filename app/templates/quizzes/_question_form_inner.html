@@ -1,7 +1,21 @@
+{% set exam_quiz = quiz.quiz_type.value == "exam" %}
+{% set open_ended = question_type is defined and question_type.value == "open_ended" %}
 <div class="mb-5">
   <p class="eyebrow">Manual authoring</p>
-  <h1 class="section-title">Add a multiple-choice question</h1>
-  <p class="mt-2 text-sm text-[var(--color-text-2)]">Four choices, one correct answer, optional explanation and source reference.</p>
+  {% if open_ended %}
+    <h1 class="section-title">Add an open-ended question</h1>
+    <p class="mt-2 text-sm text-[var(--color-text-2)]">The learner writes an answer. The model answer, key points, and grading notes are for grading only.</p>
+  {% else %}
+    <h1 class="section-title">Add a multiple-choice question</h1>
+    <p class="mt-2 text-sm text-[var(--color-text-2)]">Four choices, one correct answer, optional explanation and source reference.</p>
+  {% endif %}
+  {% if exam_quiz %}
+    <nav class="mt-4 flex flex-wrap gap-2" aria-label="Question type">
+      <a class="{% if open_ended %}btn-secondary{% else %}btn-primary{% endif %}" href="/quizzes/{{ quiz.id }}/questions/new?question_type=multiple_choice" {% if not open_ended %}aria-current="page"{% endif %}>Multiple choice</a>
+      <a class="{% if open_ended %}btn-primary{% else %}btn-secondary{% endif %}" href="/quizzes/{{ quiz.id }}/questions/new?question_type=open_ended" {% if open_ended %}aria-current="page"{% endif %}>Open-ended</a>
+    </nav>
+    <p class="mt-3 text-sm text-[var(--color-text-2)]">Questions in an exam quiz are exam only. The learner never sees them in practice.</p>
+  {% endif %}
 </div>
 {% if error %}
   <div class="mb-4 rounded-lg border border-[var(--color-error)] bg-[var(--color-error-subtle)] px-4 py-3 text-sm font-medium text-[var(--color-error-text)]">{{ error }}</div>
@@ -14,29 +28,50 @@
   hx-target="#question-workspace"
   hx-swap="outerHTML"
 >
+  <input type="hidden" name="question_type" value="{{ 'open_ended' if open_ended else 'multiple_choice' }}">
   <label class="field-label">
     Question text
     <textarea class="field min-h-28" name="stem" required></textarea>
   </label>
-  <div class="grid gap-4 sm:grid-cols-2">
-    {% for index in range(1, 5) %}
-      <label class="field-label">
-        Choice {{ index }}
-        <input class="field" name="choice_{{ index }}" required>
-      </label>
-    {% endfor %}
-  </div>
-  <fieldset>
-    <legend class="field-label mb-2">Correct answer</legend>
-    <div class="grid gap-2 sm:grid-cols-4">
-      {% for index in range(0, 4) %}
-        <label class="radio-tile">
-          <input type="radio" name="correct_choice" value="{{ index }}" required {% if loop.first %}checked{% endif %}>
-          <span>{{ loop.index }}</span>
+  {% if open_ended %}
+    <label class="field-label">
+      Model answer
+      <textarea class="field min-h-24" name="model_answer" required></textarea>
+    </label>
+    <fieldset class="grid gap-3">
+      <legend class="field-label mb-2">Key points (two to four)</legend>
+      {% for index in range(1, 5) %}
+        <label class="field-label">
+          Key point {{ index }}
+          <input class="field" name="key_point_{{ index }}" {% if index <= 2 %}required{% endif %}>
+        </label>
+      {% endfor %}
+    </fieldset>
+    <label class="field-label">
+      Grading notes
+      <textarea class="field min-h-20" name="grading_notes" placeholder="Acceptable variations and common misconceptions"></textarea>
+    </label>
+  {% else %}
+    <div class="grid gap-4 sm:grid-cols-2">
+      {% for index in range(1, 5) %}
+        <label class="field-label">
+          Choice {{ index }}
+          <input class="field" name="choice_{{ index }}" required>
         </label>
       {% endfor %}
     </div>
-  </fieldset>
+    <fieldset>
+      <legend class="field-label mb-2">Correct answer</legend>
+      <div class="grid gap-2 sm:grid-cols-4">
+        {% for index in range(0, 4) %}
+          <label class="radio-tile">
+            <input type="radio" name="correct_choice" value="{{ index }}" required {% if loop.first %}checked{% endif %}>
+            <span>{{ loop.index }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  {% endif %}
   <label class="field-label">
     Explanation
     <textarea class="field min-h-20" name="explanation"></textarea>

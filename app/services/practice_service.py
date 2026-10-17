@@ -155,6 +155,7 @@ def _candidate_questions(
         select(Question)
         .where(
             Question.subject_id == data.subject_id,
+            Question.exam_only.is_(False),
             Question.status == QuestionStatus.ACTIVE,
             Question.health_state != QuestionHealthState.ARCHIVED,
             Question.health_state != QuestionHealthState.SUSPECT,

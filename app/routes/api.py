@@ -216,10 +216,10 @@ def api_create_question(
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
-    correct_count = sum(choice.is_correct for choice in payload.choices)
-    if correct_count != 1:
-        raise HTTPException(status_code=422, detail="Exactly one choice must be correct")
-    return create_question(db, quiz, payload)
+    try:
+        return create_question(db, quiz, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post("/quizzes/{quiz_id}/attempts", response_model=AttemptRead, status_code=201)

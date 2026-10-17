@@ -122,7 +122,17 @@ def test_mcp_rejects_malformed_fresh_agent_payloads(
             )
         )
 
-    invalid_source = _route53_dns_record_question(None) | {"source_ref": "route53-records.md"}
+    misnamed_source = _route53_dns_record_question(None) | {"source_ref": "route53-records.md"}
+    with pytest.raises(Exception, match="source_ref"):
+        asyncio.run(
+            _invoke(
+                server,
+                "create_generated_questions",
+                {"subject_name": "AWS", "questions": [misnamed_source]},
+            )
+        )
+
+    invalid_source = _route53_dns_record_question(None)
     with pytest.raises(Exception, match="source_document_id or source_reference"):
         asyncio.run(
             _invoke(
@@ -194,7 +204,7 @@ async def _approved_create(server, questions: list[dict]) -> dict:
             generation_service.QuestionBankCreateInput(
                 subject_name="AWS",
                 questions=[
-                    generation_service.GeneratedQuestionInput.model_validate(question)
+                    generation_service.GeneratedMultipleChoiceInput.model_validate(question)
                     for question in questions
                 ],
                 approve_new_concepts=True,

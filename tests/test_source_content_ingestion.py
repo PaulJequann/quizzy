@@ -133,7 +133,7 @@ def test_reingesting_changed_content_creates_new_snapshot_and_marks_stale_questi
             subject_name="AWS",
             source_document_id=report.document.id,
             questions=[
-                generation_service.GeneratedQuestionInput.model_validate(
+                generation_service.GeneratedMultipleChoiceInput.model_validate(
                     _s3_storage_question(report.document.id)
                 )
             ],
@@ -170,7 +170,9 @@ def test_create_questions_rejects_snapshot_from_another_source_document(
             db_session,
             generation_service.QuestionBankCreateInput(
                 subject_name="AWS",
-                questions=[generation_service.GeneratedQuestionInput.model_validate(question)],
+                questions=[
+                    generation_service.GeneratedMultipleChoiceInput.model_validate(question)
+                ],
                 approve_new_concepts=True,
             ),
         )

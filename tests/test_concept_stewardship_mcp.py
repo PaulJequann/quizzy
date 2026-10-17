@@ -332,7 +332,7 @@ async def _approved_create(server, questions: list[dict]) -> dict:
             generation_service.QuestionBankCreateInput(
                 subject_name="AWS",
                 questions=[
-                    generation_service.GeneratedQuestionInput.model_validate(question)
+                    generation_service.GeneratedMultipleChoiceInput.model_validate(question)
                     for question in questions
                 ],
                 approve_new_concepts=True,

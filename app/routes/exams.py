@@ -3,15 +3,10 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
 
 from app.auth.boundary import study_operation
-from app.auth.models import User
-from app.config import get_settings
-from app.database import get_db, get_session_factory
-from app.models import QuizStatus
+from app.database import get_db
 from app.services import exam_service
-from app.services.quiz_service import get_quiz
 from app.study_access import StudyAccessDenied, StudyOperation
 from app.templating import templates
 from app.workspace_database import WorkspaceSession
@@ -74,53 +69,30 @@ def exams_list(request: Request, db: Annotated[WorkspaceSession, Depends(get_db)
 
 
 @router.get("/quizzes/{quiz_id}/exam", response_class=HTMLResponse)
-@study_operation(StudyOperation.ASSIGN_EXAM)
+@study_operation(StudyOperation.MANAGE_EXAMS)
 def exam_assignment_form(
     request: Request, quiz_id: int, db: Annotated[WorkspaceSession, Depends(get_db)]
 ):
-    quiz = get_quiz(db, quiz_id)
-    if quiz is None or quiz.status != QuizStatus.PUBLISHED:
-        raise HTTPException(404, "Published quiz not found")
-    with get_session_factory()() as accounts:
-        learners = list(
-            accounts.scalars(
-                select(User)
-                .filter_by(is_active=True, is_superuser=False)
-                .order_by(User.display_name, User.id)
-            )
-        )
+    quiz = _call_exam(lambda: exam_service.assignable_exam_quiz(db, quiz_id))
     return templates.TemplateResponse(
-        request,
-        "exams/assign.html",
-        {"quiz": quiz, "learners": learners, "request_key": uuid4()},
+        request, "exams/assign.html", {"quiz": quiz, "request_key": uuid4()}
     )
 
 
 @router.post("/quizzes/{quiz_id}/exam")
-@study_operation(StudyOperation.ASSIGN_EXAM)
+@study_operation(StudyOperation.MANAGE_EXAMS)
 def assign_exam(
     request: Request,
     quiz_id: int,
-    learner_id: Annotated[int, Form()],
+    db: Annotated[WorkspaceSession, Depends(get_db)],
     request_key: Annotated[str, Form()],
 ):
     assignment = _call_exam(
         lambda: exam_service.assign_exam(
-            access=request.state.access,
-            learner_id=learner_id,
-            source_quiz_id=quiz_id,
-            request_key=UUID(request_key),
+            db, request.state.access, source_quiz_id=quiz_id, request_key=UUID(request_key)
         )
     )
-    response = redirect(f"/exams/{assignment.id}")
-    response.set_cookie(
-        "quizzy_workspace",
-        str(learner_id),
-        httponly=True,
-        samesite="lax",
-        secure=get_settings().app_base_url.startswith("https://"),
-    )
-    return response
+    return redirect(f"/exams/{assignment.id}")
 
 
 @router.get("/exams/{exam_id}", response_class=HTMLResponse)
@@ -141,7 +113,7 @@ async def submit_exam(
 
 
 @router.post("/exams/{exam_id}/release")
-@study_operation(StudyOperation.REVIEW_EXAM)
+@study_operation(StudyOperation.MANAGE_EXAMS)
 def release_exam(
     request: Request,
     exam_id: int,

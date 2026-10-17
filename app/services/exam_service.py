@@ -7,9 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.auth.models import User
-from app.database import get_session_factory
-from app.models import ExamAssignment, ExamSubmission, Question, Quiz, QuizStatus, utc_now
+from app.models import (
+    ExamAssignment,
+    ExamSubmission,
+    Question,
+    Quiz,
+    QuizStatus,
+    QuizType,
+    utc_now,
+)
 from app.services.exam_errors import ExamError
 from app.services.exam_paper import (
     Paper,
@@ -18,8 +24,8 @@ from app.services.exam_paper import (
     parse_paper,
 )
 from app.services.exam_responses import normalize_responses
-from app.study_access import StudyAccess, StudyAccessDenied, resolve_study_access
-from app.workspace_database import WorkspaceSession, workspace_session
+from app.study_access import StudyAccess, StudyAccessDenied
+from app.workspace_database import WorkspaceSession
 
 MAX_REVIEW_NOTE_LENGTH = 4000
 
@@ -123,29 +129,16 @@ class ExamAlreadySubmitted(ExamError):
 
 
 def assign_exam(
-    *, access: StudyAccess, learner_id: int, source_quiz_id: int, request_key: UUID
+    db: WorkspaceSession, access: StudyAccess, *, source_quiz_id: int, request_key: UUID
 ) -> ExamSummary:
-    if not access.can_assign_exams:
-        raise StudyAccessDenied("Only a reviewer in their own workspace can assign exams")
-    learner_access = _learner_access(access, learner_id)
-    with workspace_session(learner_access) as learner_db:
-        existing = _find_assignment(learner_db, access.actor_id, request_key)
-        if existing is not None:
-            return _summary(learner_db, existing)
-    paper, title = _source_paper(access, source_quiz_id)
-    with workspace_session(learner_access) as learner_db:
-        draft = AssignmentDraft(access.actor_id, source_quiz_id, request_key, paper, title)
-        return _create_assignment(learner_db, draft)
-
-
-def _learner_access(access: StudyAccess, learner_id: int) -> StudyAccess:
-    if learner_id == access.actor_id:
-        raise ExamError("Choose a learner account")
-    with get_session_factory()() as accounts:
-        learner = accounts.scalar(select(User).filter_by(id=learner_id, is_active=True))
-        if learner is None or learner.is_superuser:
-            raise ExamNotFound("Learner account not found")
-        return resolve_study_access(accounts, learner)
+    if not access.can_manage_exams:
+        raise StudyAccessDenied("Only a reviewer previewing a learner can assign exams")
+    existing = _find_assignment(db, access.actor_id, request_key)
+    if existing is not None:
+        return _summary(db, existing)
+    paper, title = _source_paper(db, source_quiz_id)
+    draft = AssignmentDraft(access.actor_id, source_quiz_id, request_key, paper, title)
+    return _create_assignment(db, draft)
 
 
 def _find_assignment(db: WorkspaceSession, reviewer_id: int, request_key: UUID):
@@ -157,16 +150,24 @@ def _find_assignment(db: WorkspaceSession, reviewer_id: int, request_key: UUID):
     )
 
 
-def _source_paper(access: StudyAccess, source_quiz_id: int) -> tuple[Paper, str]:
-    with workspace_session(access) as reviewer_db:
-        quiz = reviewer_db.scalar(
-            select(Quiz)
-            .options(selectinload(Quiz.questions).selectinload(Question.choices))
-            .where(Quiz.id == source_quiz_id, Quiz.status == QuizStatus.PUBLISHED)
+def assignable_exam_quiz(db: WorkspaceSession, quiz_id: int) -> Quiz:
+    quiz = db.scalar(
+        select(Quiz)
+        .options(selectinload(Quiz.questions).selectinload(Question.choices))
+        .where(
+            Quiz.id == quiz_id,
+            Quiz.quiz_type == QuizType.EXAM,
+            Quiz.status == QuizStatus.PUBLISHED,
         )
-        if quiz is None:
-            raise ExamNotFound("Published quiz not found")
-        return paper_from_quiz(quiz), quiz.title
+    )
+    if quiz is None:
+        raise ExamNotFound("Published exam quiz not found")
+    return quiz
+
+
+def _source_paper(db: WorkspaceSession, source_quiz_id: int) -> tuple[Paper, str]:
+    quiz = assignable_exam_quiz(db, source_quiz_id)
+    return paper_from_quiz(quiz), quiz.title
 
 
 def _create_assignment(
@@ -292,7 +293,7 @@ def _record_submission(
 def release_exam(
     db: WorkspaceSession, access: StudyAccess, exam_id: int, *, note: str
 ) -> ExamResultView:
-    if not access.can_review_exams:
+    if not access.can_manage_exams:
         raise StudyAccessDenied("Only a reviewer can release exam results")
     if len(note) > MAX_REVIEW_NOTE_LENGTH:
         raise ExamError(f"Review note must be at most {MAX_REVIEW_NOTE_LENGTH} characters")
@@ -331,7 +332,7 @@ def _release_submission(
 
 
 def _require_exam_view_access(access: StudyAccess) -> None:
-    if access.is_preview and not access.can_review_exams:
+    if access.is_preview and not access.can_manage_exams:
         raise StudyAccessDenied("Only a reviewer can view assigned exam work")
     if not access.is_preview and not access.can_record_progress:
         raise StudyAccessDenied("Learner workspace access required")
