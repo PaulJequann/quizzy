@@ -3,10 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import ceil, exp, sqrt
+from typing import NamedTuple
+
+from app.models import QuestionType
 
 ALPHA0 = 1.0
 BETA0 = 1.0
 MAX_EFFECTIVE_WEIGHT_PER_FAMILY = 1.5
+SUCCESS_FRICTION_WEIGHT = {1: 0.45, 2: 0.85, 3: 1.15, None: 1.0}
+FAILURE_FRICTION_WEIGHT = {1: 1.25, 2: 0.90, 3: 0.80, None: 1.0}
+
+
+class EvidenceWeight(NamedTuple):
+    success: float
+    failure: float
+
+
+QUESTION_TYPE_WEIGHT = {
+    QuestionType.MULTIPLE_CHOICE: EvidenceWeight(success=1.0, failure=1.0),
+    QuestionType.OPEN_ENDED: EvidenceWeight(success=1.5, failure=1.0),
+}
 
 
 @dataclass(frozen=True)
@@ -80,9 +96,20 @@ def summarize_mastery_evidence(
     )
 
 
+def answer_evidence_weight(
+    question_type: QuestionType, score: float, friction_rating: int | None
+) -> EvidenceWeight:
+    type_weight = QUESTION_TYPE_WEIGHT[question_type]
+    return EvidenceWeight(
+        success=score * type_weight.success * SUCCESS_FRICTION_WEIGHT[friction_rating],
+        failure=(1 - score) * type_weight.failure * FAILURE_FRICTION_WEIGHT[friction_rating],
+    )
+
+
 def capped_family_evidence(
     family_success_weight: dict[int, float],
     family_failure_weight: dict[int, float],
+    family_question_type: dict[int, QuestionType],
 ) -> tuple[float, float]:
     effective_success = 0.0
     effective_failure = 0.0
@@ -90,16 +117,17 @@ def capped_family_evidence(
     for family_key in family_keys:
         success = family_success_weight.get(family_key, 0.0)
         failure = family_failure_weight.get(family_key, 0.0)
-        scale = _family_scale(success + failure)
+        cap_weight = QUESTION_TYPE_WEIGHT[family_question_type[family_key]].success
+        scale = _family_scale(success + failure, cap_weight)
         effective_success += success * scale
         effective_failure += failure * scale
     return effective_success, effective_failure
 
 
-def _family_scale(total: float) -> float:
+def _family_scale(total: float, cap_weight: float) -> float:
     if not total:
         return 1.0
-    return min(1.0, MAX_EFFECTIVE_WEIGHT_PER_FAMILY / total)
+    return min(1.0, MAX_EFFECTIVE_WEIGHT_PER_FAMILY * cap_weight / total)
 
 
 def _conservative_performance(data: MasteryEvidenceInput) -> float:

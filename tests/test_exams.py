@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.models import (
     Attempt,
@@ -138,7 +139,17 @@ def test_exam_release_hides_result_and_keeps_practice_records_separate(db_sessio
     with reviewer_session(learner_id) as learner_db:
         assert learner_db.scalar(select(func.count(ExamAssignment.id))) == 1
         assert learner_db.scalar(select(func.count(ExamSubmission.id))) == 1
-        assert learner_db.scalar(select(func.count(Attempt.id))) == 0
+        assert learner_db.scalar(select(func.count(Attempt.id))) == 1
+        attempt = learner_db.scalar(select(Attempt).options(selectinload(Attempt.answers)))
+        assert attempt is not None
+        assert (attempt.session_type, attempt.score, attempt.correct_count) == ("exam", 100.0, 1)
+        assert [
+            (answer.question_stem_snapshot, answer.score, answer.is_correct)
+            for answer in attempt.answers
+        ] == [("What does pytest run?", 1.0, True)]
+    attempt_page = learner.get(f"/attempts/{attempt.id}/results")
+    assert attempt_page.status_code == 303
+    assert attempt_page.headers["location"] == f"/exams/{exam_id}"
 
 
 def test_exam_grades_correct_incorrect_and_unanswered_responses(db_session):

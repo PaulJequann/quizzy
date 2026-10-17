@@ -33,6 +33,7 @@ def progress_page(request: Request, db: Annotated[Session, Depends(get_db)]):
         db.scalars(
             select(Attempt)
             .options(selectinload(Attempt.quiz))
+            .where(Attempt.exam_submission_id.is_(None))
             .order_by(Attempt.submitted_at.desc(), Attempt.id.desc())
             .limit(100)
         )

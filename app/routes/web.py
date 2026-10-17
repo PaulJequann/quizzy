@@ -682,6 +682,8 @@ def attempt_results(request: Request, attempt_id: int, db: Annotated[Session, De
     )
     if attempt is None:
         raise HTTPException(status_code=404, detail="Attempt not found")
+    if attempt.exam_submission is not None:
+        return redirect(f"/exams/{attempt.exam_submission.assignment_id}")
     return templates.TemplateResponse(
         request,
         "attempts/results.html",

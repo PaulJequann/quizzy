@@ -4,7 +4,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
 from alembic import command
-from app.database import get_engine
+from app.database import get_engine, get_session_factory
 from tests.db_utils import clear_database_caches, reset_schema, set_database_url
 
 pytestmark = pytest.mark.migration
@@ -227,6 +227,8 @@ def test_open_ended_exam_migration_round_trips(test_database_url, monkeypatch) -
             _column_names(inspector, "questions")
         )
         assert {"question_key_points", "exam_response_grades"}.issubset(inspector.get_table_names())
+        assert "exam_submission_id" in _column_names(inspector, "attempts")
+        assert {"score", "misconception"}.issubset(_column_names(inspector, "attempt_answers"))
 
         command.downgrade(config, "202610160001")
         clear_database_caches()
@@ -235,6 +237,8 @@ def test_open_ended_exam_migration_round_trips(test_database_url, monkeypatch) -
             inspector.get_table_names()
         )
         assert "model_answer" not in _column_names(inspector, "questions")
+        assert "exam_submission_id" not in _column_names(inspector, "attempts")
+        assert not {"score", "misconception"} & _column_names(inspector, "attempt_answers")
 
         command.upgrade(config, "head")
         clear_database_caches()
@@ -243,3 +247,62 @@ def test_open_ended_exam_migration_round_trips(test_database_url, monkeypatch) -
         clear_database_caches()
         command.upgrade(config, "head")
         clear_database_caches()
+
+
+def test_open_ended_exam_migration_backfills_answer_scores(test_database_url, monkeypatch) -> None:
+    set_database_url(test_database_url, monkeypatch)
+    config = Config("alembic.ini")
+    reset_schema(config, "head")
+    try:
+        clear_database_caches()
+        _seed_practice_answers()
+        command.downgrade(config, "202610160001")
+        command.upgrade(config, "head")
+        clear_database_caches()
+
+        with get_engine().connect() as connection:
+            rows = connection.execute(
+                text("SELECT is_correct, score FROM attempt_answers ORDER BY id")
+            ).all()
+        assert [tuple(row) for row in rows] == [(False, 0.0), (True, 1.0)]
+    finally:
+        clear_database_caches()
+        command.upgrade(config, "head")
+        clear_database_caches()
+
+
+def _seed_practice_answers() -> None:
+    from app.auth.models import User
+    from app.models import Choice, Difficulty, Question, QuestionStatus, Quiz, QuizStatus, Subject
+    from app.services.grading_service import submit_attempt
+    from tests.workspace_clients import learner_session
+
+    with get_session_factory()() as accounts:
+        learner = User(email="child@example.com", hashed_password="!", display_name="Child")
+        accounts.add(learner)
+        accounts.commit()
+        learner_id = learner.id
+    with learner_session(learner_id) as db:
+        subject = Subject(name="Migration", slug="migration")
+        question = Question(
+            subject=subject,
+            stem="What does pytest run?",
+            difficulty=Difficulty.BEGINNER,
+            status=QuestionStatus.ACTIVE,
+            choices=[
+                Choice(text="Tests", is_correct=True, order_index=1),
+                Choice(text="Backups", is_correct=False, order_index=2),
+            ],
+        )
+        quiz = Quiz(
+            title="Migration quiz",
+            primary_subject=subject,
+            difficulty=Difficulty.BEGINNER,
+            status=QuizStatus.PUBLISHED,
+            questions=[question],
+        )
+        db.add(quiz)
+        db.commit()
+        right, wrong = question.choices
+        submit_attempt(db, quiz, {question.id: wrong.id})
+        submit_attempt(db, quiz, {question.id: right.id})

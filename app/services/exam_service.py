@@ -16,7 +16,8 @@ from app.models import (
     QuizType,
     utc_now,
 )
-from app.services import exam_grades
+from app.services import exam_grades, question_health_service
+from app.services.exam_attempt import exam_attempt
 from app.services.exam_errors import ExamError
 from app.services.exam_grades import ExamGrading
 from app.services.exam_paper import (
@@ -310,7 +311,11 @@ def release_exam(
         checked = exam_grades.validated_grades(paper, grading.grades, complete=True)
         exam_grades.save_grades(db, submission.id, checked)
         _release_submission(submission, access.actor_id, grading.note)
+        db.flush()
+        attempt = exam_attempt(_record(db, assignment, submission), assignment, submission)
+        db.add(attempt)
         db.commit()
+        question_health_service.record_attempt_evidence(db, attempt.id)
     return exam_result(_record(db, assignment, submission))
 
 

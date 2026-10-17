@@ -11,6 +11,7 @@ from app.models import (
     QuestionFeedbackEvent,
     QuestionHealthState,
     QuestionReviewItem,
+    QuestionType,
 )
 from app.services import question_health_service
 from app.services.grading_service import get_mastery_rows
@@ -282,7 +283,9 @@ def test_repeated_exact_question_evidence_is_capped_in_mastery(
 
 
 def test_capped_family_evidence_accepts_plain_partial_dicts() -> None:
-    effective_success, effective_failure = capped_family_evidence({1: 1.0}, {2: 1.0})
+    effective_success, effective_failure = capped_family_evidence(
+        {1: 1.0}, {2: 1.0}, {1: QuestionType.MULTIPLE_CHOICE, 2: QuestionType.MULTIPLE_CHOICE}
+    )
 
     assert effective_success == 1.0
     assert effective_failure == 1.0

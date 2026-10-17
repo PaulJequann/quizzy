@@ -734,6 +734,15 @@ class QuestionFeedbackEvent(WorkspaceOwned, TimestampMixin, Base):
 
 class Attempt(WorkspaceOwned, Base):
     __tablename__ = "attempts"
+    __table_args__ = (
+        UniqueConstraint("exam_submission_id", name="uq_attempts_exam_submission"),
+        ForeignKeyConstraint(
+            ["workspace_id", "exam_submission_id"],
+            ["exam_submissions.workspace_id", "exam_submissions.id"],
+            ondelete="CASCADE",
+            name="fk_attempts_exam_submission_workspace",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     quiz_id: Mapped[int] = mapped_column(
@@ -745,12 +754,14 @@ class Attempt(WorkspaceOwned, Base):
     session_type: Mapped[str] = mapped_column(String(40), nullable=False, default="standard")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exam_submission_id: Mapped[int | None] = mapped_column(Integer)
 
     quiz: Mapped[Quiz] = relationship(back_populates="attempts")
     answers: Mapped[list["AttemptAnswer"]] = relationship(
         back_populates="attempt",
         cascade="all, delete-orphan",
     )
+    exam_submission: Mapped["ExamSubmission | None"] = relationship(viewonly=True)
 
 
 class AttemptAnswer(WorkspaceOwned, Base):
@@ -760,6 +771,7 @@ class AttemptAnswer(WorkspaceOwned, Base):
             "retrieval_friction_rating IS NULL OR retrieval_friction_rating IN (1, 2, 3)",
             name="ck_attempt_answers_retrieval_friction_rating",
         ),
+        CheckConstraint("score >= 0 AND score <= 1", name="ck_attempt_answers_score_range"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -773,6 +785,8 @@ class AttemptAnswer(WorkspaceOwned, Base):
         ForeignKey("choices.id", ondelete="SET NULL")
     )
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    misconception: Mapped[str | None] = mapped_column(String(200))
     question_stem_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     selected_choice_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     correct_choice_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")

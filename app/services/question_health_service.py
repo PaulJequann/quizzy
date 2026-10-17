@@ -101,8 +101,8 @@ def score_question_health(db: Session, question_id: int) -> QuestionHealthSummar
     if question is None:
         raise ValueError(f"Unknown question id {question_id}")
 
-    attempt_count, correct_count = _attempt_counts(db, question.id)
-    accuracy = _accuracy(attempt_count, correct_count)
+    attempt_count, correct_count, mean_score = _attempt_counts(db, question.id)
+    accuracy = None if mean_score is None else round(mean_score * 100, 2)
     state, score, reason, action = _classify_question(question, attempt_count, accuracy)
 
     question.health_state = state
@@ -326,14 +326,15 @@ def resolve_question_review_item(
     return _review_item_to_dict(item)
 
 
-def _attempt_counts(db: Session, question_id: int) -> tuple[int, int]:
+def _attempt_counts(db: Session, question_id: int) -> tuple[int, int, float | None]:
     row = db.execute(
         select(
             func.count(AttemptAnswer.id),
             func.coalesce(func.sum(AttemptAnswer.is_correct.cast(Integer)), 0),
+            func.avg(AttemptAnswer.score),
         ).where(AttemptAnswer.question_id == question_id)
     ).one()
-    return int(row[0]), int(row[1])
+    return int(row[0]), int(row[1]), row[2]
 
 
 def _accuracy(attempt_count: int, correct_count: int) -> float | None:

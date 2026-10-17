@@ -43,6 +43,7 @@ def upgrade() -> None:
     )
     _create_key_points()
     _create_response_grades()
+    _add_exam_attempts()
 
 
 def _create_key_points() -> None:
@@ -101,7 +102,36 @@ def _create_response_grades() -> None:
     )
 
 
+def _add_exam_attempts() -> None:
+    op.add_column("attempts", sa.Column("exam_submission_id", sa.Integer(), nullable=True))
+    op.create_unique_constraint("uq_attempts_exam_submission", "attempts", ["exam_submission_id"])
+    op.create_foreign_key(
+        "fk_attempts_exam_submission_workspace",
+        "attempts",
+        "exam_submissions",
+        ["workspace_id", "exam_submission_id"],
+        ["workspace_id", "id"],
+        ondelete="CASCADE",
+    )
+    op.add_column("attempt_answers", sa.Column("score", sa.Float(), nullable=True))
+    op.execute("UPDATE attempt_answers SET score = CASE WHEN is_correct THEN 1 ELSE 0 END")
+    op.alter_column("attempt_answers", "score", nullable=False)
+    op.create_check_constraint(
+        "ck_attempt_answers_score_range", "attempt_answers", "score >= 0 AND score <= 1"
+    )
+    op.add_column(
+        "attempt_answers", sa.Column("misconception", sa.String(length=200), nullable=True)
+    )
+
+
 def downgrade() -> None:
+    op.execute("DELETE FROM attempts WHERE exam_submission_id IS NOT NULL")
+    op.drop_column("attempt_answers", "misconception")
+    op.drop_constraint("ck_attempt_answers_score_range", "attempt_answers", type_="check")
+    op.drop_column("attempt_answers", "score")
+    op.drop_constraint("fk_attempts_exam_submission_workspace", "attempts", type_="foreignkey")
+    op.drop_constraint("uq_attempts_exam_submission", "attempts", type_="unique")
+    op.drop_column("attempts", "exam_submission_id")
     op.drop_index("ix_exam_response_grades_workspace_id", table_name="exam_response_grades")
     op.drop_table("exam_response_grades")
     op.drop_index("ix_question_key_points_workspace_id", table_name="question_key_points")

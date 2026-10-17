@@ -287,7 +287,7 @@ def test_learner_mastery_counts_exam_answers(db_session):
                 total_questions=1,
                 correct_count=1,
                 submitted_at=func.now(),
-                answers=[AttemptAnswer(question_id=question.id, is_correct=True)],
+                answers=[AttemptAnswer(question_id=question.id, is_correct=True, score=1.0)],
             )
         )
         db.commit()
