@@ -10,6 +10,7 @@ from app.models import (
     Attempt,
     AttemptAnswer,
     Question,
+    QuestionReviewItem,
     Quiz,
     QuizStatus,
     QuizType,
@@ -20,6 +21,8 @@ from app.study_access import StudyAccess
 _attempts = Attempt.__table__
 # Core columns keep the learner Attempt criterion from applying inside its own subquery.
 EXAM_ATTEMPT_IDS = select(_attempts.c.id).where(_attempts.c.exam_submission_id.is_not(None))
+_questions = Question.__table__
+EXAM_QUESTION_IDS = select(_questions.c.id).where(_questions.c.exam_only.is_(True))
 
 
 class WorkspaceSession(Session):
@@ -57,6 +60,11 @@ def scope_reads(state: ORMExecuteState) -> None:
             with_loader_criteria(
                 AttemptAnswer,
                 AttemptAnswer.attempt_id.not_in(EXAM_ATTEMPT_IDS),
+                include_aliases=True,
+            ),
+            with_loader_criteria(
+                QuestionReviewItem,
+                QuestionReviewItem.question_id.not_in(EXAM_QUESTION_IDS),
                 include_aliases=True,
             ),
         )

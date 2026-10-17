@@ -235,3 +235,19 @@ def test_learner_brief_and_weak_concepts_omit_missed_exam_questions(db_session):
         "Photosynthesis": [],
         "Tests": [],
     }
+
+
+def test_learner_subject_page_hides_review_items_for_failed_exam_questions(db_session):
+    study = linked_study()
+    for _ in range(3):
+        release(study, submit(study), [])
+    with reviewer_session(study.learner_id) as db:
+        written = db.scalar(select(Question).where(Question.stem == WRITTEN_STEM))
+        assert written is not None
+        assert written.review_items
+        subject_id = written.subject_id
+
+    page = study.learner.get(f"/subjects/{subject_id}")
+
+    assert page.status_code == 200
+    assert WRITTEN_STEM not in page.text
