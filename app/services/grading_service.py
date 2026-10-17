@@ -25,6 +25,7 @@ from app.services.mastery_evidence_service import (
     capped_family_evidence,
     summarize_mastery_evidence,
 )
+from app.services.question_scope import scope_mastery_rows
 
 ROLE_WEIGHT = {
     ConceptAssignmentRole.PRIMARY: 1.0,
@@ -71,6 +72,7 @@ class ConceptMastery:
     rolled_up_question_ids: list[int] = field(default_factory=list)
     missed_question_ids: list[int] = field(default_factory=list)
     source_references: list[str] = field(default_factory=list)
+    practice_question_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -181,14 +183,6 @@ def submit_attempt(db: Session, quiz: Quiz, submitted_answers: dict[int, int | N
     return attempt
 
 
-def mastery_status(accuracy: float) -> str:
-    if accuracy >= 90:
-        return "strong"
-    if accuracy >= 70:
-        return "improving"
-    return "weak"
-
-
 def get_mastery_rows(db: Session, *, subject_id: int | None = None) -> list[ConceptMastery]:
     concepts = _active_concepts(db, subject_id=subject_id)
     accumulators = {concept.id: _RollupAccumulator() for concept in concepts}
@@ -196,7 +190,7 @@ def get_mastery_rows(db: Session, *, subject_id: int | None = None) -> list[Conc
     ancestors_by_concept_id = _ancestors_by_concept_id(concepts)
     _accumulate_assignment_rows(db, accumulators, ancestors_by_concept_id, subject_id=subject_id)
     review_states = _review_states_by_concept_id(db, subject_id=subject_id)
-    return [
+    rows = [
         _mastery_row(
             concept,
             accumulator=accumulators[concept.id],
@@ -205,6 +199,7 @@ def get_mastery_rows(db: Session, *, subject_id: int | None = None) -> list[Conc
         )
         for concept in concepts
     ]
+    return scope_mastery_rows(db, rows)
 
 
 def build_concept_queue_items(rows: list[ConceptMastery]) -> list[ConceptQueueItem]:

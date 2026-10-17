@@ -455,3 +455,23 @@ def test_api_adds_open_ended_question_to_exam_quiz(db_session):
     assert [point["text"] for point in body["key_points"]] == KEY_POINTS
     assert body["choices"] == []
     assert mixed.status_code == 422
+
+
+def test_mastery_offers_review_only_for_concepts_with_practice_questions(db_session):
+    study = seed_learner_study()
+    learner = learner_browser(study.learner_id)
+
+    page = learner.get("/mastery").text
+    assert "Review scheduled concepts" in page
+    assert "1 concepts ready for review" in page
+    assert "Biology / Plant Gases" in page
+    assert "Biology / Photosynthesis" not in page
+
+    with reviewer_session(study.learner_id) as db:
+        db.delete(db.scalars(select(Question).where(Question.exam_only.is_(False))).one())
+        db.commit()
+
+    page = learner.get("/mastery").text
+    assert "Review scheduled concepts" not in page
+    assert "ready for review" not in page
+    assert "Review weak concepts" not in learner.get(f"/subjects/{study.subject_id}").text

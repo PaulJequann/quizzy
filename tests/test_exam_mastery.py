@@ -136,7 +136,7 @@ def test_partial_open_ended_answer_is_partial_success_and_a_miss(db_session):
 
     release(study, submit(study), ["1"])
 
-    assert mastery(study)["Photosynthesis"] == (22.91, 0, 1, 1)
+    assert mastery(study)["Photosynthesis"] == (22.91, 0, 1, 0)
 
 
 def test_open_ended_question_health_uses_mean_score(db_session):
@@ -211,3 +211,27 @@ def test_learner_cannot_load_exam_attempts_but_keeps_mastery_and_result(db_sessi
     result = study.learner.get(f"/exams/{exam_id}")
     assert result.status_code == 200
     assert "Well done." in result.text
+
+
+def missed_ids_by_concept(db) -> dict[str, list[int]]:
+    return {
+        objective["name"]: objective["recent_missed_question_ids"]
+        for objective in prepare_next_practice(db, db.access.workspace_id)["objectives"]
+    }
+
+
+def test_learner_brief_and_weak_concepts_omit_missed_exam_questions(db_session):
+    study = linked_study()
+    release(study, submit(study), ["1"])
+    with reviewer_session(study.learner_id) as db:
+        written_id = db.scalar(select(Question.id).where(Question.stem == WRITTEN_STEM))
+        assert missed_ids_by_concept(db) == {"Photosynthesis": [written_id], "Tests": []}
+
+    with learner_session(study.learner_id) as db:
+        assert missed_ids_by_concept(db) == {"Photosynthesis": [], "Tests": []}
+    weak = study.learner.get("/api/mastery/weak-concepts")
+    assert weak.status_code == 200
+    assert {item["name"]: item["missed_question_ids"] for item in weak.json()} == {
+        "Photosynthesis": [],
+        "Tests": [],
+    }

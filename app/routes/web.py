@@ -37,6 +37,7 @@ from app.services.grading_service import (
     passed,
     submit_attempt,
 )
+from app.services.question_scope import reviewable_rows
 from app.services.quiz_service import (
     QuestionFormInput,
     create_question,
@@ -184,7 +185,7 @@ def mastery(request: Request, db: Annotated[Session, Depends(get_db)]):
         "mastery/index.html",
         {
             "mastery_rows": mastery_rows,
-            "queue_items": build_concept_queue_items(mastery_rows),
+            "queue_items": build_concept_queue_items(reviewable_rows(mastery_rows)),
             "mastery_groups": mastery_groups,
         },
     )
