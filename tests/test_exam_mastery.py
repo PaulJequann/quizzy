@@ -10,9 +10,12 @@ from app.models import (
     Concept,
     ConceptAssignmentRole,
     ConceptStatus,
+    Difficulty,
     Question,
     QuestionConcept,
     QuestionHealthState,
+    QuestionReviewItem,
+    QuestionStatus,
     QuestionType,
     Subject,
 )
@@ -245,9 +248,26 @@ def test_learner_subject_page_hides_review_items_for_failed_exam_questions(db_se
         written = db.scalar(select(Question).where(Question.stem == WRITTEN_STEM))
         assert written is not None
         assert written.review_items
-        subject_id = written.subject_id
+        practice = Question(
+            subject=written.subject,
+            stem="Which gas do plants release?",
+            explanation="Photosynthesis releases oxygen.",
+            difficulty=Difficulty.BEGINNER,
+            status=QuestionStatus.ACTIVE,
+        )
+        db.add(
+            QuestionReviewItem(
+                question=practice,
+                subject=practice.subject,
+                reason="Learners flagged this question.",
+                suggested_action="revise",
+            )
+        )
+        db.commit()
+        subject_id, practice_id = written.subject_id, practice.id
 
+    with learner_session(study.learner_id) as db:
+        assert list(db.scalars(select(QuestionReviewItem.question_id))) == [practice_id]
     page = study.learner.get(f"/subjects/{subject_id}")
-
     assert page.status_code == 200
     assert WRITTEN_STEM not in page.text
