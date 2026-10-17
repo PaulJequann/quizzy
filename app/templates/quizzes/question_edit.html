@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Edit question · Quizzy{% endblock %}
+{% block content %}
+  <section class="mb-8">
+    <p class="eyebrow">Quiz setup</p>
+    <h1 class="font-display mt-1 text-3xl leading-tight sm:text-4xl">{{ quiz.title }}</h1>
+  </section>
+  <section class="panel max-w-3xl">
+    {% include "quizzes/_question_form_inner.html" %}
+  </section>
+{% endblock %}

@@ -37,10 +37,17 @@ def apply_content(question: Question, content: QuestionContent) -> None:
         ]
         return
     question.question_type = QuestionType.MULTIPLE_CHOICE
-    question.choices = [
-        Choice(text=choice.text.strip(), is_correct=choice.is_correct, order_index=index)
-        for index, choice in enumerate(content.choices, start=1)
-    ]
+    question.choices = _updated_choices(list(question.choices), content.choices)
+
+
+def _updated_choices(existing: list[Choice], contents: Sequence[ChoiceContent]) -> list[Choice]:
+    # Reusing rows by position keeps the choice ids that past answers point at.
+    reusable = existing + [Choice() for _ in range(len(contents) - len(existing))]
+    for index, (choice, content) in enumerate(zip(reusable, contents, strict=False), start=1):
+        choice.text = content.text.strip()
+        choice.is_correct = content.is_correct
+        choice.order_index = index
+    return reusable[: len(contents)]
 
 
 def rubric_to_dict(question: Question) -> dict[str, Any]:

@@ -153,6 +153,50 @@ def create_question(db: Session, quiz: Quiz, data: QuestionCreate) -> Question:
     return question
 
 
+def update_question(db: Session, question: Question, data: QuestionCreate) -> Question:
+    proposed = [proposal.name for proposal in data.concept_proposals]
+    # Unchanged tags stay as they are, so a proposed concept awaiting review does not block edits.
+    if proposed != _concept_names_primary_first(question):
+        _reassign_concepts(db, question, data)
+    question.stem = data.stem.strip()
+    question.explanation = (data.explanation or "").strip() or None
+    question.source_reference = (data.source_reference or "").strip() or None
+    apply_content(question, data)
+    db.commit()
+    return question
+
+
+def _reassign_concepts(db: Session, question: Question, data: QuestionCreate) -> None:
+    assignments = _manual_assignments(db, question.subject, data)
+    concept_service.apply_question_assignments(question, assignments)
+    db.flush()
+    _record_manual_assignments(db, question.subject, question, assignments)
+
+
+def question_form_values(question: Question) -> QuestionFormInput:
+    choices = [choice.text for choice in question.choices]
+    correct = [choice.is_correct for choice in question.choices]
+    return QuestionFormInput(
+        stem=question.stem,
+        choices=(choices + [""] * 4)[:4],
+        correct_choice=correct.index(True) if True in correct else 0,
+        explanation=question.explanation,
+        source_reference=question.source_reference,
+        concepts=", ".join(_concept_names_primary_first(question)),
+        question_type=question.question_type,
+        model_answer=question.model_answer or "",
+        grading_notes=question.grading_notes,
+        key_points=[point.text for point in question.key_points],
+    )
+
+
+def _concept_names_primary_first(question: Question) -> list[str]:
+    links = sorted(
+        question.concept_links, key=lambda link: link.role != ConceptAssignmentRole.PRIMARY
+    )
+    return [link.concept.name for link in links]
+
+
 def create_review_quiz_from_concepts(db: Session, concept_ids: list[int]) -> Quiz:
     if not concept_ids:
         raise ValueError("At least one concept is required to create a review quiz.")
