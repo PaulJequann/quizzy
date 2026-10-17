@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.draft_policy import require_draft_content
-from app.mcp import concept_approval, question_first_tools, read_tools, source_tools
+from app.mcp import concept_approval, exam_tools, question_first_tools, read_tools, source_tools
 from app.mcp.access import list_accessible_workspaces, workspace_tool
 from app.mcp.access import session_scope as _session_scope
 from app.models import (
@@ -184,6 +184,7 @@ def build_server(auth: AuthProvider | None = None) -> FastMCP:
     _register_read_tools(server)
     _register_source_tools(server)
     _register_write_tools(server)
+    _register_exam_tools(server)
     return server
 
 
@@ -415,6 +416,27 @@ def _register_read_tools(server: FastMCP) -> None:
     register_tool(server, "list_quizzes", list_quizzes, annotations=READ_ONLY)
     register_tool(server, "get_quiz", get_quiz, annotations=READ_ONLY)
     register_tool(server, "list_question_bank", list_question_bank, annotations=READ_ONLY)
+
+
+def _register_exam_tools(server: FastMCP) -> None:
+    register_tool(
+        server,
+        "list_pending_exam_submissions",
+        exam_tools.list_pending_exam_submissions,
+        annotations=READ_ONLY,
+    )
+    register_tool(
+        server,
+        "get_exam_submission_for_grading",
+        exam_tools.get_exam_submission_for_grading,
+        annotations=READ_ONLY,
+    )
+    register_tool(
+        server,
+        "record_exam_grades",
+        exam_tools.record_exam_grades,
+        annotations={"idempotentHint": True},
+    )
 
 
 def _register_source_tools(server: FastMCP) -> None:

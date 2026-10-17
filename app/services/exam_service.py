@@ -98,6 +98,15 @@ class ExamSummary:
 
 
 @dataclass(frozen=True)
+class PendingGrading:
+    id: int
+    title: str
+    submitted_at: datetime
+    written_count: int
+    ungraded_count: int
+
+
+@dataclass(frozen=True)
 class ExamReceipt:
     exam_id: int
     submitted_at: datetime
@@ -295,12 +304,7 @@ def release_exam(
     exam_id: int,
     grading: ExamGrading,
 ) -> ExamResultView:
-    if not access.can_manage_exams:
-        raise StudyAccessDenied("Only a reviewer can release exam results")
-    if len(grading.note) > MAX_REVIEW_NOTE_LENGTH:
-        raise ExamError(f"Review note must be at most {MAX_REVIEW_NOTE_LENGTH} characters")
-    assignment = _get_assignment(db, exam_id)
-    submission = _locked_submission(db, assignment.id)
+    assignment, submission = _grading_target(db, access, exam_id, grading.note)
     if submission.released_at is None:
         paper = parse_paper(assignment.paper_version, assignment.paper_json)
         checked = exam_grades.validated_grades(paper, grading.grades, complete=True)
@@ -308,6 +312,73 @@ def release_exam(
         _release_submission(submission, access.actor_id, grading.note)
         db.commit()
     return exam_result(_record(db, assignment, submission))
+
+
+def record_grades(
+    db: WorkspaceSession, access: StudyAccess, exam_id: int, grading: ExamGrading
+) -> ExamRecord:
+    assignment, submission = _grading_target(db, access, exam_id, grading.note)
+    paper = parse_paper(assignment.paper_version, assignment.paper_json)
+    checked = exam_grades.validated_grades(paper, grading.grades, complete=False)
+    exam_grades.save_grades(db, submission.id, checked)
+    submission.review_note = grading.note.strip()
+    db.commit()
+    return _record(db, assignment, submission)
+
+
+def pending_grading(db: WorkspaceSession, access: StudyAccess) -> list[PendingGrading]:
+    _require_reviewer(access)
+    rows = db.execute(
+        select(ExamAssignment, ExamSubmission)
+        .join(ExamSubmission, ExamSubmission.assignment_id == ExamAssignment.id)
+        .where(ExamSubmission.released_at.is_(None))
+        .order_by(ExamSubmission.submitted_at, ExamAssignment.id)
+    )
+    return [_pending_grading(db, assignment, submission) for assignment, submission in rows]
+
+
+def _pending_grading(
+    db: WorkspaceSession, assignment: ExamAssignment, submission: ExamSubmission
+) -> PendingGrading:
+    record = _record(db, assignment, submission)
+    written = {
+        question.key
+        for question in record.paper.questions
+        if isinstance(question, OpenEndedPaperQuestion)
+    }
+    return PendingGrading(
+        assignment.id,
+        assignment.title_snapshot,
+        submission.submitted_at,
+        len(written),
+        len(written - set(record.grades)),
+    )
+
+
+def unreleased_record(db: WorkspaceSession, access: StudyAccess, exam_id: int) -> ExamRecord:
+    _require_reviewer(access)
+    assignment = _get_assignment(db, exam_id)
+    submission = _find_submission(db, assignment.id)
+    if submission is None:
+        raise ExamError("The learner has not submitted this exam")
+    if submission.released_at is not None:
+        raise ExamError("This exam result is already released")
+    return _record(db, assignment, submission)
+
+
+def _grading_target(
+    db: WorkspaceSession, access: StudyAccess, exam_id: int, note: str
+) -> tuple[ExamAssignment, ExamSubmission]:
+    _require_reviewer(access)
+    if len(note) > MAX_REVIEW_NOTE_LENGTH:
+        raise ExamError(f"Review note must be at most {MAX_REVIEW_NOTE_LENGTH} characters")
+    assignment = _get_assignment(db, exam_id)
+    return assignment, _locked_submission(db, assignment.id)
+
+
+def _require_reviewer(access: StudyAccess) -> None:
+    if not access.can_manage_exams:
+        raise StudyAccessDenied("Only a reviewer previewing a learner can grade exam results")
 
 
 def _get_assignment(db: WorkspaceSession, exam_id: int) -> ExamAssignment:
