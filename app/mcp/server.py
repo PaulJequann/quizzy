@@ -24,7 +24,7 @@ from app.models import (
     SourceDocument,
     Subject,
 )
-from app.schemas import ChoiceCreate
+from app.schemas import DraftQuestionEdit
 from app.services import (
     concept_maintenance_service,
     concept_service,
@@ -371,7 +371,7 @@ def get_quiz(
     """Read quiz metadata; opt in to administrator-only answer content."""
     with _session_scope() as db:
         return generation_service.generated_quiz_to_dict(
-            db, quiz_id, include_answers=include_answers
+            db, quiz_id, include_answers=include_answers, include_rubric=include_answers
         )
 
 
@@ -467,26 +467,10 @@ def _register_draft_question_edit_tool(server: FastMCP) -> None:
     def update_draft_question(
         quiz_id: Annotated[int, Field(description="Draft quiz containing the question.")],
         question_id: Annotated[int, Field(description="Question to replace before attempts.")],
-        stem: Annotated[str, Field(description="Replacement question stem.")],
-        explanation: Annotated[
-            str | None, Field(description="Replacement explanation; null clears it.")
-        ] = None,
-        choices: Annotated[
-            list[ChoiceCreate] | None,
-            Field(description="All four ordered choices for a multiple-choice question."),
-        ] = None,
-        model_answer: Annotated[
-            str | None,
-            Field(description="Replacement model answer for an open-ended question."),
-        ] = None,
-        key_points: Annotated[
-            list[str] | None,
-            Field(description="Ordered rubric points for an open-ended question."),
-        ] = None,
-        grading_notes: Annotated[
-            str | None,
-            Field(description="Replacement open-ended grading notes."),
-        ] = None,
+        content: Annotated[
+            DraftQuestionEdit,
+            Field(description="Replacement content matching the stored question type."),
+        ],
     ) -> dict[str, Any]:
         """Replace draft question content; reject published or attempted questions."""
         with _session_scope() as db:
@@ -494,12 +478,7 @@ def _register_draft_question_edit_tool(server: FastMCP) -> None:
                 db,
                 quiz_id,
                 question_id,
-                stem=stem,
-                explanation=explanation,
-                choices=choices,
-                model_answer=model_answer,
-                key_points=key_points,
-                grading_notes=grading_notes,
+                content,
             )
             quiz = generation_service.generated_quiz_to_dict(db, quiz_id, include_answers=True)
             return {

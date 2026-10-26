@@ -60,8 +60,9 @@ a learner's library. In the learner's workspace, the reviewer can manage study m
 **Practice history**, open results, view mastery, and review assigned exams. Reviewer preview
 cannot submit practice attempts or exams for the learner.
 
-Learners can manage their own subjects, questions, quizzes, and practice sessions. Their material
-stays inside their workspace, and they cannot switch to another account or open account
+Learners can manage their own subjects, create questions and quizzes, and start practice sessions.
+Editing an existing question's answer key requires a reviewer administrator session. Their
+material stays inside their workspace, and they cannot switch to another account or open account
 administration. Practice results remain immediate and appear in practice history and mastery.
 
 ## Formal exams

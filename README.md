@@ -192,10 +192,11 @@ Recommended generation flow:
    It also returns source references and excerpts, and open-ended model answers, key points,
    and grading notes. This read is available only through the administrator MCP server and
    requires the target `workspace_id`.
-7. If a draft needs correction, call `update_draft_question` with `quiz_id`, `question_id`, a
-   replacement `stem`, and either four ordered `choices` (each with `text` and `is_correct`) or
-   the open-ended `model_answer`, `key_points`, and optional `grading_notes`. Pass `explanation`
-   to replace or clear it. The question must belong only to draft quizzes and have no attempts;
+7. If a draft needs correction, call `update_draft_question` with `quiz_id`, `question_id`, and
+   a `content` object containing the question type, replacement `stem`, and either four ordered
+   `choices` (each with `text` and `is_correct`) or the open-ended `model_answer`, `key_points`,
+   and optional `grading_notes`. Omit `explanation` to keep it, or pass a string or `null` to
+   replace or clear it. The question must belong only to draft quizzes and have no attempts;
    its type and source provenance stay unchanged. Publication remains a browser action.
 8. Assemble practice or review quizzes from the durable question bank.
 

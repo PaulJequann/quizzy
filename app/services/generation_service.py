@@ -311,7 +311,11 @@ def add_questions_to_quiz(
 
 
 def generated_quiz_to_dict(
-    db: Session, quiz_id: int, *, include_answers: bool = False
+    db: Session,
+    quiz_id: int,
+    *,
+    include_answers: bool = False,
+    include_rubric: bool = True,
 ) -> dict[str, Any]:
     quiz = db.scalar(
         select(Quiz)
@@ -336,7 +340,9 @@ def generated_quiz_to_dict(
         "quiz_type": quiz.quiz_type.value,
         "status": quiz.status.value,
         "questions": [
-            _generated_question_to_dict(question, include_answers=include_answers)
+            _generated_question_to_dict(
+                question, include_answers=include_answers, include_rubric=include_rubric
+            )
             for question in quiz.questions
         ],
     }
@@ -354,14 +360,14 @@ def _quiz_subject_name(quiz: Quiz) -> str | None:
 
 
 def _generated_question_to_dict(
-    question: Question, *, include_answers: bool = False
+    question: Question, *, include_answers: bool = False, include_rubric: bool = True
 ) -> dict[str, Any]:
     return {
         "id": question.id,
         "question_type": question.question_type.value,
         "exam_only": question.exam_only,
         "stem": question.stem,
-        **question_content.rubric_to_dict(question),
+        **(question_content.rubric_to_dict(question) if include_rubric else {}),
         "difficulty": question.difficulty.value,
         "status": question.status.value,
         "source_reference": question.source_reference,

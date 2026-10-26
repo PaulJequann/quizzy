@@ -1,12 +1,17 @@
 import asyncio
 import os
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
+from threading import Event
 
 import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
+from sqlalchemy import select
 
+from app.database import get_session_factory
 from app.mcp.server import build_server
 from app.models import (
     Attempt,
@@ -23,6 +28,9 @@ from app.models import (
     QuizType,
     Subject,
 )
+from app.schemas import ChoiceCreate, DraftMultipleChoiceEdit
+from app.services.quiz_service import update_draft_question
+from app.workspace_database import workspace_session
 from tests.workspace_clients import (
     create_learner,
     learner_browser,
@@ -114,6 +122,11 @@ def test_get_quiz_answer_readback_in_fresh_mcp_process(db_session):
             assert [row["id"] for row in complete["questions"]] == [written_id, choice_id]
             assert all("choices" not in row for row in ordinary["questions"])
             assert all("explanation" not in row for row in ordinary["questions"])
+            assert all(
+                field not in row
+                for row in ordinary["questions"]
+                for field in ("model_answer", "key_points", "grading_notes")
+            )
             written, multiple_choice = complete["questions"]
             assert written["model_answer"] == (
                 "Plants use light to make sugar from water and carbon dioxide."
@@ -150,9 +163,12 @@ def test_update_draft_question_replaces_choices_and_rubric(db_session):
                         "workspace_id": 1,
                         "quiz_id": quiz_id,
                         "question_id": choice_id,
-                        "stem": "What powers photosynthesis?",
-                        "explanation": "Sunlight supplies energy.",
-                        "choices": replacement_choices(),
+                        "content": {
+                            "question_type": "multiple_choice",
+                            "stem": "What powers photosynthesis?",
+                            "explanation": "Sunlight supplies energy.",
+                            "choices": replacement_choices(),
+                        },
                     },
                 )
             ).data["question"]
@@ -171,6 +187,22 @@ def test_update_draft_question_replaces_choices_and_rubric(db_session):
                 False,
             ]
             assert updated["source_reference"] == "science/chapter-1#plants"
+            retained = (
+                await client.call_tool(
+                    "update_draft_question",
+                    {
+                        "workspace_id": 1,
+                        "quiz_id": quiz_id,
+                        "question_id": choice_id,
+                        "content": {
+                            "question_type": "multiple_choice",
+                            "stem": "What powers photosynthesis?",
+                            "choices": replacement_choices(),
+                        },
+                    },
+                )
+            ).data["question"]
+            assert retained["explanation"] == "Sunlight supplies energy."
             rubric = (
                 await client.call_tool(
                     "update_draft_question",
@@ -178,11 +210,14 @@ def test_update_draft_question_replaces_choices_and_rubric(db_session):
                         "workspace_id": 1,
                         "quiz_id": quiz_id,
                         "question_id": written_id,
-                        "stem": "Describe how plants make sugar.",
-                        "explanation": None,
-                        "model_answer": "Plants use sunlight to make sugar.",
-                        "key_points": ["Uses sunlight", "Produces sugar"],
-                        "grading_notes": "Accept glucose.",
+                        "content": {
+                            "question_type": "open_ended",
+                            "stem": "Describe how plants make sugar.",
+                            "explanation": None,
+                            "model_answer": "Plants use sunlight to make sugar.",
+                            "key_points": ["Uses sunlight", "Produces sugar"],
+                            "grading_notes": "Accept glucose.",
+                        },
                     },
                 )
             ).data["question"]
@@ -197,11 +232,29 @@ def test_update_draft_question_replaces_choices_and_rubric(db_session):
                     {
                         "workspace_id": 1,
                         "quiz_id": quiz_id,
+                        "question_id": written_id,
+                        "content": {
+                            "question_type": "open_ended",
+                            "stem": "Incomplete rubric",
+                            "model_answer": "An answer",
+                        },
+                    },
+                )
+            with pytest.raises(ToolError):
+                await client.call_tool(
+                    "update_draft_question",
+                    {
+                        "workspace_id": 1,
+                        "quiz_id": quiz_id,
                         "question_id": choice_id,
-                        "stem": "Invalid key",
-                        "choices": [
-                            {"text": f"Option {index}", "is_correct": False} for index in range(4)
-                        ],
+                        "content": {
+                            "question_type": "multiple_choice",
+                            "stem": "Invalid key",
+                            "choices": [
+                                {"text": f"Option {index}", "is_correct": False}
+                                for index in range(4)
+                            ],
+                        },
                     },
                 )
             with pytest.raises(ToolError):
@@ -211,8 +264,11 @@ def test_update_draft_question_replaces_choices_and_rubric(db_session):
                         "workspace_id": 1,
                         "quiz_id": quiz_id,
                         "question_id": written_id,
-                        "stem": "Wrong type",
-                        "choices": replacement_choices(),
+                        "content": {
+                            "question_type": "multiple_choice",
+                            "stem": "Wrong type",
+                            "choices": replacement_choices(),
+                        },
                     },
                 )
 
@@ -247,8 +303,11 @@ def test_update_refuses_attempted_published_and_cross_workspace_questions(db_ses
                         "workspace_id": 1,
                         "quiz_id": quiz_id,
                         "question_id": choice_id,
-                        "stem": "Blocked attempt",
-                        "choices": replacement_choices(),
+                        "content": {
+                            "question_type": "multiple_choice",
+                            "stem": "Blocked attempt",
+                            "choices": replacement_choices(),
+                        },
                     },
                 )
             with pytest.raises(ToolError, match="every linked quiz"):
@@ -258,9 +317,12 @@ def test_update_refuses_attempted_published_and_cross_workspace_questions(db_ses
                         "workspace_id": 1,
                         "quiz_id": quiz_id,
                         "question_id": written_id,
-                        "stem": "Blocked publication",
-                        "model_answer": "A model answer",
-                        "key_points": ["First", "Second"],
+                        "content": {
+                            "question_type": "open_ended",
+                            "stem": "Blocked publication",
+                            "model_answer": "A model answer",
+                            "key_points": ["First", "Second"],
+                        },
                     },
                 )
             with pytest.raises(ToolError, match="draft quiz"):
@@ -270,9 +332,12 @@ def test_update_refuses_attempted_published_and_cross_workspace_questions(db_ses
                         "workspace_id": 1,
                         "quiz_id": shared.id,
                         "question_id": written_id,
-                        "stem": "Blocked published quiz",
-                        "model_answer": "A model answer",
-                        "key_points": ["First", "Second"],
+                        "content": {
+                            "question_type": "open_ended",
+                            "stem": "Blocked published quiz",
+                            "model_answer": "A model answer",
+                            "key_points": ["First", "Second"],
+                        },
                     },
                 )
             with pytest.raises(ToolError):
@@ -287,8 +352,11 @@ def test_update_refuses_attempted_published_and_cross_workspace_questions(db_ses
                         "workspace_id": learner_id,
                         "quiz_id": quiz_id,
                         "question_id": choice_id,
-                        "stem": "Cross workspace",
-                        "choices": replacement_choices(),
+                        "content": {
+                            "question_type": "multiple_choice",
+                            "stem": "Cross workspace",
+                            "choices": replacement_choices(),
+                        },
                     },
                 )
 
@@ -296,6 +364,50 @@ def test_update_refuses_attempted_published_and_cross_workspace_questions(db_ses
     db_session.expire_all()
     assert db_session.get(Question, choice_id).stem == "Which process makes sugar?"
     assert db_session.get(Question, written_id).stem == "Explain photosynthesis."
+
+
+@pytest.mark.parametrize("conflict", ["publish", "attempt"])
+def test_draft_update_waits_for_publication_or_attempt(db_session, conflict):
+    quiz_id, choice_id, _ = seed_draft_exam(db_session)
+    access = db_session.access
+    started = Event()
+
+    def edit_question():
+        started.set()
+        with workspace_session(access, drafts_only=True) as db:
+            return update_draft_question(
+                db,
+                quiz_id,
+                choice_id,
+                DraftMultipleChoiceEdit(
+                    stem="Changed after competing write",
+                    choices=[ChoiceCreate(**choice) for choice in replacement_choices()],
+                ),
+            )
+
+    with get_session_factory()() as competing:
+        quiz = competing.scalar(select(Quiz).where(Quiz.id == quiz_id).with_for_update())
+        assert quiz is not None
+        if conflict == "publish":
+            quiz.status = QuizStatus.PUBLISHED
+        else:
+            competing.add(
+                Attempt(quiz_id=quiz_id, workspace_id=access.workspace_id, total_questions=1)
+            )
+        competing.flush()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(edit_question)
+            assert started.wait(timeout=5)
+            try:
+                with pytest.raises(FutureTimeout):
+                    future.result(timeout=0.2)
+            finally:
+                competing.commit()
+            with pytest.raises(ValueError, match="draft quiz|attempts"):
+                future.result(timeout=5)
+
+    db_session.expire_all()
+    assert db_session.get(Question, choice_id).stem == "Which process makes sugar?"
 
 
 def test_learner_take_page_hides_correct_flags_and_explanation(db_session):

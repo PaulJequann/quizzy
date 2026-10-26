@@ -183,6 +183,34 @@ type QuestionCreate = Annotated[
 ]
 
 
+class DraftQuestionEditBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stem: str = Field(min_length=1)
+    explanation: str | None = None
+
+
+class DraftMultipleChoiceEdit(MultipleChoiceFields, DraftQuestionEditBase):
+    choices: list[ChoiceCreate] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def _one_correct_choice(self):
+        if sum(choice.is_correct for choice in self.choices) != 1:
+            raise ValueError("Exactly one choice must be correct")
+        return self
+
+
+class DraftOpenEndedEdit(OpenEndedFields, DraftQuestionEditBase):
+    pass
+
+
+type DraftQuestionEdit = Annotated[
+    Annotated[DraftMultipleChoiceEdit, Tag(QuestionType.MULTIPLE_CHOICE)]
+    | Annotated[DraftOpenEndedEdit, Tag(QuestionType.OPEN_ENDED)],
+    Discriminator(question_type_tag),
+]
+
+
 class KeyPointRead(BaseModel):
     id: int
     text: str
