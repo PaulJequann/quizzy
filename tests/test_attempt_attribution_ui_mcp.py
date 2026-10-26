@@ -1,6 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastmcp import Client
@@ -10,10 +11,16 @@ from sqlalchemy import select
 
 from app.database import get_session_factory
 from app.mcp.server import build_server
-from app.models import Attempt, AttemptRole, ExamSubmission, Quiz, utc_now
+from app.models import Attempt, AttemptRole, ExamAssignment, ExamSubmission, Quiz, utc_now
+from app.services.exam_paper import paper_from_quiz, paper_json
 from tests.conftest import seed_test_quiz
-from tests.test_open_ended_exam_grading import RELEASE_FORM, submitted_exam
-from tests.workspace_clients import create_learner, learner_browser, learner_session
+from tests.test_open_ended_exam_grading import RELEASE_FORM, seed_mixed_exam, submitted_exam
+from tests.workspace_clients import (
+    create_learner,
+    learner_browser,
+    learner_session,
+    reviewer_browser,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -204,6 +211,10 @@ def test_exam_review_result_and_mcp_packet_show_attribution(db_session, actor_ro
             select(ExamSubmission).where(ExamSubmission.assignment_id == exam.exam_id)
         )
         assert submission is not None
+        assert (submission.actor_id, submission.actor_role) == (
+            exam.learner_id,
+            AttemptRole.LEARNER,
+        )
         submission.actor_id, submission.actor_role = actor_id, actor_role
         fixture_db.commit()
     review = exam.reviewer.get(f"/exams/{exam.exam_id}")
@@ -261,6 +272,40 @@ def test_exam_review_result_and_mcp_packet_show_attribution(db_session, actor_ro
     assert actor_label in result.text
     if actor_role != AttemptRole.LEARNER:
         assert "This submission is excluded from learner mastery." in result.text
+
+
+def test_administrator_exam_submission_is_attributed_as_test(db_session):
+    administrator_id = db_session.access.actor_id
+    quiz_id = seed_mixed_exam(administrator_id)
+    quiz = db_session.get(Quiz, quiz_id)
+    assert quiz is not None
+    paper = paper_from_quiz(quiz)
+    assignment = ExamAssignment(
+        assigned_by_id=administrator_id,
+        source_quiz_id=quiz_id,
+        title_snapshot=quiz.title,
+        paper_version=paper.version,
+        paper_json=paper_json(paper),
+        request_key=uuid4(),
+    )
+    db_session.add(assignment)
+    db_session.commit()
+    browser = reviewer_browser()
+
+    response = browser.post(
+        f"/exams/{assignment.id}/submit", data={"answer_1": "1", "answer_2": "Testing"}
+    )
+
+    assert response.status_code == 303
+    with get_session_factory()() as fixture_db:
+        submission = fixture_db.scalar(
+            select(ExamSubmission).where(ExamSubmission.assignment_id == assignment.id)
+        )
+        assert submission is not None
+        assert (submission.actor_id, submission.actor_role) == (
+            administrator_id,
+            AttemptRole.TEST,
+        )
 
 
 def test_fresh_process_mcp_exposes_attributed_history(learner_study, db_session):
