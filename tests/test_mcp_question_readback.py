@@ -226,6 +226,23 @@ def test_update_draft_question_replaces_choices_and_rubric(db_session):
             assert rubric["model_answer"] == "Plants use sunlight to make sugar."
             assert rubric["key_points"] == ["Uses sunlight", "Produces sugar"]
             assert rubric["grading_notes"] == "Accept glucose."
+            retained_notes = (
+                await client.call_tool(
+                    "update_draft_question",
+                    {
+                        "workspace_id": 1,
+                        "quiz_id": quiz_id,
+                        "question_id": written_id,
+                        "content": {
+                            "question_type": "open_ended",
+                            "stem": "Describe how plants make sugar.",
+                            "model_answer": "Plants use sunlight to make sugar.",
+                            "key_points": ["Uses sunlight", "Produces sugar"],
+                        },
+                    },
+                )
+            ).data["question"]
+            assert retained_notes["grading_notes"] == "Accept glucose."
             with pytest.raises(ToolError):
                 await client.call_tool(
                     "update_draft_question",
@@ -391,9 +408,16 @@ def test_draft_update_waits_for_publication_or_attempt(db_session, conflict):
         if conflict == "publish":
             quiz.status = QuizStatus.PUBLISHED
         else:
-            competing.add(
-                Attempt(quiz_id=quiz_id, workspace_id=access.workspace_id, total_questions=1)
-            )
+            attempt = Attempt(quiz_id=quiz_id, workspace_id=access.workspace_id, total_questions=1)
+            attempt.answers = [
+                AttemptAnswer(
+                    question_id=choice_id,
+                    workspace_id=access.workspace_id,
+                    score=0,
+                    is_correct=False,
+                )
+            ]
+            competing.add(attempt)
         competing.flush()
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(edit_question)

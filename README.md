@@ -196,7 +196,8 @@ Recommended generation flow:
    a `content` object containing the question type, replacement `stem`, and either four ordered
    `choices` (each with `text` and `is_correct`) or the open-ended `model_answer`, `key_points`,
    and optional `grading_notes`. Omit `explanation` to keep it, or pass a string or `null` to
-   replace or clear it. The question must belong only to draft quizzes and have no attempts;
+   replace or clear it. Omitted `grading_notes` also keep their stored value; pass `null` to
+   clear them. The question must belong only to draft quizzes and have no attempts;
    its type and source provenance stay unchanged. Publication remains a browser action.
 8. Assemble practice or review quizzes from the durable question bank.
 

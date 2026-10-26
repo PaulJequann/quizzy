@@ -179,9 +179,6 @@ def update_draft_question(
 ) -> Question:
     if not content.stem.strip():
         raise ValueError("Question stem cannot be blank")
-    question = db.scalar(select(Question).where(Question.id == question_id).with_for_update())
-    if question is None or question.status == QuestionStatus.ARCHIVED:
-        raise ValueError("Question not found in the draft quiz")
     linked_quizzes = list(
         db.scalars(
             select(Quiz)
@@ -196,6 +193,14 @@ def update_draft_question(
         raise ValueError("Question updates require a draft quiz")
     if any(row.status != QuizStatus.DRAFT for row in linked_quizzes):
         raise ValueError("Question updates require every linked quiz to be a draft")
+    question = db.scalar(select(Question).where(Question.id == question_id).with_for_update())
+    if question is None or question.status == QuestionStatus.ARCHIVED:
+        raise ValueError("Question not found in the draft quiz")
+    current_links = set(
+        db.scalars(select(QuizQuestion.quiz_id).where(QuizQuestion.question_id == question_id))
+    )
+    if current_links != {row.id for row in linked_quizzes}:
+        raise ValueError("Question quiz links changed during update; retry")
     attempted = db.scalar(
         select(AttemptAnswer.id).where(AttemptAnswer.question_id == question_id).limit(1)
     )
