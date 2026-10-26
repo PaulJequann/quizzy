@@ -247,6 +247,9 @@ def test_mcp_grading_flow_in_fresh_process(mcp_database):
                 "title": "Plant exam",
                 "open_ended_count": 1,
                 "ungraded_count": 1,
+                "actor_id": exam.learner_id,
+                "actor_name": "Child",
+                "actor_role": "learner",
             }
         ]
     }

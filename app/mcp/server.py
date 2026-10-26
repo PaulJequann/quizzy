@@ -383,6 +383,7 @@ def list_question_bank(
 
 
 def _register_read_tools(server: FastMCP) -> None:
+    register_tool(server, "list_attempts", read_tools.list_attempts, annotations=READ_ONLY)
     register_tool(server, "get_generation_guidance", get_generation_guidance, annotations=READ_ONLY)
     register_tool(server, "get_status", get_status, annotations=READ_ONLY)
     register_tool(server, "list_subjects", list_subjects, annotations=READ_ONLY)
@@ -800,4 +801,7 @@ def prepare_next_practice(subject_id: int | None = None) -> dict:
     from app.services.teaching_brief_service import prepare_next_practice as build_brief
 
     with _session_scope() as db:
-        return build_brief(db, db.access.workspace_id, subject_id)
+        return {
+            **build_brief(db, db.access.workspace_id, subject_id),
+            "evidence_policy": "learner_only",
+        }

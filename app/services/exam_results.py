@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import ClassVar
 
 from app.services.exam_grades import Grade
@@ -69,6 +70,10 @@ class ExamResultView:
     total_questions: int
     feedback: tuple[AnswerFeedback, ...]
     review_note: str
+    actor_id: int | None
+    actor_role: str
+    submitted_at: datetime
+    actor_name: str | None
 
 
 @dataclass(frozen=True)
@@ -91,6 +96,10 @@ class ExamRecord:
     responses: Mapping[int, ResponseValue]
     grades: Mapping[int, Grade]
     review_note: str
+    actor_id: int | None
+    actor_role: str
+    submitted_at: datetime
+    actor_name: str | None
 
 
 def exam_result(record: ExamRecord) -> ExamResultView:
@@ -103,6 +112,10 @@ def exam_result(record: ExamRecord) -> ExamResultView:
         len(feedback),
         feedback,
         record.review_note,
+        record.actor_id,
+        record.actor_role,
+        record.submitted_at,
+        record.actor_name,
     )
 
 

@@ -154,6 +154,7 @@ def test_mastery_page_tracks_attempt_accuracy(client: TestClient, db_session: Se
     assert "Weak" in mastery_response.text
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_mastery_rolls_child_evidence_into_parent_concept(
     client: TestClient,
     db_session: Session,
@@ -306,6 +307,7 @@ def test_results_page_labels_missing_snapshots_and_shows_question_metadata(
     assert "Pytest Basics" in response.text
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_weak_concepts_api_returns_queue_evidence(client: TestClient, db_session: Session) -> None:
     question = db_session.scalar(select(Question).where(Question.stem == "What does pytest run?"))
     assert question is not None
@@ -549,6 +551,7 @@ def test_subject_quick_practice_assembles_disposable_session(
     assert practice.question_links[0].selection_reason.startswith("random_subject:")
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_question_health_review_queue_is_automatic_after_submit(
     client: TestClient,
     db_session: Session,
@@ -574,6 +577,7 @@ def test_question_health_review_queue_is_automatic_after_submit(
     assert "The first observed attempt missed this question." in detail_response.text
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_e2e_question_first_practice_flow(client: TestClient, db_session: Session) -> None:
     practice_response = client.post("/subjects/1/practice", follow_redirects=False)
     practice_id = int(practice_response.headers["location"].split("/")[2])

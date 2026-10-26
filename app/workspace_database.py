@@ -9,6 +9,7 @@ from app.exam_policy import require_exam_separation, require_unreleased_result
 from app.models import (
     Attempt,
     AttemptAnswer,
+    ExamSubmission,
     Question,
     QuestionReviewItem,
     Quiz,
@@ -74,6 +75,7 @@ def scope_reads(state: ORMExecuteState) -> None:
 def scope_writes(session: WorkspaceSession, flush_context, instances) -> None:
     for row in session.new | session.dirty | session.deleted:
         _guard_write(session, row)
+        _guard_attribution(session, row)
         require_unreleased_result(session, row)
     for row in session.new | session.dirty:
         require_exam_separation(session, row)
@@ -109,3 +111,34 @@ def workspace_session(access: StudyAccess, *, drafts_only: bool = False):
         access, drafts_only=drafts_only, bind=get_engine(), expire_on_commit=False, autoflush=False
     ) as session:
         yield session
+
+
+def _guard_attribution(session: WorkspaceSession, row) -> None:
+    if not isinstance(row, (Attempt, ExamSubmission)):
+        return
+    state = inspect(row)
+    if row not in session.new:
+        if any(state.attrs[name].history.has_changes() for name in ("actor_id", "actor_role")):
+            raise ValueError("Attribution is immutable")
+        return
+    if isinstance(row, Attempt) and row.exam_submission_id is not None:
+        submission = next(
+            (
+                item
+                for item in session.new
+                if isinstance(item, ExamSubmission) and item.id == row.exam_submission_id
+            ),
+            None,
+        ) or session.get(ExamSubmission, row.exam_submission_id)
+        if submission is None:
+            raise ValueError("Exam submission not found")
+        if submission in session.new:
+            _guard_attribution(session, submission)
+        actor_id, actor_role = submission.actor_id, submission.actor_role
+    else:
+        actor_id, actor_role = session.access.actor_id, session.access.attempt_role
+    for name, expected in (("actor_id", actor_id), ("actor_role", actor_role)):
+        attribute = state.attrs[name]
+        if attribute.history.has_changes() and getattr(row, name) != expected:
+            raise ValueError("Conflicting attribution")
+        setattr(row, name, expected)

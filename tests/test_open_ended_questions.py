@@ -279,6 +279,8 @@ def test_learner_mastery_counts_exam_answers(db_session):
     with reviewer_session(study.learner_id) as db:
         question = db.scalar(select(Question).where(Question.stem == EXAM_ONLY_STEM))
         assert question is not None
+        question_id = question.id
+    with learner_session(study.learner_id) as db:
         db.add(
             Attempt(
                 quiz_id=study.exam_quiz_id,
@@ -287,7 +289,7 @@ def test_learner_mastery_counts_exam_answers(db_session):
                 total_questions=1,
                 correct_count=1,
                 submitted_at=func.now(),
-                answers=[AttemptAnswer(question_id=question.id, is_correct=True, score=1.0)],
+                answers=[AttemptAnswer(question_id=question_id, is_correct=True, score=1.0)],
             )
         )
         db.commit()

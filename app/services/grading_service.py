@@ -2,9 +2,10 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.learner_evidence import learner_attempt_clause
 from app.models import (
     Attempt,
     AttemptAnswer,
@@ -373,7 +374,13 @@ def _accumulate_assignment_rows(
             Attempt.submitted_at,
         )
         .join(Question, Question.id == QuestionConcept.question_id)
-        .outerjoin(AttemptAnswer, AttemptAnswer.question_id == Question.id)
+        .outerjoin(
+            AttemptAnswer,
+            and_(
+                AttemptAnswer.question_id == Question.id,
+                AttemptAnswer.attempt_id.in_(select(Attempt.id).where(learner_attempt_clause())),
+            ),
+        )
         .outerjoin(Attempt, Attempt.id == AttemptAnswer.attempt_id)
         .where(
             Question.status == QuestionStatus.ACTIVE,

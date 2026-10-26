@@ -4,6 +4,10 @@
   <section class="mb-8 grid gap-6 lg:grid-cols-[0.7fr_1fr] lg:items-end">
     <div class="score-card">
       <p class="eyebrow">Result</p>
+      <p class="mt-2 text-sm" data-attempt-attribution>
+        {{ attempt.actor_role|display_label }} attempt · {% if attempt.actor_id is not none %}{{ attempt.actor_name or 'User' }} (User ID {{ attempt.actor_id }}){% else %}Unknown user ID{% endif %}
+      </p>
+      {% if attempt.actor_role != 'learner' %}<p class="mt-2 text-sm text-[var(--color-text-2)]">This attempt is excluded from learner mastery.</p>{% endif %}
       {% if attempt.answers|length <= 20 %}
         <nav class="ledger mt-3" aria-label="Question results">
           {% for answer in attempt.answers|sort(attribute="id") %}
@@ -84,7 +88,7 @@
         {% if explanation %}
           <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-4 py-3 text-sm leading-6 text-[var(--color-text-2)]">{{ explanation }}</p>
         {% endif %}
-        {% if answer and request.state.access.can_record_progress %}
+        {% if answer and request.state.access.can_record_progress and request.state.access.attempt_role == 'learner' and attempt.actor_role == 'learner' and attempt.actor_id == request.state.access.actor_id %}
           <section class="mt-4 border-t border-[var(--color-border)] pt-4" aria-label="Retrieval feedback for question {{ loop.index }}">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>

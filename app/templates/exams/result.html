@@ -5,6 +5,8 @@
     <div class="panel">
       <p class="eyebrow">Released exam result</p>
       <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
+      <p class="mt-2 text-sm" data-attempt-attribution>{{ page.actor_role|display_label }} submission · {% if page.actor_id is not none %}{{ page.actor_name or 'User' }} (User ID {{ page.actor_id }}){% else %}Unknown user ID{% endif %}</p>
+      {% if page.actor_role != 'learner' %}<p class="mt-2 text-sm text-[var(--color-text-2)]">This submission is excluded from learner mastery.</p>{% endif %}
       <p class="mt-4 text-2xl font-semibold">{{ page.score }}% <span class="text-base font-normal text-[var(--color-text-2)]">({{ page.correct_count }} of {{ page.total_questions }} correct)</span></p>
       {% if page.review_note %}<div class="mt-4 rounded-lg bg-[var(--color-surface-2)] p-4"><p class="eyebrow">Reviewer note</p><p class="mt-2 whitespace-pre-wrap">{{ page.review_note }}</p></div>{% endif %}
     </div>

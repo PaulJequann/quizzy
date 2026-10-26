@@ -75,7 +75,12 @@ def _legacy_snapshot():
                         *(
                             column
                             for column in Base.metadata.tables[name].columns
-                            if column.name != "workspace_id"
+                            if column.name not in {"workspace_id", "actor_id", "actor_role"}
+                            and (
+                                name != "questions"
+                                or column.name
+                                not in {"health_state", "health_score", "last_health_checked_at"}
+                            )
                         )
                     )
                 ).mappings()

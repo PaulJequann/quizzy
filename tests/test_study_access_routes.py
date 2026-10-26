@@ -6,7 +6,7 @@ from app.auth.models import User
 from app.database import get_session_factory
 from app.main import create_app
 from app.mcp.access import authorize_mcp_workspace
-from app.models import Quiz
+from app.models import AttemptAnswer, AttemptRole, Quiz
 from app.services.grading_service import submit_attempt
 
 pytestmark = pytest.mark.integration
@@ -114,9 +114,12 @@ def test_feedback_route_matrix_and_controls(study_browser, db_session):
         },
     )
     assert report.status_code == 200
+    learner_answer = db_session.scalar(select(AttemptAnswer).order_by(AttemptAnswer.id.desc()))
+    assert learner_answer is not None
+    assert learner_answer.attempt.actor_role == AttemptRole.LEARNER
     assert (
         study_browser.post(
-            f"/api/attempt-answers/{answer.id}/retrieval-feedback",
+            f"/api/attempt-answers/{learner_answer.id}/retrieval-feedback",
             json={
                 "retrieval_friction_rating": 1,
             },

@@ -20,6 +20,7 @@ from app.services.mastery_evidence_service import capped_family_evidence
 pytestmark = pytest.mark.api
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_retrieval_feedback_persists_and_updates_concept_schedule(
     client: TestClient,
     db_session: Session,
@@ -56,6 +57,7 @@ def test_retrieval_feedback_persists_and_updates_concept_schedule(
     assert state.due_at is not None
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_results_page_marks_recorded_retrieval_feedback_as_selected(
     client: TestClient,
     db_session: Session,
@@ -168,6 +170,7 @@ def test_quick_question_flag_is_idempotent_and_available_to_agents(
     assert context["learner_feedback"][0]["reported_from"] == "quick"
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_wrong_shaky_feedback_resets_concept_interval(
     client: TestClient,
     db_session: Session,
@@ -186,6 +189,7 @@ def test_wrong_shaky_feedback_resets_concept_interval(
     assert state.consecutive_spaced_correct == 0
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_fluent_repeat_in_same_session_does_not_advance_interval_twice(
     client: TestClient,
     db_session: Session,
@@ -212,6 +216,7 @@ def test_fluent_repeat_in_same_session_does_not_advance_interval_twice(
         (False, 1, "suspect_question_evidence_ignored", True),
     ],
 )
+@pytest.mark.usefixtures("learner_client")
 def test_suspect_question_feedback_does_not_mutate_concept_schedule(
     client: TestClient,
     db_session: Session,
@@ -265,6 +270,7 @@ def test_web_issue_report_sanitizes_referer_redirect(
     assert response.headers["location"] == expected_location
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_repeated_exact_question_evidence_is_capped_in_mastery(
     client: TestClient,
     db_session: Session,

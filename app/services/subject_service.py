@@ -211,9 +211,7 @@ def get_subject(db: Session, subject_id: int) -> Subject | None:
         select(Subject)
         .where(Subject.id == subject_id)
         .options(
-            selectinload(Subject.concepts)
-            .selectinload(Concept.questions)
-            .selectinload(Question.attempt_answers),
+            selectinload(Subject.concepts).selectinload(Concept.questions),
             selectinload(Subject.questions).selectinload(Question.concepts),
             selectinload(Subject.questions).selectinload(Question.quizzes),
             selectinload(Subject.primary_quizzes),

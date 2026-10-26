@@ -7,9 +7,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.learner_evidence import is_learner_attempt, learner_attempt_clause
 from app.models import (
     Attempt,
     AttemptAnswer,
+    AttemptRole,
     Concept,
     ConceptAssignmentRole,
     ConceptReviewState,
@@ -19,6 +21,7 @@ from app.models import (
     QuestionHealthState,
     QuestionStatus,
 )
+from app.workspace_database import WorkspaceSession
 
 SHAKY = 1
 EFFORTFUL = 2
@@ -82,6 +85,10 @@ def record_retrieval_feedback(
     response_time_ms: int | None = None,
 ) -> list[ConceptScheduleUpdate]:
     answer = _attempt_answer(db, attempt_answer_id)
+    if isinstance(db, WorkspaceSession) and db.access.attempt_role != AttemptRole.LEARNER:
+        raise ValueError("Retrieval feedback requires a learner session.")
+    if not is_learner_attempt(answer.attempt):
+        raise ValueError("Retrieval feedback requires a learner attempt.")
     validate_retrieval_feedback(answer, friction_rating)
     if response_time_ms is not None and response_time_ms < 0:
         raise ValueError("Response time cannot be negative.")
@@ -113,6 +120,10 @@ def update_concept_schedule_from_answer(
     context: ScheduleContext,
     now: datetime,
 ) -> ConceptScheduleUpdate:
+    if isinstance(db, WorkspaceSession) and db.access.attempt_role != AttemptRole.LEARNER:
+        raise ValueError("Only learner sessions can change review schedules.")
+    if not is_learner_attempt(context.answer.attempt):
+        raise ValueError("Only learner attempts can change review schedules.")
     state = _review_state_for_concept(db, context.concept)
     previous_due_at = state.due_at
     previous_interval_days = state.interval_days
@@ -326,6 +337,7 @@ def _same_family_seen_recently(
             QuestionConcept.concept_id == concept_id,
             Attempt.submitted_at.is_not(None),
             Attempt.submitted_at >= since,
+            learner_attempt_clause(),
         )
         .limit(1)
     )

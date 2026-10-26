@@ -8,9 +8,10 @@ from app.services.exam_grades import Grade
 from app.services.exam_paper import PaperQuestion
 from app.services.exam_results import ExamRecord
 from app.services.grading_service import ConceptMastery, get_mastery_rows
+from app.workspace_database import WorkspaceSession
 
 
-def grading_packet(db: Session, record: ExamRecord) -> dict[str, Any]:
+def grading_packet(db: WorkspaceSession, record: ExamRecord) -> dict[str, Any]:
     sources = _source_questions(db, [question.question_id for question in record.paper.questions])
     questions = [
         _packet_question(record, question, sources.get(question.question_id))
@@ -19,7 +20,13 @@ def grading_packet(db: Session, record: ExamRecord) -> dict[str, Any]:
     concept_ids = {concept["concept_id"] for item in questions for concept in item["concepts"]}
     return {
         "exam_id": record.id,
+        "workspace_id": db.access.workspace_id,
         "title": record.title,
+        "actor_id": record.actor_id,
+        "actor_name": record.actor_name,
+        "actor_role": record.actor_role,
+        "submitted_at": record.submitted_at.isoformat(),
+        "evidence_policy": "learner_only",
         "review_note": record.review_note,
         "questions": questions,
         "mastery": [

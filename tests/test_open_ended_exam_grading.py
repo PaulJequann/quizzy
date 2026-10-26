@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -349,7 +350,18 @@ def test_written_answer_counts_as_correct_only_above_half(
 ):
     key_points = [f"Point {number}" for number in range(1, key_point_count + 1)]
     paper = parse_paper(1, [written_paper_question(key_points=key_points)])
-    record = ExamRecord(1, "Plant exam", paper, {1: "Answer"}, {1: Grade(met, "Feedback")}, "")
+    record = ExamRecord(
+        1,
+        "Plant exam",
+        paper,
+        {1: "Answer"},
+        {1: Grade(met, "Feedback")},
+        "",
+        None,
+        "unknown",
+        datetime.now(UTC),
+        None,
+    )
 
     result = exam_result(record)
 

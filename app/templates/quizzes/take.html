@@ -7,6 +7,8 @@
   <section data-quiz-flow>
     {% if request.state.access.is_preview %}
       <p class="mb-4 text-sm text-[var(--color-text-2)]">Reviewer preview · submissions disabled</p>
+    {% elif request.state.access.attempt_role == 'test' %}
+      <p class="mb-4 text-sm text-[var(--color-text-2)]">Test attempt · {{ request.state.actor.display_name }} (User ID {{ request.state.access.actor_id }}) · excluded from learner mastery</p>
     {% endif %}
     <div class="mb-6 flex items-start justify-between gap-4">
       <div>
