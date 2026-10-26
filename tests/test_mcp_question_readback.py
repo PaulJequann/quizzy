@@ -434,6 +434,56 @@ def test_draft_update_waits_for_publication_or_attempt(db_session, conflict):
     assert db_session.get(Question, choice_id).stem == "Which process makes sugar?"
 
 
+def test_draft_update_retries_when_quiz_links_change(db_session):
+    quiz_id, choice_id, _ = seed_draft_exam(db_session)
+    access = db_session.access
+    second_quiz = Quiz(title="Another draft", status=QuizStatus.DRAFT)
+    db_session.add(second_quiz)
+    db_session.commit()
+    started = Event()
+
+    def edit_question():
+        started.set()
+        with workspace_session(access, drafts_only=True) as db:
+            return update_draft_question(
+                db,
+                quiz_id,
+                choice_id,
+                DraftMultipleChoiceEdit(
+                    stem="Changed after link addition",
+                    choices=[ChoiceCreate(**choice) for choice in replacement_choices()],
+                ),
+            )
+
+    with get_session_factory()() as competing:
+        question = competing.scalar(
+            select(Question).where(Question.id == choice_id).with_for_update()
+        )
+        assert question is not None
+        competing.add(
+            QuizQuestion(
+                quiz_id=second_quiz.id,
+                question_id=choice_id,
+                order_index=1,
+                workspace_id=access.workspace_id,
+            )
+        )
+        competing.flush()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(edit_question)
+            assert started.wait(timeout=5)
+            try:
+                with pytest.raises(FutureTimeout):
+                    future.result(timeout=0.2)
+            finally:
+                competing.commit()
+            with pytest.raises(ValueError, match="quiz links changed during update"):
+                future.result(timeout=5)
+
+    db_session.expire_all()
+    assert db_session.get(Question, choice_id).stem == "Which process makes sugar?"
+
+
 def test_learner_take_page_hides_correct_flags_and_explanation(db_session):
     learner_id = create_learner("readback-learner@example.com", "Readback learner")
     with learner_session(learner_id) as db:
@@ -473,7 +523,13 @@ def test_learner_take_page_hides_correct_flags_and_explanation(db_session):
     assert "Respiration" in response.text
     assert "is_correct" not in response.text
     assert "SECRET EXPLANATION" not in response.text
-    assert browser.get(f"/quizzes/{quiz_id}").status_code == 303
+    detail = browser.get(f"/quizzes/{quiz_id}")
+    assert detail.status_code == 200
+    assert "Add questions" in detail.text
+    assert "Photosynthesis" in detail.text
+    assert "choice-chip-correct" not in detail.text
+    assert "SECRET EXPLANATION" not in detail.text
+    assert f"/quizzes/{quiz_id}/questions/{question_id}/edit" not in detail.text
     question_form = browser.get(f"/quizzes/{quiz_id}/questions/new")
     assert question_form.status_code == 200
     assert "choice-chip-correct" not in question_form.text
@@ -494,12 +550,22 @@ def test_learner_take_page_hides_correct_flags_and_explanation(db_session):
     assert reviewer_response.status_code == 200
     assert reviewer_response.json()["questions"][0]["choices"][0]["is_correct"] is True
     assert "SECRET EXPLANATION" in reviewer_response.text
+    reviewer_detail = reviewer_browser(learner_id).get(f"/quizzes/{quiz_id}")
+    assert "choice-chip-correct" in reviewer_detail.text
+    assert "SECRET EXPLANATION" in reviewer_detail.text
     draft = browser.post(
-        "/api/quizzes", json={"title": "Learner draft", "topic": "Learner science"}
+        "/api/quizzes",
+        json={"title": "Learner draft", "topic": "Learner science", "status": "draft"},
     )
     assert draft.status_code == 201
+    draft_id = draft.json()["id"]
+    draft_detail = browser.get(f"/quizzes/{draft_id}")
+    assert draft_detail.status_code == 200
+    assert f"/quizzes/{draft_id}/questions/new" in draft_detail.text
+    assert "Publish" in draft_detail.text
+    assert f"/quizzes/{draft_id}/take" not in draft_detail.text
     created = browser.post(
-        f"/api/quizzes/{draft.json()['id']}/questions",
+        f"/api/quizzes/{draft_id}/questions",
         json={
             "stem": "Which process makes sugar?",
             "explanation": "A hidden draft explanation.",
@@ -510,3 +576,4 @@ def test_learner_take_page_hides_correct_flags_and_explanation(db_session):
     assert created.status_code == 201, created.text
     assert "is_correct" not in created.text
     assert "A hidden draft explanation" not in created.text
+    assert browser.post(f"/quizzes/{draft_id}/publish").status_code == 200
