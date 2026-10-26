@@ -529,7 +529,7 @@ async def post_quiz(
 @router.get("/quizzes/{quiz_id}", response_class=HTMLResponse)
 @study_operation(StudyOperation.VIEW)
 def quiz_detail(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
-    if not request.state.access.can_manage_study:
+    if not request.state.access.actor_is_superuser:
         return redirect(f"/quizzes/{quiz_id}/take")
     quiz = get_quiz(db, quiz_id)
     if quiz is None:

@@ -1,14 +1,14 @@
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth.boundary import study_operation
 from app.database import get_db
-from app.models import Concept, Subject
+from app.models import Concept, Question, Quiz, Subject
 from app.routes import concept_api_actions
 from app.schemas import (
     AttemptCreate,
@@ -22,8 +22,10 @@ from app.schemas import (
     ConceptUpdate,
     QuestionCreate,
     QuestionRead,
+    QuestionStudyRead,
     QuizCreate,
     QuizRead,
+    QuizStudyRead,
 )
 from app.services import (
     concept_lifecycle_service,
@@ -39,10 +41,22 @@ from app.study_access import StudyOperation
 router = APIRouter(prefix="/api", tags=["api"])
 
 
-@router.get("/quizzes", response_model=list[QuizRead])
+def _quiz_view(request: Request, quiz: Quiz) -> QuizRead | QuizStudyRead:
+    if request.state.access.actor_is_superuser:
+        return QuizRead.model_validate(quiz)
+    return QuizStudyRead.model_validate(quiz)
+
+
+def _question_view(request: Request, question: Question) -> QuestionRead | QuestionStudyRead:
+    if request.state.access.actor_is_superuser:
+        return QuestionRead.model_validate(question)
+    return QuestionStudyRead.model_validate(question)
+
+
+@router.get("/quizzes", response_model=list[QuizRead | QuizStudyRead])
 @study_operation(StudyOperation.MANAGE)
-def api_quizzes(db: Annotated[Session, Depends(get_db)]):
-    return list_quizzes(db)
+def api_quizzes(request: Request, db: Annotated[Session, Depends(get_db)]):
+    return [_quiz_view(request, quiz) for quiz in list_quizzes(db)]
 
 
 @router.get("/mastery/weak-concepts", response_model=list[ConceptQueueItemRead])
@@ -191,24 +205,29 @@ def api_merge_concepts(
     )
 
 
-@router.get("/quizzes/{quiz_id}", response_model=QuizRead)
+@router.get("/quizzes/{quiz_id}", response_model=QuizRead | QuizStudyRead)
 @study_operation(StudyOperation.MANAGE)
-def api_quiz(quiz_id: int, db: Annotated[Session, Depends(get_db)]):
+def api_quiz(request: Request, quiz_id: int, db: Annotated[Session, Depends(get_db)]):
     quiz = get_quiz(db, quiz_id)
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
-    return quiz
+    return _quiz_view(request, quiz)
 
 
-@router.post("/quizzes", response_model=QuizRead, status_code=201)
+@router.post("/quizzes", response_model=QuizRead | QuizStudyRead, status_code=201)
 @study_operation(StudyOperation.MANAGE)
-def api_create_quiz(payload: QuizCreate, db: Annotated[Session, Depends(get_db)]):
-    return create_quiz(db, payload)
+def api_create_quiz(request: Request, payload: QuizCreate, db: Annotated[Session, Depends(get_db)]):
+    return _quiz_view(request, create_quiz(db, payload))
 
 
-@router.post("/quizzes/{quiz_id}/questions", response_model=QuestionRead, status_code=201)
+@router.post(
+    "/quizzes/{quiz_id}/questions",
+    response_model=QuestionRead | QuestionStudyRead,
+    status_code=201,
+)
 @study_operation(StudyOperation.MANAGE)
 def api_create_question(
+    request: Request,
     quiz_id: int,
     payload: QuestionCreate,
     db: Annotated[Session, Depends(get_db)],
@@ -217,7 +236,7 @@ def api_create_question(
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
     try:
-        return create_question(db, quiz, payload)
+        return _question_view(request, create_question(db, quiz, payload))
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -241,17 +260,23 @@ def api_create_attempt(
     return attempt
 
 
-@router.post("/subjects/{subject_id}/practice", response_model=QuizRead, status_code=201)
+@router.post(
+    "/subjects/{subject_id}/practice",
+    response_model=QuizRead | QuizStudyRead,
+    status_code=201,
+)
 @study_operation(StudyOperation.MANAGE)
 def api_create_subject_practice(
+    request: Request,
     subject_id: int,
     db: Annotated[Session, Depends(get_db)],
 ):
     try:
-        return practice_service.assemble_practice_session(
+        quiz = practice_service.assemble_practice_session(
             db,
             practice_service.PracticeAssemblyInput(subject_id=subject_id),
         )
+        return _quiz_view(request, quiz)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

@@ -4,6 +4,8 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
+    Attempt,
+    AttemptAnswer,
     Concept,
     ConceptAssignmentRole,
     Difficulty,
@@ -163,6 +165,76 @@ def update_question(db: Session, question: Question, data: QuestionCreate) -> Qu
     question.source_reference = (data.source_reference or "").strip() or None
     apply_content(question, data)
     db.commit()
+    return question
+
+
+def update_draft_question(
+    db: Session,
+    quiz_id: int,
+    question_id: int,
+    *,
+    stem: str,
+    explanation: str | None,
+    choices: list[ChoiceCreate] | None,
+    model_answer: str | None,
+    key_points: list[str] | None,
+    grading_notes: str | None,
+) -> Question:
+    if not stem.strip():
+        raise ValueError("Question stem cannot be blank")
+    quiz = get_quiz(db, quiz_id)
+    if quiz is None or quiz.status != QuizStatus.DRAFT:
+        raise ValueError("Question updates require a draft quiz")
+    question = next((item for item in quiz.questions if item.id == question_id), None)
+    if question is None or question.status == QuestionStatus.ARCHIVED:
+        raise ValueError("Question not found in the draft quiz")
+    other_use = db.scalar(
+        select(Quiz.id)
+        .join(QuizQuestion)
+        .where(QuizQuestion.question_id == question_id, Quiz.status != QuizStatus.DRAFT)
+        .limit(1)
+    )
+    if other_use is not None:
+        raise ValueError("Question updates require every linked quiz to be a draft")
+    attempted = db.scalar(
+        select(AttemptAnswer.id).where(AttemptAnswer.question_id == question_id).limit(1)
+    )
+    if attempted is None:
+        attempted = db.scalar(
+            select(Attempt.id)
+            .join(QuizQuestion, QuizQuestion.quiz_id == Attempt.quiz_id)
+            .where(QuizQuestion.question_id == question_id)
+            .limit(1)
+        )
+    if attempted is not None:
+        raise ValueError("Questions with attempts cannot be updated")
+
+    if question.question_type == QuestionType.MULTIPLE_CHOICE:
+        if choices is None or any(
+            value is not None for value in (model_answer, key_points, grading_notes)
+        ):
+            raise ValueError("Multiple-choice updates require choices and no rubric fields")
+        if any(not choice.text.strip() for choice in choices):
+            raise ValueError("Choices cannot be blank")
+        content: QuestionCreate = MultipleChoiceQuestionCreate(
+            stem=stem, explanation=explanation, choices=choices
+        )
+    else:
+        if choices is not None or model_answer is None or key_points is None:
+            raise ValueError("Open-ended updates require a rubric and no choices")
+        content = OpenEndedQuestionCreate(
+            question_type=QuestionType.OPEN_ENDED,
+            stem=stem,
+            explanation=explanation,
+            model_answer=model_answer,
+            key_points=key_points,
+            grading_notes=grading_notes,
+        )
+    question.stem = content.stem.strip()
+    question.explanation = (content.explanation or "").strip() or None
+    apply_content(question, content)
+    db.commit()
+    db.refresh(question)
     return question
 
 

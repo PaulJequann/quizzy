@@ -310,7 +310,9 @@ def add_questions_to_quiz(
     }
 
 
-def generated_quiz_to_dict(db: Session, quiz_id: int) -> dict[str, Any]:
+def generated_quiz_to_dict(
+    db: Session, quiz_id: int, *, include_answers: bool = False
+) -> dict[str, Any]:
     quiz = db.scalar(
         select(Quiz)
         .where(Quiz.id == quiz_id)
@@ -333,7 +335,10 @@ def generated_quiz_to_dict(db: Session, quiz_id: int) -> dict[str, Any]:
         "difficulty": quiz.difficulty.value,
         "quiz_type": quiz.quiz_type.value,
         "status": quiz.status.value,
-        "questions": [_generated_question_to_dict(question) for question in quiz.questions],
+        "questions": [
+            _generated_question_to_dict(question, include_answers=include_answers)
+            for question in quiz.questions
+        ],
     }
 
 
@@ -348,7 +353,9 @@ def _quiz_subject_name(quiz: Quiz) -> str | None:
     return quiz.primary_subject.name if quiz.primary_subject else None
 
 
-def _generated_question_to_dict(question: Question) -> dict[str, Any]:
+def _generated_question_to_dict(
+    question: Question, *, include_answers: bool = False
+) -> dict[str, Any]:
     return {
         "id": question.id,
         "question_type": question.question_type.value,
@@ -361,6 +368,22 @@ def _generated_question_to_dict(question: Question) -> dict[str, Any]:
         "source_document_id": question.source_document_id,
         "source_snapshot_id": question.source_snapshot_id,
         "source_excerpt": question.source_excerpt,
+        **(
+            {
+                "explanation": question.explanation,
+                "choices": [
+                    {
+                        "id": choice.id,
+                        "text": choice.text,
+                        "is_correct": choice.is_correct,
+                        "order_index": choice.order_index,
+                    }
+                    for choice in question.choices
+                ],
+            }
+            if include_answers
+            else {}
+        ),
         "generation_batch_id": question.generation_batch_id,
         "health_state": question.health_state.value,
         "concepts": [

@@ -81,6 +81,14 @@ class ChoiceRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChoiceStudyRead(BaseModel):
+    id: int
+    text: str
+    order_index: int
+
+    model_config = {"from_attributes": True}
+
+
 class SubjectRead(BaseModel):
     id: int
     name: str
@@ -210,6 +218,15 @@ class QuestionRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class QuestionStudyRead(BaseModel):
+    id: int
+    stem: str
+    question_type: QuestionType
+    choices: list[ChoiceStudyRead]
+
+    model_config = {"from_attributes": True}
+
+
 class QuizCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = ""
@@ -218,7 +235,7 @@ class QuizCreate(BaseModel):
     status: QuizStatus = QuizStatus.DRAFT
 
 
-class QuizRead(BaseModel):
+class QuizReadBase(BaseModel):
     id: int
     title: str
     description: str
@@ -233,9 +250,15 @@ class QuizRead(BaseModel):
     is_disposable: bool
     created_at: datetime
     updated_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class QuizRead(QuizReadBase):
     questions: list[QuestionRead] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+
+class QuizStudyRead(QuizReadBase):
+    questions: list[QuestionStudyRead] = Field(default_factory=list)
 
 
 class AttemptAnswerCreate(BaseModel):
