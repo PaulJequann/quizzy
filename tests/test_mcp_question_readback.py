@@ -16,6 +16,7 @@ from app.mcp.server import build_server
 from app.models import (
     Attempt,
     AttemptAnswer,
+    AttemptRole,
     Choice,
     Difficulty,
     Question,
@@ -408,7 +409,13 @@ def test_draft_update_waits_for_publication_or_attempt(db_session, conflict):
         if conflict == "publish":
             quiz.status = QuizStatus.PUBLISHED
         else:
-            attempt = Attempt(quiz_id=quiz_id, workspace_id=access.workspace_id, total_questions=1)
+            attempt = Attempt(
+                quiz_id=quiz_id,
+                workspace_id=access.workspace_id,
+                actor_id=access.workspace_id,
+                actor_role=AttemptRole.LEARNER,
+                total_questions=1,
+            )
             attempt.answers = [
                 AttemptAnswer(
                     question_id=choice_id,
