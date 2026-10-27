@@ -200,6 +200,7 @@ def test_bootstrap_claims_inactive_parent_once(db_session):
         assert browser.post("/quizzes/1/submit").status_code == 403
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_progress_links_to_real_results_and_teaching_contains_misses(client, db_session):
     from app.models import Quiz
     from app.services.grading_service import submit_attempt

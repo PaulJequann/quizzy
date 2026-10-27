@@ -65,18 +65,11 @@ def test_login_accepts_configured_https_origin_behind_proxy(db_session, monkeypa
         )
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_learner_result_feedback_uses_actual_json_endpoint(client, db_session):
-    from app.auth.models import User
-    from app.database import get_session_factory
-
     quiz = db_session.scalar(select(Quiz))
     attempt = submit_attempt(db_session, quiz, {})
     answer = attempt.answers[0]
-    with get_session_factory()() as accounts:
-        learner = accounts.get(User, 1)
-        assert learner is not None
-        learner.is_superuser = False
-        accounts.commit()
     response = client.post(
         f"/api/attempt-answers/{answer.id}/retrieval-feedback",
         json={"retrieval_friction_rating": 1},
@@ -90,6 +83,7 @@ def test_learner_result_feedback_uses_actual_json_endpoint(client, db_session):
     )
 
 
+@pytest.mark.usefixtures("learner_client")
 def test_teaching_labels_missing_historical_snapshot(client, db_session):
     from app.services.teaching_brief_service import prepare_next_practice
 

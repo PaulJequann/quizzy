@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from app.models import (
+    AttemptRole,
     ConceptAssignmentRole,
     ConceptStatus,
     Difficulty,
@@ -300,7 +301,11 @@ class AttemptCreate(BaseModel):
 
 class AttemptRead(BaseModel):
     id: int
+    workspace_id: int
     quiz_id: int
+    actor_id: int | None
+    actor_name: str | None
+    actor_role: AttemptRole
     score: float
     total_questions: int
     correct_count: int

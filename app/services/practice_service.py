@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.learner_evidence import is_learner_attempt
 from app.models import (
     AttemptAnswer,
     Concept,
@@ -324,13 +325,14 @@ def _expanded_concept_ids(db: Session, concept_ids: list[int]) -> list[int]:
 
 
 def _recency_score(question: Question) -> float:
-    return 10 if not question.attempt_answers else 0
+    return 10 if not _learner_answers(question) else 0
 
 
 def _spaced_review_score(question: Question) -> float:
-    if not question.attempt_answers:
+    answers = _learner_answers(question)
+    if not answers:
         return 20
-    missed_count = sum(not answer.is_correct for answer in question.attempt_answers)
+    missed_count = sum(not answer.is_correct for answer in answers)
     return 10 + missed_count
 
 
@@ -339,7 +341,7 @@ def _mastery_review_score(question: Question, data: PracticeAssemblyInput) -> fl
         return 80
     if _has_due_primary_concept(question, data.due_concept_ids):
         return 70
-    if not question.attempt_answers:
+    if not _learner_answers(question):
         return 45
     return 35
 
@@ -361,15 +363,20 @@ def _has_unresolved_primary_miss(question: Question, concept_ids: list[int] | No
 
 
 def _latest_answer(question: Question) -> AttemptAnswer | None:
-    if not question.attempt_answers:
+    answers = _learner_answers(question)
+    if not answers:
         return None
     return max(
-        question.attempt_answers,
+        answers,
         key=lambda answer: (
             answer.attempt.submitted_at or answer.answered_at or datetime.min.replace(tzinfo=UTC),
             answer.id,
         ),
     )
+
+
+def _learner_answers(question: Question) -> list[AttemptAnswer]:
+    return [answer for answer in question.attempt_answers if is_learner_attempt(answer.attempt)]
 
 
 def _selection_reason(question: Question, data: PracticeAssemblyInput) -> str:
@@ -379,7 +386,7 @@ def _selection_reason(question: Question, data: PracticeAssemblyInput) -> str:
             return "mastery_review: learning concept with unresolved primary miss"
         if _has_due_primary_concept(question, data.due_concept_ids):
             return "mastery_review: concept due for spaced retrieval"
-        if not question.attempt_answers:
+        if not _learner_answers(question):
             return "mastery_review: coverage slot for unseen concept"
     if question.health_state == QuestionHealthState.UNTESTED:
         return f"{strategy}: exploration slot for an untested active question"

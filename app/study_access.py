@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.models import QuizStatus
+from app.models import AttemptRole, QuizStatus
 
 
 class StudyOperation(Enum):
@@ -31,6 +31,12 @@ class StudyAccess:
     @property
     def can_record_progress(self) -> bool:
         return not self.is_preview
+
+    @property
+    def attempt_role(self) -> AttemptRole:
+        if not self.can_record_progress:
+            raise StudyAccessDenied("Preview cannot record progress")
+        return AttemptRole.TEST if self.actor_is_superuser else AttemptRole.LEARNER
 
     @property
     def can_manage_and_record(self) -> bool:

@@ -2,7 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.auth.models import User
+from app.database import get_db, get_session_factory
 from app.main import create_app
 from app.models import (
     Choice,
@@ -19,6 +20,7 @@ from app.models import (
     Subject,
 )
 from app.services.concept_service import normalize_concept_name
+from app.study_access import resolve_study_access
 from tests.db_utils import clear_database_caches, reset_database, testcontainers_postgres_database
 
 
@@ -51,6 +53,17 @@ def client(db_session):
     )
     assert response.status_code == 204
     return browser
+
+
+@pytest.fixture
+def learner_client(client, db_session):
+    with get_session_factory()() as accounts:
+        actor = accounts.get(User, db_session.access.actor_id)
+        assert actor is not None
+        actor.is_superuser = False
+        accounts.commit()
+        db_session._access = resolve_study_access(accounts, actor)
+    return client
 
 
 def seed_test_quiz(session: Session) -> None:

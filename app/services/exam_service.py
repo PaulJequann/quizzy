@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from app.learner_evidence import is_learner_attempt
 from app.models import (
     ExamAssignment,
     ExamSubmission,
@@ -70,6 +71,9 @@ class ExamPendingView:
     id: int
     title: str
     submitted_at: datetime
+    actor_id: int | None
+    actor_role: str
+    actor_name: str | None
 
 
 @dataclass(frozen=True)
@@ -105,6 +109,9 @@ class PendingGrading:
     submitted_at: datetime
     written_count: int
     ungraded_count: int
+    actor_id: int | None
+    actor_role: str
+    actor_name: str | None
 
 
 @dataclass(frozen=True)
@@ -242,7 +249,14 @@ def exam_page(db: WorkspaceSession, access: StudyAccess, exam_id: int) -> ExamPa
     if submission is None:
         return _take_view(assignment)
     if submission.released_at is None:
-        return ExamPendingView(assignment.id, assignment.title_snapshot, submission.submitted_at)
+        return ExamPendingView(
+            assignment.id,
+            assignment.title_snapshot,
+            submission.submitted_at,
+            submission.actor_id,
+            submission.actor_role,
+            submission.actor_name,
+        )
     return exam_result(_record(db, assignment, submission))
 
 
@@ -316,8 +330,9 @@ def release_exam(
         attempt = exam_attempt(_record(db, assignment, submission), assignment, submission)
         db.add(attempt)
         db.flush()
-        for answer in attempt.answers:
-            question_health_service.score_question_health(db, answer.question_id)
+        if is_learner_attempt(attempt):
+            for answer in attempt.answers:
+                question_health_service.score_question_health(db, answer.question_id)
         db.commit()
     return exam_result(_record(db, assignment, submission))
 
@@ -369,6 +384,9 @@ def _pending_grading(
         submission.submitted_at,
         len(written),
         len(written - set(record.grades)),
+        submission.actor_id,
+        submission.actor_role,
+        submission.actor_name,
     )
 
 
@@ -480,6 +498,10 @@ def _record(
         _decode_responses(paper, submission.responses_json),
         exam_grades.load_grades(db, submission.id),
         submission.review_note or "",
+        submission.actor_id,
+        submission.actor_role,
+        submission.submitted_at,
+        submission.actor_name,
     )
 
 

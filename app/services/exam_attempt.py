@@ -24,6 +24,8 @@ def exam_attempt(
         correct_count=result.correct_count,
         started_at=submission.submitted_at,
         submitted_at=submission.submitted_at,
+        actor_id=submission.actor_id,
+        actor_role=submission.actor_role,
         answers=[
             _answer(question.question_id, item)
             for question, item in zip(record.paper.questions, review_items(record), strict=True)

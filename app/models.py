@@ -24,6 +24,12 @@ from app.auth.models import User  # noqa: F401
 from app.database import Base
 
 
+class AttemptRole(StrEnum):
+    LEARNER = "learner"
+    TEST = "test"
+    UNKNOWN = "unknown"
+
+
 class QuizStatus(StrEnum):
     DRAFT = "draft"
     PUBLISHED = "published"
@@ -732,9 +738,17 @@ class QuestionFeedbackEvent(WorkspaceOwned, TimestampMixin, Base):
     attempt_answer: Mapped["AttemptAnswer | None"] = relationship()
 
 
+ATTRIBUTION_CHECK = (
+    "(actor_role = 'unknown' AND actor_id IS NULL) OR "
+    "(actor_role = 'learner' AND actor_id IS NOT NULL AND actor_id = workspace_id) OR "
+    "(actor_role = 'test' AND actor_id IS NOT NULL)"
+)
+
+
 class Attempt(WorkspaceOwned, Base):
     __tablename__ = "attempts"
     __table_args__ = (
+        CheckConstraint(ATTRIBUTION_CHECK, name="ck_attempts_attribution"),
         UniqueConstraint("exam_submission_id", name="uq_attempts_exam_submission"),
         ForeignKeyConstraint(
             ["workspace_id", "exam_submission_id"],
@@ -747,6 +761,11 @@ class Attempt(WorkspaceOwned, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     quiz_id: Mapped[int] = mapped_column(
         ForeignKey("quizzes.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    actor_role: Mapped[AttemptRole] = mapped_column(
+        Enum(AttemptRole, native_enum=False, values_callable=lambda cls: [v.value for v in cls]),
+        nullable=False,
     )
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0)
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -762,6 +781,11 @@ class Attempt(WorkspaceOwned, Base):
         cascade="all, delete-orphan",
     )
     exam_submission: Mapped["ExamSubmission | None"] = relationship(viewonly=True)
+    actor: Mapped[User | None] = relationship(foreign_keys=[actor_id])
+
+    @property
+    def actor_name(self) -> str | None:
+        return self.actor.display_name if self.actor else None
 
 
 class AttemptAnswer(WorkspaceOwned, Base):
@@ -829,6 +853,7 @@ class ExamAssignment(WorkspaceOwned, Base):
 class ExamSubmission(WorkspaceOwned, Base):
     __tablename__ = "exam_submissions"
     __table_args__ = (
+        CheckConstraint(ATTRIBUTION_CHECK, name="ck_exam_submissions_attribution"),
         UniqueConstraint("workspace_id", "id", name="uq_exam_submissions_workspace_id"),
         UniqueConstraint("assignment_id", name="uq_exam_submission_assignment"),
         ForeignKeyConstraint(
@@ -847,6 +872,11 @@ class ExamSubmission(WorkspaceOwned, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     assignment_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    actor_role: Mapped[AttemptRole] = mapped_column(
+        Enum(AttemptRole, native_enum=False, values_callable=lambda cls: [v.value for v in cls]),
+        nullable=False,
+    )
     responses_json: Mapped[dict[str, int | str | None]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False
     )
@@ -854,6 +884,11 @@ class ExamSubmission(WorkspaceOwned, Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     review_note: Mapped[str | None] = mapped_column(Text)
+    actor: Mapped[User | None] = relationship(foreign_keys=[actor_id])
+
+    @property
+    def actor_name(self) -> str | None:
+        return self.actor.display_name if self.actor else None
 
 
 class ExamResponseGrade(WorkspaceOwned, Base):

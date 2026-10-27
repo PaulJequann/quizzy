@@ -8,9 +8,11 @@ from typing import Any
 from sqlalchemy import Integer, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.learner_evidence import is_learner_attempt, learner_attempt_clause
 from app.models import (
     Attempt,
     AttemptAnswer,
+    AttemptRole,
     Question,
     QuestionFeedbackEvent,
     QuestionHealthState,
@@ -85,6 +87,8 @@ def record_attempt_evidence(db: Session, attempt_id: int) -> list[QuestionHealth
         select(Attempt).where(Attempt.id == attempt_id).options(selectinload(Attempt.answers))
     )
     if attempt is None:
+        return []
+    if not is_learner_attempt(attempt):
         return []
 
     summaries = [score_question_health(db, answer.question_id) for answer in attempt.answers]
@@ -271,7 +275,9 @@ def _apply_question_flag_health_state(question: Question, category: str) -> None
         question.last_health_checked_at = datetime.now(UTC)
 
 
-def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, Any]:
+def prepare_question_repair_context(
+    db: Session, question_id: int, *, actor_role: AttemptRole | None = None
+) -> dict[str, Any]:
     question = db.scalar(
         select(Question)
         .where(Question.id == question_id)
@@ -293,6 +299,8 @@ def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, 
     return {
         "question": _question_to_dict(question),
         "health": _summary_to_dict(summary),
+        "evidence_policy": "learner_only",
+        "attempt_history": _question_attempt_history(db, question.id, actor_role),
         "choice_distribution": _choice_distribution(db, question),
         "open_review_items": [
             _review_item_to_dict(item)
@@ -306,6 +314,38 @@ def prepare_question_repair_context(db: Session, question_id: int) -> dict[str, 
         ],
         "source_document": _source_document_context(question),
     }
+
+
+def _question_attempt_history(
+    db: Session, question_id: int, actor_role: AttemptRole | None
+) -> list[dict[str, Any]]:
+    statement = (
+        select(AttemptAnswer, Attempt)
+        .join(Attempt, Attempt.id == AttemptAnswer.attempt_id)
+        .options(selectinload(Attempt.actor))
+        .where(AttemptAnswer.question_id == question_id)
+        .order_by(AttemptAnswer.answered_at.desc(), AttemptAnswer.id.desc())
+        .limit(100)
+    )
+    if actor_role is not None:
+        statement = statement.where(Attempt.actor_role == actor_role)
+    rows = db.execute(statement)
+    return [
+        {
+            "answer_id": answer.id,
+            "attempt_id": attempt.id,
+            "actor_id": attempt.actor_id,
+            "actor_name": attempt.actor_name,
+            "actor_role": attempt.actor_role,
+            "submitted_at": attempt.submitted_at.isoformat() if attempt.submitted_at else None,
+            "answered_at": answer.answered_at.isoformat() if answer.answered_at else None,
+            "is_correct": answer.is_correct,
+            "score": answer.score,
+            "selected_answer": answer.selected_choice_text_snapshot,
+            "misconception": answer.misconception,
+        }
+        for answer, attempt in rows
+    ]
 
 
 def resolve_question_review_item(
@@ -332,7 +372,9 @@ def _attempt_counts(db: Session, question_id: int) -> tuple[int, int, float | No
             func.count(AttemptAnswer.id),
             func.coalesce(func.sum(AttemptAnswer.is_correct.cast(Integer)), 0),
             func.avg(AttemptAnswer.score),
-        ).where(AttemptAnswer.question_id == question_id)
+        )
+        .join(Attempt, Attempt.id == AttemptAnswer.attempt_id)
+        .where(AttemptAnswer.question_id == question_id, learner_attempt_clause())
     ).one()
     return int(row[0]), int(row[1]), row[2]
 
@@ -490,7 +532,8 @@ def _choice_distribution(db: Session, question: Question) -> list[dict[str, Any]
         for choice_id, count in (
             db.execute(
                 select(AttemptAnswer.selected_choice_id, func.count(AttemptAnswer.id))
-                .where(AttemptAnswer.question_id == question.id)
+                .join(Attempt, Attempt.id == AttemptAnswer.attempt_id)
+                .where(AttemptAnswer.question_id == question.id, learner_attempt_clause())
                 .group_by(AttemptAnswer.selected_choice_id)
             ).all()
         )
@@ -523,6 +566,10 @@ def _review_item_to_dict(item: QuestionReviewItem) -> dict[str, Any]:
         "concepts": [concept.name for concept in item.question.concepts],
         "created_at": item.created_at.isoformat(),
         "feedback_count": len(item.feedback_events),
+        "feedback_attribution": [
+            {"feedback_event_id": event.id, **_feedback_actor(event)}
+            for event in item.feedback_events
+        ],
     }
 
 
@@ -531,10 +578,22 @@ def _feedback_event_to_dict(event: QuestionFeedbackEvent) -> dict[str, Any]:
         "id": event.id,
         "review_item_id": event.review_item_id,
         "attempt_answer_id": event.attempt_answer_id,
+        **_feedback_actor(event),
         "category": event.category,
         "note": event.note,
         "reported_from": event.reported_from,
         "created_at": event.created_at.isoformat(),
+    }
+
+
+def _feedback_actor(event: QuestionFeedbackEvent) -> dict[str, Any]:
+    answer = event.attempt_answer
+    if answer is None:
+        return {"actor_id": None, "actor_name": None, "actor_role": None}
+    return {
+        "actor_id": answer.attempt.actor_id,
+        "actor_name": answer.attempt.actor_name,
+        "actor_role": answer.attempt.actor_role,
     }
 
 

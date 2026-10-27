@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 from sqlalchemy.orm import Session
 
-from app.models import Difficulty
+from app.models import AttemptRole, Difficulty
 from app.services import generation_service, practice_service, question_health_service
 
 RegisterTool = Callable[..., None]
@@ -147,10 +147,16 @@ def _register_question_review_tools(
 
     def prepare_question_repair_context(
         question_id: Annotated[int, Field(description="Question id to repair.")],
+        actor_role: Annotated[
+            AttemptRole | None,
+            Field(description="Optional attempt-history filter: learner, test, or unknown."),
+        ] = None,
     ) -> dict[str, Any]:
         """Read source, attempts, choices, concepts, and health evidence for one question."""
         with session_scope() as db:
-            return question_health_service.prepare_question_repair_context(db, question_id)
+            return question_health_service.prepare_question_repair_context(
+                db, question_id, actor_role=actor_role
+            )
 
     def resolve_question_review_item(
         item_id: Annotated[int, Field(description="Review item id.")],

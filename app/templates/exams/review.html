@@ -5,6 +5,8 @@
     <div class="panel">
       <p class="eyebrow">{% if page.released %}Released exam{% else %}Pending review{% endif %} · submitted {{ page.submitted_at }}</p>
       <h1 class="font-display mt-1 text-3xl leading-tight">{{ page.title }}</h1>
+      <p class="mt-2 text-sm" data-attempt-attribution>{{ page.result.actor_role|display_label }} submission · {% if page.result.actor_id is not none %}{{ page.result.actor_name or 'User' }} (User ID {{ page.result.actor_id }}){% else %}Unknown user ID{% endif %}</p>
+      {% if page.result.actor_role != 'learner' %}<p class="mt-2 text-sm text-[var(--color-text-2)]">This submission is excluded from learner mastery.</p>{% endif %}
       <p class="mt-4 text-2xl font-semibold">{{ page.result.score }}% <span class="text-base font-normal text-[var(--color-text-2)]">({{ page.result.correct_count }} of {{ page.result.total_questions }} correct)</span></p>
       {% if not page.released %}<p class="mt-2 text-sm text-[var(--color-text-2)]">Written answers count with the grades shown below. Releasing saves them as final.</p>{% endif %}
     </div>

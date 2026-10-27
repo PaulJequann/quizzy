@@ -3,7 +3,8 @@ from dataclasses import asdict, dataclass
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import AttemptAnswer, Question
+from app.learner_evidence import learner_attempt_clause
+from app.models import Attempt, AttemptAnswer, Question
 from app.services.grading_service import get_mastery_rows
 
 
@@ -58,7 +59,9 @@ def recent_misses(db: Session, subject_id: int | None) -> list[dict]:
     statement = (
         select(AttemptAnswer)
         .join(Question)
+        .join(Attempt, Attempt.id == AttemptAnswer.attempt_id)
         .where(or_(AttemptAnswer.is_correct.is_(False), AttemptAnswer.misconception.is_not(None)))
+        .where(learner_attempt_clause())
     )
     if subject_id is not None:
         statement = statement.where(Question.subject_id == subject_id)
@@ -76,6 +79,9 @@ def recent_misses(db: Session, subject_id: int | None) -> list[dict]:
             "correct_answer": answer.correct_choice_text_snapshot[:1000],
             "misconception": answer.misconception,
             "attempt_id": answer.attempt_id,
+            "actor_id": answer.attempt.actor_id,
+            "actor_name": answer.attempt.actor_name,
+            "actor_role": answer.attempt.actor_role,
             "answered_at": answer.answered_at.isoformat() if answer.answered_at else None,
             "source_document_id": answer.question.source_document_id,
             "source_snapshot_id": answer.question.source_snapshot_id,
