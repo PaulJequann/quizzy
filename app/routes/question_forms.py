@@ -81,6 +81,7 @@ def edit_question(
     request: Request, quiz_id: int, question_id: int, db: Annotated[Session, Depends(get_db)]
 ):
     quiz, question = _quiz_question(db, quiz_id, question_id)
+    _require_admin_editor(request)
     return _edit_form(request, QuestionEdit(quiz, question.id, question_form_values(question)))
 
 
@@ -90,6 +91,7 @@ async def post_question_edit(
     request: Request, quiz_id: int, question_id: int, db: Annotated[Session, Depends(get_db)]
 ):
     quiz, question = _quiz_question(db, quiz_id, question_id)
+    _require_admin_editor(request)
     form = await request.form()
     values = None
     try:
@@ -110,6 +112,11 @@ def _quiz_question(db: Session, quiz_id: int, question_id: int) -> tuple[Quiz, Q
     if quiz is None or question is None:
         raise HTTPException(status_code=404, detail="Question not found")
     return quiz, question
+
+
+def _require_admin_editor(request: Request) -> None:
+    if not request.state.access.actor_is_superuser:
+        raise HTTPException(status_code=403, detail="Question editing requires an administrator")
 
 
 @dataclass(frozen=True)

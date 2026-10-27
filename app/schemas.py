@@ -81,6 +81,14 @@ class ChoiceRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChoiceStudyRead(BaseModel):
+    id: int
+    text: str
+    order_index: int
+
+    model_config = {"from_attributes": True}
+
+
 class SubjectRead(BaseModel):
     id: int
     name: str
@@ -175,6 +183,34 @@ type QuestionCreate = Annotated[
 ]
 
 
+class DraftQuestionEditBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stem: str = Field(min_length=1)
+    explanation: str | None = None
+
+
+class DraftMultipleChoiceEdit(MultipleChoiceFields, DraftQuestionEditBase):
+    choices: list[ChoiceCreate] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def _one_correct_choice(self):
+        if sum(choice.is_correct for choice in self.choices) != 1:
+            raise ValueError("Exactly one choice must be correct")
+        return self
+
+
+class DraftOpenEndedEdit(OpenEndedFields, DraftQuestionEditBase):
+    pass
+
+
+type DraftQuestionEdit = Annotated[
+    Annotated[DraftMultipleChoiceEdit, Tag(QuestionType.MULTIPLE_CHOICE)]
+    | Annotated[DraftOpenEndedEdit, Tag(QuestionType.OPEN_ENDED)],
+    Discriminator(question_type_tag),
+]
+
+
 class KeyPointRead(BaseModel):
     id: int
     text: str
@@ -210,6 +246,15 @@ class QuestionRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class QuestionStudyRead(BaseModel):
+    id: int
+    stem: str
+    question_type: QuestionType
+    choices: list[ChoiceStudyRead]
+
+    model_config = {"from_attributes": True}
+
+
 class QuizCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = ""
@@ -218,7 +263,7 @@ class QuizCreate(BaseModel):
     status: QuizStatus = QuizStatus.DRAFT
 
 
-class QuizRead(BaseModel):
+class QuizReadBase(BaseModel):
     id: int
     title: str
     description: str
@@ -233,9 +278,15 @@ class QuizRead(BaseModel):
     is_disposable: bool
     created_at: datetime
     updated_at: datetime
+    model_config = {"from_attributes": True}
+
+
+class QuizRead(QuizReadBase):
     questions: list[QuestionRead] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+
+class QuizStudyRead(QuizReadBase):
+    questions: list[QuestionStudyRead] = Field(default_factory=list)
 
 
 class AttemptAnswerCreate(BaseModel):

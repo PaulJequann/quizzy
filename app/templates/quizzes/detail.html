@@ -16,7 +16,9 @@
     <div class="panel">
       <p class="eyebrow">Actions</p>
       <div class="mt-4 grid gap-3">
-        <a class="btn-primary text-center" href="/quizzes/{{ quiz.id }}/take">Start quiz</a>
+        {% if quiz.questions and (quiz.status.value == "published" or request.state.access.actor_is_superuser) %}
+          <a class="btn-primary text-center" href="/quizzes/{{ quiz.id }}/take">Start quiz</a>
+        {% endif %}
         <a class="btn-secondary text-center" href="/quizzes/{{ quiz.id }}/questions/new">Add questions</a>
         {% if quiz.status.value == "draft" %}
           <button
@@ -43,20 +45,24 @@
           <li class="question-preview">
             <div class="flex items-center justify-between gap-3">
               <p class="text-sm font-medium text-[var(--color-text-3)]">Question {{ loop.index }}</p>
-              <a class="text-sm font-medium text-[var(--color-accent)] hover:underline" href="/quizzes/{{ quiz.id }}/questions/{{ question.id }}/edit">Edit</a>
+              {% if request.state.access.actor_is_superuser %}
+                <a class="text-sm font-medium text-[var(--color-accent)] hover:underline" href="/quizzes/{{ quiz.id }}/questions/{{ question.id }}/edit">Edit</a>
+              {% endif %}
             </div>
             <p class="mt-1 text-lg font-medium">{{ question.stem }}</p>
             {% include "questions/_metadata.html" %}
             <div class="mt-4 grid gap-2 sm:grid-cols-2">
               {% for choice in question.choices %}
-                <span class="choice-chip {% if choice.is_correct %}choice-chip-correct{% endif %}">{{ choice.text }}</span>
+                <span class="choice-chip {% if request.state.access.actor_is_superuser and choice.is_correct %}choice-chip-correct{% endif %}">{{ choice.text }}</span>
               {% endfor %}
             </div>
-            {% if question.explanation %}
-              <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-text-2)]">{{ question.explanation }}</p>
+            {% if request.state.access.actor_is_superuser %}
+              {% if question.explanation %}
+                <p class="mt-4 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-text-2)]">{{ question.explanation }}</p>
+              {% endif %}
+              {% include "questions/_rubric.html" %}
+              {% include "questions/_details.html" %}
             {% endif %}
-            {% include "questions/_rubric.html" %}
-            {% include "questions/_details.html" %}
           </li>
         {% endfor %}
       </ol>

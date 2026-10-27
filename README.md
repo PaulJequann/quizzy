@@ -172,6 +172,8 @@ Core MCP tools include:
 - `create_generated_quiz`
 - `create_generated_quiz_with_questions`
 - `list_question_bank`
+- `get_quiz` (`include_answers=true` for ordered choices, correct flags, and explanations)
+- `update_draft_question` (replace a question before publication or attempts)
 - `get_mastery_focus`
 - `get_subject_mastery_tree`
 
@@ -186,7 +188,24 @@ Recommended generation flow:
    one correct answer. Open-ended questions belong to exams only: pass `exam=true` when creating
    the quiz. See [Study account setup](docs/family-accounts.md) for exam authoring and grading.
 5. Review proposed concepts or unresolved assignments in the subject workspace.
-6. Assemble practice or review quizzes from the durable question bank.
+6. Call `get_quiz` with `include_answers=true` to verify each stored answer key and explanation.
+   It also returns source references and excerpts, and open-ended model answers, key points,
+   and grading notes. This read is available only through the administrator MCP server and
+   requires the target `workspace_id`.
+7. If a draft needs correction, call `update_draft_question` with `quiz_id`, `question_id`, and
+   a `content` object containing the question type, replacement `stem`, and either four ordered
+   `choices` (each with `text` and `is_correct`) or the open-ended `model_answer`, `key_points`,
+   and optional `grading_notes`. Omit `explanation` to keep it, or pass a string or `null` to
+   replace or clear it. Omitted `grading_notes` also keep their stored value; pass `null` to
+   clear them. The question must belong only to draft quizzes and have no attempts;
+   its type and source provenance stay unchanged. Publication remains a browser action.
+8. Assemble practice or review quizzes from the durable question bank.
+
+Learner quiz API responses contain stems and choice text, without correctness flags,
+explanations, or grading rubrics. The full answer-key response is limited to the
+configured administrator's MCP access and administrator quiz views and API sessions.
+Learners can still create private questions; editing an existing answer key requires an
+administrator session.
 
 ## Deploy
 

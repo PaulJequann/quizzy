@@ -243,6 +243,10 @@ def test_learner_practice_has_no_exam_questions(db_session):
     assert [question["stem"] for question in practice.json()["questions"]] == [
         "Which gas do plants absorb?"
     ]
+    assert "is_correct" not in practice.text
+    assert "explanation" not in practice.text
+    assert "model_answer" not in practice.text
+    assert "grading_notes" not in practice.text
 
 
 @pytest.mark.parametrize(

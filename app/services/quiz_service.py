@@ -4,6 +4,8 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
+    Attempt,
+    AttemptAnswer,
     Concept,
     ConceptAssignmentRole,
     Difficulty,
@@ -21,6 +23,9 @@ from app.schemas import (
     MIN_KEY_POINTS,
     ChoiceCreate,
     ConceptProposalInput,
+    DraftMultipleChoiceEdit,
+    DraftOpenEndedEdit,
+    DraftQuestionEdit,
     MultipleChoiceQuestionCreate,
     OpenEndedQuestionCreate,
     QuestionCreate,
@@ -163,6 +168,65 @@ def update_question(db: Session, question: Question, data: QuestionCreate) -> Qu
     question.source_reference = (data.source_reference or "").strip() or None
     apply_content(question, data)
     db.commit()
+    return question
+
+
+def update_draft_question(
+    db: Session,
+    quiz_id: int,
+    question_id: int,
+    content: DraftQuestionEdit,
+) -> Question:
+    if not content.stem.strip():
+        raise ValueError("Question stem cannot be blank")
+    linked_quizzes = list(
+        db.scalars(
+            select(Quiz)
+            .join(QuizQuestion)
+            .where(QuizQuestion.question_id == question_id)
+            .order_by(Quiz.id)
+            .with_for_update(of=Quiz)
+        )
+    )
+    quiz = next((row for row in linked_quizzes if row.id == quiz_id), None)
+    if quiz is None or quiz.status != QuizStatus.DRAFT:
+        raise ValueError("Question updates require a draft quiz")
+    if any(row.status != QuizStatus.DRAFT for row in linked_quizzes):
+        raise ValueError("Question updates require every linked quiz to be a draft")
+    question = db.scalar(select(Question).where(Question.id == question_id).with_for_update())
+    if question is None or question.status == QuestionStatus.ARCHIVED:
+        raise ValueError("Question not found in the draft quiz")
+    current_links = set(
+        db.scalars(select(QuizQuestion.quiz_id).where(QuizQuestion.question_id == question_id))
+    )
+    if current_links != {row.id for row in linked_quizzes}:
+        raise ValueError("Question quiz links changed during update; retry")
+    attempted = db.scalar(
+        select(AttemptAnswer.id).where(AttemptAnswer.question_id == question_id).limit(1)
+    )
+    if attempted is None:
+        attempted = db.scalar(
+            select(Attempt.id)
+            .join(QuizQuestion, QuizQuestion.quiz_id == Attempt.quiz_id)
+            .where(QuizQuestion.question_id == question_id)
+            .limit(1)
+        )
+    if attempted is not None:
+        raise ValueError("Questions with attempts cannot be updated")
+    if content.question_type != question.question_type:
+        raise ValueError("Question type cannot be changed")
+    if isinstance(content, DraftMultipleChoiceEdit) and any(
+        not choice.text.strip() for choice in content.choices
+    ):
+        raise ValueError("Choices cannot be blank")
+    if isinstance(content, DraftOpenEndedEdit) and "grading_notes" not in content.model_fields_set:
+        content = content.model_copy(update={"grading_notes": question.grading_notes})
+    question.stem = content.stem.strip()
+    if "explanation" in content.model_fields_set:
+        question.explanation = (content.explanation or "").strip() or None
+    apply_content(question, content)
+    db.commit()
+    db.refresh(question)
     return question
 
 

@@ -24,10 +24,12 @@ from app.models import (
     SourceDocument,
     Subject,
 )
+from app.schemas import DraftQuestionEdit
 from app.services import (
     concept_maintenance_service,
     concept_service,
     generation_service,
+    quiz_service,
     settings_service,
     source_service,
 )
@@ -359,10 +361,18 @@ def list_quizzes() -> dict[str, Any]:
         }
 
 
-def get_quiz(quiz_id: Annotated[int, Field(description="Quiz id to read.")]) -> dict[str, Any]:
-    """Read a quiz and its generated-question metadata."""
+def get_quiz(
+    quiz_id: Annotated[int, Field(description="Quiz id to read.")],
+    include_answers: Annotated[
+        bool,
+        Field(description="Include answer choices, correct flags, and explanations."),
+    ] = False,
+) -> dict[str, Any]:
+    """Read quiz metadata; opt in to administrator-only answer content."""
     with _session_scope() as db:
-        return generation_service.generated_quiz_to_dict(db, quiz_id)
+        return generation_service.generated_quiz_to_dict(
+            db, quiz_id, include_answers=include_answers, include_rubric=include_answers
+        )
 
 
 def list_question_bank(
@@ -449,7 +459,39 @@ def _register_write_tools(server: FastMCP) -> None:
     _register_concept_maintenance_tools(server)
     _register_generated_quiz_tools(server)
     _register_generated_question_tools(server)
+    _register_draft_question_edit_tool(server)
     question_first_tools.register_question_first_tools(server, register_tool, _session_scope)
+
+
+def _register_draft_question_edit_tool(server: FastMCP) -> None:
+    def update_draft_question(
+        quiz_id: Annotated[int, Field(description="Draft quiz containing the question.")],
+        question_id: Annotated[int, Field(description="Question to replace before attempts.")],
+        content: Annotated[
+            DraftQuestionEdit,
+            Field(description="Replacement content matching the stored question type."),
+        ],
+    ) -> dict[str, Any]:
+        """Replace draft question content; reject published or attempted questions."""
+        with _session_scope() as db:
+            quiz_service.update_draft_question(
+                db,
+                quiz_id,
+                question_id,
+                content,
+            )
+            quiz = generation_service.generated_quiz_to_dict(db, quiz_id, include_answers=True)
+            return {
+                "quiz_id": quiz_id,
+                "question": next(row for row in quiz["questions"] if row["id"] == question_id),
+            }
+
+    register_tool(
+        server,
+        "update_draft_question",
+        update_draft_question,
+        annotations={"destructiveHint": False, "idempotentHint": True},
+    )
 
 
 def _register_settings_tools(server: FastMCP) -> None:
