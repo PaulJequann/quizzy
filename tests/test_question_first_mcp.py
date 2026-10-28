@@ -11,7 +11,7 @@ from app.models import Concept, ConceptStatus, Question, Quiz, QuizStatus, Subje
 from app.services import question_health_service
 from app.services.concept_service import normalize_concept_name
 from app.services.grading_service import submit_attempt
-from app.services.quiz_service import get_or_create_subject
+from app.services.quiz_service import create_review_quiz_from_concepts, get_or_create_subject
 from tests.db_utils import clear_database_caches, get_test_session_factory, reset_database
 from tests.test_mcp_integration import (
     _approved_invoke,
@@ -70,14 +70,14 @@ def test_mcp_question_first_generation_practice_and_repair_queue(mcp_database, t
 def test_mcp_repair_context_reads_published_question_without_writing(mcp_database, tmp_path):
     server = build_server()
     question_id, _ = _missed_published_question(server, tmp_path)
-    before = _health_columns(question_id)
+    before = _health_snapshot(question_id)
 
     context = asyncio.run(
         _invoke(server, "prepare_question_repair_context", {"question_id": question_id})
     )
 
     assert context["health"]["state"] == "needs_review"
-    assert _health_columns(question_id) == before
+    assert _health_snapshot(question_id) == before
 
 
 def test_mcp_archived_question_leaves_practice(mcp_database, tmp_path):
@@ -90,6 +90,24 @@ def test_mcp_archived_question_leaves_practice(mcp_database, tmp_path):
     assert archived["health_state"] == "archived"
     with pytest.raises(ToolError, match="No active questions"):
         _assemble_mcp_practice(server, subject_id)
+    concept_ids = [concept["id"] for concept in archived["concepts"]]
+    with (
+        get_test_session_factory()() as db,
+        pytest.raises(ValueError, match="No questions are tagged"),
+    ):
+        create_review_quiz_from_concepts(db, concept_ids)
+
+
+def test_mcp_archive_question_repeats_without_rescoring(mcp_database, tmp_path):
+    server = build_server()
+    question_id, _ = _missed_published_question(server, tmp_path)
+    asyncio.run(_invoke(server, "archive_question", {"question_id": question_id}))
+    before = _health_snapshot(question_id)
+
+    again = asyncio.run(_invoke(server, "archive_question", {"question_id": question_id}))
+
+    assert again["status"] == "archived"
+    assert _health_snapshot(question_id) == before
 
 
 def _missed_published_question(server, tmp_path) -> tuple[int, int]:
@@ -105,11 +123,20 @@ def _missed_published_question(server, tmp_path) -> tuple[int, int]:
     return question_id, subject_id
 
 
-def _health_columns(question_id: int) -> tuple:
+def _health_snapshot(question_id: int) -> tuple:
     with get_test_session_factory()() as db:
         question = db.get(Question, question_id)
         assert question is not None
-        return question.health_state, question.health_score, question.last_health_checked_at
+        review_items = sorted(
+            (item.id, item.status, item.reason, item.evidence_json)
+            for item in question.review_items
+        )
+        return (
+            question.health_state,
+            question.health_score,
+            question.last_health_checked_at,
+            review_items,
+        )
 
 
 def _create_bank_question_with_mcp(server, tmp_path) -> tuple[dict, int]:

@@ -144,9 +144,10 @@ def archive_question(db: Session, question_id: int) -> dict[str, Any]:
     question = db.get(Question, question_id)
     if question is None:
         raise ValueError(f"Unknown question id {question_id}")
-    question.status = QuestionStatus.ARCHIVED
-    question_health_service.score_question_health(db, question.id)
-    db.commit()
+    if question.status != QuestionStatus.ARCHIVED:
+        question.status = QuestionStatus.ARCHIVED
+        question_health_service.score_question_health(db, question.id)
+        db.commit()
     return _question_to_dict(question)
 
 
