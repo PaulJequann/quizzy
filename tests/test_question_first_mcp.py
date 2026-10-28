@@ -127,15 +127,11 @@ def _health_snapshot(question_id: int) -> tuple:
     with get_test_session_factory()() as db:
         question = db.get(Question, question_id)
         assert question is not None
-        review_items = sorted(
-            (item.id, item.status, item.reason, item.evidence_json)
-            for item in question.review_items
-        )
         return (
             question.health_state,
             question.health_score,
             question.last_health_checked_at,
-            review_items,
+            question_health_service.list_question_review_queue(db),
         )
 
 
