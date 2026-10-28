@@ -320,7 +320,11 @@ def _append_unseen_questions(
 
 def _ordered_concept_questions(concept: Concept) -> list[Question]:
     return sorted(
-        (question for question in concept.questions if not question.exam_only),
+        (
+            question
+            for question in concept.questions
+            if not question.exam_only and question.status != QuestionStatus.ARCHIVED
+        ),
         key=lambda question: (question.order_index, question.id),
     )
 

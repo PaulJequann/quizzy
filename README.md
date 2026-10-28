@@ -174,6 +174,7 @@ Core MCP tools include:
 - `list_question_bank`
 - `get_quiz` (`include_answers=true` for ordered choices, correct flags, and explanations)
 - `update_draft_question` (replace a question before publication or attempts)
+- `archive_question` (retire a question; practice and concept reviews skip it)
 - `get_mastery_focus`
 - `get_subject_mastery_tree`
 
@@ -199,6 +200,8 @@ Recommended generation flow:
    replace or clear it. Omitted `grading_notes` also keep their stored value; pass `null` to
    clear them. The question must belong only to draft quizzes and have no attempts;
    its type and source provenance stay unchanged. Publication remains a browser action.
+   A question that is published or already attempted cannot be edited. Call
+   `archive_question` to retire it, then create a corrected question as a new draft.
 8. Assemble practice or review quizzes from the durable question bank.
 
 Learner quiz API responses contain stems and choice text, without correctness flags,

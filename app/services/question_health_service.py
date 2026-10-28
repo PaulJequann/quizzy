@@ -105,26 +105,31 @@ def score_question_health(db: Session, question_id: int) -> QuestionHealthSummar
     if question is None:
         raise ValueError(f"Unknown question id {question_id}")
 
-    attempt_count, correct_count, mean_score = _attempt_counts(db, question.id)
-    accuracy = None if mean_score is None else round(mean_score * 100, 2)
-    state, score, reason, action = _classify_question(question, attempt_count, accuracy)
-
-    question.health_state = state
-    question.health_score = score
+    summary, action = _assess_question_health(db, question)
+    question.health_state = summary.state
+    question.health_score = summary.score
     question.last_health_checked_at = datetime.now(UTC)
     if action:
         _ensure_open_review_item(
             db,
             question,
             ReviewEvidence(
-                reason=reason,
+                reason=summary.reason,
                 suggested_action=action,
-                attempt_count=attempt_count,
-                correct_count=correct_count,
+                attempt_count=summary.attempt_count,
+                correct_count=summary.correct_count,
             ),
         )
+    return summary
 
-    return QuestionHealthSummary(
+
+def _assess_question_health(
+    db: Session, question: Question
+) -> tuple[QuestionHealthSummary, str | None]:
+    attempt_count, correct_count, mean_score = _attempt_counts(db, question.id)
+    accuracy = None if mean_score is None else round(mean_score * 100, 2)
+    state, score, reason, action = _classify_question(question, attempt_count, accuracy)
+    summary = QuestionHealthSummary(
         question_id=question.id,
         state=state,
         score=score,
@@ -133,6 +138,7 @@ def score_question_health(db: Session, question_id: int) -> QuestionHealthSummar
         accuracy=accuracy,
         reason=reason,
     )
+    return summary, action
 
 
 def audit_subject_question_health(db: Session, subject_id: int) -> list[QuestionHealthSummary]:
@@ -294,8 +300,7 @@ def prepare_question_repair_context(
     if question is None:
         raise ValueError(f"Unknown question id {question_id}")
 
-    summary = score_question_health(db, question.id)
-    db.commit()
+    summary, _ = _assess_question_health(db, question)
     return {
         "question": _question_to_dict(question),
         "health": _summary_to_dict(summary),
