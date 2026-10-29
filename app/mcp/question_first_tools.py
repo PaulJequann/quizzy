@@ -9,7 +9,12 @@ from pydantic import Field
 from sqlalchemy.orm import Session
 
 from app.models import AttemptRole, Difficulty
-from app.services import generation_service, practice_service, question_health_service
+from app.services import (
+    generation_service,
+    practice_service,
+    question_bank_service,
+    question_health_service,
+)
 
 RegisterTool = Callable[..., None]
 SessionScope = Callable[[], AbstractContextManager[Session]]
@@ -172,8 +177,16 @@ def _register_question_review_tools(
                 notes=notes,
             )
 
+    def archive_question(
+        question_id: Annotated[int, Field(description="Question id to retire.")],
+    ) -> dict[str, Any]:
+        """Retire a question so new practice sessions and concept review quizzes skip it."""
+        with session_scope() as db:
+            return question_bank_service.archive_question(db, question_id)
+
     read = {"readOnlyHint": True, "idempotentHint": True}
     write = {"destructiveHint": False, "idempotentHint": False}
+    retire = {"destructiveHint": True, "idempotentHint": True}
     register_tool(
         server,
         "list_question_review_queue",
@@ -192,3 +205,4 @@ def _register_question_review_tools(
         resolve_question_review_item,
         annotations=write,
     )
+    register_tool(server, "archive_question", archive_question, annotations=retire)

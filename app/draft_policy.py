@@ -1,7 +1,17 @@
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
-from app.models import Choice, Question, QuestionKeyPoint, Quiz, QuizQuestion, QuizStatus
+from app.models import (
+    Choice,
+    Question,
+    QuestionKeyPoint,
+    QuestionStatus,
+    Quiz,
+    QuizQuestion,
+    QuizStatus,
+)
+
+HEALTH_COLUMNS = {"health_state", "health_score", "last_health_checked_at", "updated_at"}
 
 
 def require_draft_content(session: Session, row) -> None:
@@ -29,7 +39,9 @@ def _question_content_changed(session: Session, question: Question) -> bool:
     if question in session.deleted:
         return True
     attributes = inspect(question).attrs
-    content_columns = set(Question.__table__.columns.keys()) - {"health_state", "updated_at"}
+    content_columns = set(Question.__table__.columns.keys()) - HEALTH_COLUMNS
+    if question.status == QuestionStatus.ARCHIVED:
+        content_columns.discard("status")
     return any(attributes[name].history.has_changes() for name in content_columns)
 
 

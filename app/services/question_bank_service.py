@@ -140,6 +140,17 @@ def list_question_bank(
     return [_question_to_dict(question) for question in db.scalars(statement)]
 
 
+def archive_question(db: Session, question_id: int) -> dict[str, Any]:
+    question = db.get(Question, question_id)
+    if question is None:
+        raise ValueError(f"Unknown question id {question_id}")
+    if question.status != QuestionStatus.ARCHIVED:
+        question.status = QuestionStatus.ARCHIVED
+        question_health_service.score_question_health(db, question.id)
+        db.commit()
+    return _question_to_dict(question)
+
+
 def question_ids_for_batch(db: Session, generation_batch_id: int) -> list[int]:
     return list(
         db.scalars(

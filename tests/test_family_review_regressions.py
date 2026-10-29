@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.main import create_app
-from app.models import Choice, Question, Quiz, QuizQuestion
+from app.models import Choice, Question, QuestionStatus, Quiz, QuizQuestion
 from app.services.grading_service import submit_attempt
 from app.workspace_database import workspace_session
 
@@ -30,11 +30,16 @@ def test_results_show_only_submitted_question_snapshots(client, db_session):
     assert "Changed live answer" not in page.text
 
 
-@pytest.mark.parametrize("mutation", ["question", "choice", "new_choice", "membership"])
+@pytest.mark.parametrize(
+    "mutation", ["question", "archived_question", "choice", "new_choice", "membership"]
+)
 def test_mcp_session_cannot_mutate_published_content(db_session, mutation):
     with workspace_session(db_session.access, drafts_only=True) as agent:
         quiz = agent.scalar(select(Quiz))
         if mutation == "question":
+            quiz.questions[0].stem = "Changed by agent"
+        elif mutation == "archived_question":
+            quiz.questions[0].status = QuestionStatus.ARCHIVED
             quiz.questions[0].stem = "Changed by agent"
         elif mutation == "choice":
             quiz.questions[0].choices[0].text = "Changed by agent"
@@ -44,6 +49,16 @@ def test_mcp_session_cannot_mutate_published_content(db_session, mutation):
             quiz.question_links.clear()
         with pytest.raises(ValueError, match="published"):
             agent.commit()
+
+
+def test_mcp_session_archives_published_question(db_session):
+    with workspace_session(db_session.access, drafts_only=True) as agent:
+        question = agent.scalar(select(Quiz)).questions[0]
+        question.status = QuestionStatus.ARCHIVED
+        question.health_score = 0
+        agent.commit()
+        agent.refresh(question)
+        assert question.status == QuestionStatus.ARCHIVED
 
 
 def test_login_accepts_configured_https_origin_behind_proxy(db_session, monkeypatch):
